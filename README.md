@@ -15,6 +15,17 @@ Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent ho
 - **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
 - **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
 
+# Team 235 — AI Agent
+
+## Mô tả
+AI Agent Kiểm Tra Chất Lượng Bề Mặt Bằng Computer Vision (Visual QC Agent).
+
+## Thành viên
+- Phạm Bá Huy — ???
+- Đào Hải Đăng — ???
+- Hoàng Văn Thành — ???
+- Lê Quốc An - ???
+
 ## ⚡ Quick Start
 
 ### Bước 1: Fork hoặc Clone
