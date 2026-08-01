@@ -97,9 +97,10 @@ uvicorn src.main:app --reload
 
 | Member | Role | Student ID |
 |--------|------|-----------|
-| [Name] | [Role] | [ID] |
-| [Name] | [Role] | [ID] |
-| [Name] | [Role] | [ID] |
+| [Phạm Bá Huy] | [PM] | [2A202601132] |
+| [Đào Hải Đăng] | [PO] | [2A202601814] |
+| [Lê Quốc An] | [DEV] | [2A202601811] |
+| [Hoàng Văn Thành] | [DEV] | [2A20262A202601428] |
 
 ## License
 
