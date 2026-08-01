@@ -21,10 +21,10 @@ Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent ho
 AI Agent Kiểm Tra Chất Lượng Bề Mặt Bằng Computer Vision (Visual QC Agent).
 
 ## Thành viên
-- Phạm Bá Huy — ???
-- Đào Hải Đăng — ???
-- Hoàng Văn Thành — ???
-- Lê Quốc An - ???
+- Phạm Bá Huy — PM
+- Đào Hải Đăng — PO
+- Hoàng Văn Thành — DEV
+- Lê Quốc An - DEV
 
 ## ⚡ Quick Start
 
@@ -205,7 +205,7 @@ bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
 
 - 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
 - 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Đặng Hải Lộc
+- 👨‍🏫 **Mentor:** Trần Thành Trung
 
 ## 📄 License
 
