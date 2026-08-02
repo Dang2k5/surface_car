@@ -8,13 +8,25 @@ $HookFile = '.git/hooks/pre-push'
 # Git on Windows runs hooks via Git Bash, so the hook body must be bash.
 $HookBody = @'
 #!/usr/bin/env bash
-# Pre-push: sweep recent Antigravity / Gemini prompts, then submit AI logs.
-bash scripts/_pyrun.sh scripts/log_antigravity.py --auto || true
+# Pre-push hook (no auto-sweep)
 bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
 '@
 
-Set-Content -Path $HookFile -Value $HookBody -Encoding UTF8 -NoNewline
+# Write the hook without a UTF-8 BOM and normalize to LF line endings (BOM/CRLF break bash shebangs).
+$hookText = $HookBody -replace "`r`n", "`n"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($HookFile, $hookText, $utf8NoBom)
+
+# If bash is available (Git Bash), make the hook executable using a Unix-style path.
+try {
+    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    if ($bash) {
+        $hookPathUnix = (Get-Item $HookFile).FullName -replace '\\','/'
+        & bash -lc "chmod +x '$hookPathUnix'" 2>$null
+    }
+} catch { }
+
 Write-Host "[ai-log] Git pre-push hook installed."
 
 if (-not (Test-Path .ai-log)) { New-Item -ItemType Directory -Path .ai-log | Out-Null }
