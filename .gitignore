@@ -10,7 +10,9 @@ build/
 # Virtual environments
 venv/
 .venv/
+.venv-*/
 env/
+.venv-new/
 
 # Environment variables
 .env
