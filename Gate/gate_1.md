@@ -1,125 +1,122 @@
 # Visual QC Agent - Team 235
 
 ## 1. Project Brief (Tóm tắt)
-- **Vấn đề:** Kiểm tra thủ công chất lượng bề mặt thân vỏ xe hơi (phát hiện lỗi xước, móp, hỏng sơn) tốn nhiều thời gian, dễ gây mỏi mắt dẫn đến bỏ sót lỗi và quyết định PASS/FAIL mang tính chủ quan giữa các ca làm việc.
-- **Giải pháp:** Xây dựng hệ thống Visual QC Agent tự động hóa quá trình kiểm tra 5 mặt thân vỏ xe bằng Computer Vision và Realtime Reasoning Engine, phân tích ảnh độ phân giải cao để phát hiện, khoanh vùng lỗi, đưa ra quyết định PASS/FAIL/REVIEW kèm lời giải thích theo thời gian thực.
-- **Đối tượng:** Kiểm định viên QC (QC Inspector) và Giám sát viên QC (QC Supervisor) tại dây chuyền sản xuất lắp ráp ô tô - line HA.
+- **Vấn đề (Painpoint QC):**
+  - Tại trạm **FNS (Finish Line)**, kiểm định viên (QC) không chỉ căng mắt soi xước/móp/sơn mà còn phải kiểm tra đai ốc (Nut/Stud), mối hàn và thông tin VIN.
+  - Khi phát hiện khuyết tật, CV truyền thống chỉ khoanh vùng (Bounding Box), QC vẫn mất 3–5 phút đắn đo: *Lỗi này thuộc Rank nào (PSLAWBCD)? Vùng này là thép dập nóng hay thép thường? Tolerance GD&T cho phép bao nhiêu (Group 1–5)? Nên cho xe chạy thử luôn hay phải Hold gấp?*
+- **Giải pháp & Giá trị AI Agent:** 
+  - AI Agent tích hợp **Kiến thức ngành (Domain Knowledge Engine)**: Tự động đối chiếu vị trí lỗi với bản đồ **GD&T (Group 1–5, Tolerance $0.7\text{mm} - 1.5\text{mm}$)**, loại vật liệu (Thép thường / Thép dập nóng) và xếp rank **PSLAWBCD**.
+  - **Tự động ra quyết định điều hướng xe (Actionable Routing):**
+    - **Phương án A (Quick Fix & Test Drive):** Lỗi nhẹ Rank C/D, thuộc vùng GD&T Group 4–5 hoặc xước dăm bề mặt $\rightarrow$ Cho phép đánh bóng (Buffing) 3 phút tại chỗ $\rightarrow$ Xuất lệnh cho xe ra sân chạy thử.
+    - **Phương án B (Hold & Rework Shop):** Lỗi Rank P/S/A, hoặc móp vượt Tolerance GD&T Group 1 ($>0.7\text{mm}$), hoặc thuộc chi tiết thép dập nóng $\rightarrow$ Gắn nhãn **"HOLD"**, chuyển thẳng về trạm Rework. **CẤM CHẠY THỬ** để tránh bụi bẩn bám thêm vào vết móp/sơn gây khó xử lý.
+- **Đối tượng sử dụng:** Kiểm định viên QC (QC Inspector) và Giám sát viên QC (QC Supervisor) tại dây chuyền sản xuất lắp ráp ô tô - Line HA.
 
-## 2. PRD (Tài liệu yêu cầu sản phẩm)
-### Mục tiêu (Goals)
-- Xây dựng MVP kiểm định tự động 5 mặt xe (Trái, Phải, Trước, Sau, Nóc) với 3 loại lỗi chính (Xước, Sơn, Móp méo).
-- Giảm thời gian chu kỳ kiểm tra xuống dưới 2.0s/xe cho cả 5 mặt với camera chuyên dụng và dưới 3 phút với camera công nghiệp.
-- Tích hợp AI Reasoning Engine để giảm tỷ lệ bỏ sót lỗi (FAR ≈ 0%) thông qua cơ chế Human-In-The-Loop (HITL) đối với luồng REVIEW.
-- Cung cấp Bảng điều khiển (Analytics Dashboard) theo dõi tỷ lệ lỗi, vị trí lỗi và hiệu suất AI/QC.
-
-### Tính năng chính (Core Features)
-- [x] **Kiểm tra & Khoanh vùng lỗi Realtime:** Nhận diện và vẽ bounding box lỗi trên 5 mặt xe từ luồng camera.
-- [x] **Phân loại Trạng thái Tự động (PASS / FAIL / REVIEW):** Đánh giá đa ngưỡng dựa trên chất lượng ảnh (Q), độ tin cậy AI (C) và kích thước vật lý (S).
-- [x] **Trợ lý QC Agent (Reasoning Assistant):** Đưa ra lập luận ngôn ngữ tự nhiên giải thích lý do cảnh báo và hỗ trợ QC kiểm tra các ca nghi ngờ.
-- [x] **Duyệt & Đè kết quả HITL (Human-in-the-loop):** Cho phép QC Inspector xác nhận hoặc đè (override) quyết định AI.
-- [x] **Dashboard & Analytics:** Biểu đồ thống kê lỗi theo mặt, loại lỗi, ca làm việc và heatmap mật độ lỗi.
-
-### User Stories
-- **Là một Kiểm định viên QC**, tôi muốn xem bounding box đánh dấu vị trí lỗi trực quan trên 5 mặt xe theo thời gian thực, để phát hiện ngay vị trí khuyết tật.
-- **Là một Kiểm định viên QC**, tôi muốn nhận cảnh báo `REVIEW` kèm lý do giải thích từ AI đối với các trường hợp ranh giới, để kiểm tra nhanh mà không cần rà soát lại xe đạt chuẩn.
-- **Là một Kiểm định viên QC**, tôi muốn xác nhận hoặc đè kết quả của AI bằng 1 cú nhấp chuột, để lưu trữ phản hồi phục vụ cải thiện mô hình.
-- **Là một Giám sát viên QC**, tôi muốn theo dõi dashboard thống kê tỷ lệ lỗi và tỷ lệ AI bị đè kết quả, để đánh giá độ tin cậy hệ thống và chất lượng dây chuyền.
-
-### Tech Stack
-- **Frontend:** Next.js / React, TypeScript, Tailwind CSS, Canvas / SVG Overlay
-- **Backend:** FastAPI (Python), REST API, WebSocket / SSE
-- **AI / Computer Vision:** PyTorch, ONNX Runtime / TensorRT (Vision Model), LLM / Phoenix (Agent)
-- **Database & Storage:** PostgreSQL (Metadata/Logs), Redis (Realtime state/Cache), MinIO / S3 (Object Storage)
-- **Agent / Orchestration:** LangGraph (Điều phối luồng: Detect $\rightarrow$ Classify $\rightarrow$ Decide $\rightarrow$ HITL)
-- **Deployment & Monitor:** Cloud GPU/CPU Inference, Phoenix (AI Log & Tracing)  
-- **Dataset:** Dataset ảnh lỗi mô phỏng / công khai
 ---
 
-## 3. Wireframe & UI Flow
+## 2. PRD (Tài liệu Yêu cầu Sản phẩm)
 
-### Luồng người dùng (User Flow)
-1. **Camera / Sensor Trigger** → Capture Service chụp ảnh 5 mặt xe gửi về Backend.
-2. **Vision Model & Decision Engine** → Kiểm tra chất lượng ảnh ($Q \ge 70\%$), phân tích lỗi ($C, S$), trả kết quả `PASS`, `FAIL` hoặc `REVIEW`.
-3. **Frontend Display** → Hiển thị trực quan 5 mặt xe kèm Bounding Box và Trạng thái.
-4. **QC Action:**
-   - Nếu **PASS/FAIL rõ ràng**: Hệ thống lưu log và chuyển tiếp.
-   - Nếu **REVIEW / Nghi ngờ**: QC kiểm tra chi tiết hoặc hỏi **QC Agent** → Agent giải thích và đề xuất → QC đưa ra quyết định cuối cùng (`Confirm PASS` / `Confirm FAIL`).
-5. **Data Sync** → Cập nhật dữ liệu vào PostgreSQL / MinIO và hiển thị lên Dashboard.
+### Mục tiêu (Goals)
+- Tự động hóa quá trình đánh giá và ra quyết định xử lý khuyết tật tại trạm FNS Line.
+- Tối ưu hóa chu kỳ kiểm tra, loại bỏ thời gian đắn đo của công nhân QC (giảm từ 3–5 phút xuống dưới 2 giây/loại lỗi).
+- Áp dụng chuẩn GD&T (Group 1–5), Severity Rank (PSLAWBCD) và đặc tính vật liệu (Thép dập nóng / Thép mạ / Thép thường) để ra quyết định phân luồng chính xác.
+- Tích hợp Human-In-The-Loop (HITL) cho phép công nhân xác nhận hoặc điều chỉnh quyết định trong các ca cận ranh giới.
 
-### Sơ đồ Kiến trúc & Luồng UI
+### Ma trận Ra quyết định & Hành động (Decision & Action Matrix)
 
-#### Sơ đồ Kiến trúc Hệ thống (System Architecture Flow)
+| Hạng mục Phân loại | Cấu trúc & Vật liệu | GD&T Group & Tolerance | Severity Rank | Quyết định Agent & Phương án Hành động |
+| :--- | :--- | :--- | :--- | :--- |
+| **Xước nông / Xước dăm** | Thép thường (Lớp sơn bóng) | Group 2–3 ($1.0\text{mm} - 1.2\text{mm}$) | **Rank C / D** | **Phương án A:** Buffing 3 phút tại chỗ $\rightarrow$ **CHO CHẠY THỬ**. |
+| **Móp / Biến dạng** | Thép dập nóng (Hot Stamped Steel) | Group 1 ($0.7\text{mm}$) | **Rank A / B** | **Phương án B:** Gắn nhãn **HOLD** $\rightarrow$ Chuyển Rework đặc biệt. **CẤM CHẠY THỬ**. |
+| **Lỗi mối hàn / Keo / Thiếu Stud, Nut** | Khung gầm / Framing Sub-assy | Group 1–2 ($0.7\text{mm} - 1.0\text{mm}$) | **Rank P / S** *(An toàn)* | **CRITICAL HOLD:** Dừng dây chuyền / Báo động trạm $\rightarrow$ **CẤM CHẠY THỬ**. |
+| **Lỗi Sơn (Sai màu / Rỗ / Bong tróc)** | Bề mặt ngoại quan (Class A) | Group 1 ($0.7\text{mm}$) | **Rank A / B** | **Phương án B:** Gắn nhãn **HOLD** $\rightarrow$ Chuyển xưởng Sơn Rework. **CẤM CHẠY THỬ**. |
+
+### Quy trình Kiểm tra & Tính năng Hệ thống (System Features)
+1. **Kiểm tra đa công đoạn (Sub $\rightarrow$ Framing $\rightarrow$ FNS Line):**
+   - **Ngoại quan & Bề mặt:** Phát hiện vết Móp, Xước, Sơn (Sai màu, bong tróc, loang màu, rỗ).
+   - **Mối hàn & Keo:** Kiểm tra chất lượng đường hàn, keo kết dính.
+   - **Lắp ráp & Fasteners:** Đếm và xác minh số lượng Stud, Nut.
+   - **Thông tin định danh:** Kiểm tra và so khớp số VIN với hệ thống MES.
+2. **Hạt nhân Lập luận Công nghiệp (Industrial Reasoning Engine):**
+   - Tra cứu bản đồ GD&T (Tolerance $0.7\text{mm} - 1.5\text{mm}$ từ Group 1 đến Group 5).
+   - Phân cấp mức độ nghiêm trọng theo thang Rank **PSLAWBCD**.
+   - Tự động cảnh báo rủi ro kỹ thuật (ví dụ: Thép dập nóng qua xử lý nhiệt không gõ nắn lạnh được; Vết móp chưa sơn nếu ra sân chạy thử sẽ bám bụi khó Rework).
+3. **Giao diện Điều hướng Luồng Xe (Actionable Routing UI):**
+   - Đưa ra chỉ dẫn trực quan cho QC: **PLAN A (BUFF & TEST DRIVE)** hoặc **PLAN B (HOLD & REWORK)**.
+4. **Báo cáo & Thống kê Tự động (Auto-Reporting):**
+   - Truy vấn database và tự động đổ dữ liệu vào các template báo cáo QC sẵn có.
+
+---
+
+## 3. UI Flow & Wireframe
+
+### Sơ đồ Luồng AI Agent (Agent Decision Workflow)
+
 ```text
-[Camera 5 mặt] ──> [Vision Model + LLM Đa phương thức] ──> [LangGraph điều phối] ──> [Backend API]
-                                                                                        │
-                                                                                (Realtime WS/SSE)
-                                                                                        │
-                                                                                        ▼
-[QC Workstation / Web UI] <───> [QC Agent (Reasoning)] ───────────────> [Audit & Analytics DB(S3/MinIO)]
+[Input: 8-12 Camera tại trạm FNS] ──> CV Detect: Loại lỗi + Vị trí + Số VIN + Stud/Nut
+                                                 │
+                                                 ▼
+                          [AGENT DOMAIN ENGINE]
+                          - Tra cứu Bản đồ GD&T (Group 1-5 / Tol 0.7-1.5mm)
+                          - Tra cứu Loại vật liệu (Thép thường vs Dập nóng)
+                          - Xếp Rank nghiêm trọng (PSLAWBCD)
+                                                 │
+                   ┌─────────────────────────────┴─────────────────────────────┐
+                   ▼                                                           ▼
+      【Lỗi nhẹ: Rank C/D | Tol OK】                              【Lỗi nặng: Rank P/S/A | Lỗi GD&T】
+                   │                                                           │
+                   ▼                                                           ▼
+         【PHƯƠNG ÁN A (BUFFING)】                                    【PHƯƠNG ÁN B (HOLD)】
+   - Đánh bóng 3 phút tại trạm FNS                              - Gắn nhãn "HOLD" (Giữ xe)
+   - Lệnh: XUẤT XANH -> CHẠY THỬ                                - Lệnh: CẤM CHẠY THỬ (Tránh bám bụi)
+                                                                - Điều hướng: Trạm Rework Sơn / Khung
+                   │                                                           │
+                   └─────────────────────────────┬─────────────────────────────┘
+                                                 ▼
+                                     [QC HITL Confirmation]
+                                                 │
+                                                 ▼
+                               [Đổ dữ liệu DB vào Template Báo cáo]
+```
 
-flowchart TD
-    START([START: User Access]) --> LOGIN[1. LOGIN SCREEN<br>Enter Credentials]
-    LOGIN --> D1{D1: Valid Login?}
-    
-    D1 -- No --> LOGIN
-    D1 -- Yes --> DASHBOARD[2. DASHBOARD<br>Summary & Heatmap]
-    
-    DASHBOARD --> INSPECT[3. INSPECTION SCREEN<br>5-Surface Inspection View]
-    INSPECT --> SCAN[3.1 AI Automatic Scan<br>Trigger: PLC / Sensor]
-    SCAN --> DETECT[3.2 AI Detection Logic<br>Quality Q, Confidence C, Size S]
-    
-    DETECT --> D2{D2: AI Certainty Level?}
-    
-    D2 -- PASS Certain --> RECORD_PASS[5. RECORD PASS<br>Auto Pass Session]
-    D2 -- FAIL Certain --> RECORD_FAIL[5. RECORD FAIL<br>Auto Fail Session]
-    D2 -- UNCERTAIN / REVIEW --> REVIEW_PANEL[6. QC REVIEW PANEL<br>Human-In-The-Loop]
-    
-    subgraph REVIEW_PANEL_BOX [6. QC REVIEW PANEL]
-        REVIEW_PANEL --> ZOOM[6.1 Analyze Detail View & Bounding Box]
-        ZOOM --> REASONING[6.2 Interpret Agent Logic & Reasoning]
-        REASONING --> QUERY[6.3 Query Agent - Optional Question]
-    end
-    
-    QUERY --> D3{D3: QC Final Decision}
-    
-    D3 -- Confirm FAIL --> RECORD_FAIL
-    D3 -- Override PASS --> RECORD_PASS
-    
-    RECORD_PASS --> AUDIT[7. AUDIT LOG & DATABASE<br>Save Decisions & Feedback]
-    RECORD_FAIL --> AUDIT
-    
-    AUDIT --> END_NODE([END: Scan Process Complete])
+### Layout Giao diện Trạm QC (QC Workstation Interface Wireframe)
 
-
+```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ ⊗ VISUAL QC AGENT   [Station: Line-01 ▼]            Welcome, CÔNG NHÂN TRẠM QC (Operator) [Logout]│
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ 🔍 SEARCH (Vehicle ID / Batch)                       Status: [Status: All ▼]   [TRIGGER SCAN]    │
+│ ⊗ VISUAL QC AGENT   [Station: FNS Line - HA]             Welcome, CÔNG NHÂN TRẠM QC [Logout]     │
 ├──────────────────────────────────────────────────────┬───────────────────────────┬───────────────┤
-│ 5-SURFACE INSPECTION VIEW                            │ DETAILED VIEW (LEFT)      │ QC DECISION   │
-│ ┌──────────────────────────┐┌──────────────────────┐ │ ┌───────────────────────┐ │ ┌───────────┐ │
-│ │ FRONT             🟢PASS ││ REAR          🟢PASS │ │ │                       │ │ │ CONFIRM   │ │
-│ │  ┌─────────────────────┐ ││  ┌─────────────────┐ │ │ │  SELECTED SURFACE     │ │ │ PASS      │ │
-│ │  │    LỖI: XƯỚC        │ ││  │    LỖI: XƯỚC    │ │ │ │  CAMERA ZOOM VIEW     │ │ │ (Override)│ │
-│ │  └─────────────────────┘ ││  └─────────────────┘ │ │ │                       │ │ ├───────────┤ │
-│ │ CONFIDENCE: 89% | S: 4.2mm││ CONFIDENCE: 89% | ...│ │ │   [ BOUNDING BOX ]    │ │ │ CONFIRM   │ │
-│ └──────────────────────────┘└──────────────────────┘ │ │                       │ │ │ FAIL      │ │
-│ ┌──────────────────────────┐┌──────────────────────┐ │ └───────────────────────┘ │ │ (Approve) │ │
-│ │ LEFT           🟡REVIEW  ││ RIGHT         🟢PASS │ │ Type: Xước                │ ├───────────┤ │
-│ │  ┌─────────────────────┐ ││  ┌─────────────────┐ │ │ Confidence: 0.89          │ │ SEND TO   │ │
-│ │  │    LỖI: XƯỚC        │ ││  │    LỖI: XƯỚC    │ │ │ Size: 4.2mm               │ │ REVIEW    │ │
-│ │  └─────────────────────┘ ││  └─────────────────┘ │ │ Zone: Critical            │ │ QUEUE     │ │
-│ └──────────────────────────┘└──────────────────────┘ ├───────────────────────────┤ ├───────────┤ │
-│ ┌──────────────────────────┐                         │ AGENT LOGIC & REASONING   │ │ ASK AGENT │ │
-│ │ ROOF              🟢PASS │                         │ - Image Quality (Q): 94%  │ │ (Reason)  │ │
-│ └──────────────────────────┘                         │ - Confidence (C): 89%     │ └───────────┘ │
-│                                                      │ - Size (S): 4.2mm (>2mm)  │ Status:       │
-│                                                      │ Result: FAIL (Critical)   │ AI FAIL       │
+│ LIVE CAMERA & CV DETECTION (FNS LINE)                │ AGENT DECISION ENGINE     │ QC ACTION     │
+│ ┌──────────────────────────────────────────────────┐ │ ┌───────────────────────┐ │ ┌───────────┐ │
+│ │ VIN: VN8921-2026   | Model: SUV EV               │ │ │ RECOMMENDED ACTION:   │ │ │ CONFIRM   │ │
+│ │ 🎯 DEFECT DETECTED: DENT ON DOOR                 │ │ │ 🔴 PLAN B (HOLD)      │ │ │ PLAN A    │ │
+│ │ - Surface Zone: Class A (GD&T Group 1)           │ │ │                       │ │ │ (Buffing) │ │
+│ │ - Tolerance Allowed: 0.7mm | Actual: 1.12mm      │ │ │ 🚫 DO NOT TEST DRIVE  │ │ ├───────────┤ │
+│ │ - Material: Hot Stamped Steel                    │ │ │                       │ │ │ CONFIRM   │ │
+│ │ - Severity Rank: RANK A (Structural Dent)        │ │ │ Route: Send to        │ │ │ PLAN B    │ │
+│ └──────────────────────────────────────────────────┘ │ │ Rework Shop (No-Goo)  │ │ │ (Hold)    │ │
+│ Stud/Nut Count: 12/12 (OK) | VIN Match: YES          │ └───────────────────────┘ │ ├───────────┤ │
+│ Status: FAIL (Exceeds GD&T Group 1 Tolerance)        │ REASONING LOGIC:          │ │ OVERRIDE  │ │
+│                                                      │ - GD&T Group 1 Exceeded   │ │ DECISION  │ │
+│                                                      │ - Hot Stamped Material    │ ├───────────┤ │
+│                                                      │   cannot be cold-worked.  │ │ ASK AGENT │ │
+│                                                      │ - Prevent road test dust. │ └───────────┘ │
 ├──────────────────────────────────────────────────────┴───────────────────────────┴───────────────┤
-│ RECENT INSPECTIONS (REAL-TIME TABLE)                                                             │
-│ Vehicle ID    │ Batch   │ Timestamp           │ AI Result  │ QC Decision │ Status               │
-│ CAR001        │ B2401   │ 2026-08-02 10:20:31 │ REVIEW     │ FAIL        │ [Completed]          │
+│ REAL-TIME VEHICLE ROUTING LOG (FNS LINE)                                                         │
+│ Vehicle ID │ Defect Type │ GD&T Zone │ Severity Rank │ Recommended Action │ Status              │
+│ CAR-9011   │ Scratch     │ Group 3   │ Rank C        │ Plan A (Buff 3m)   │ 🟢 Released to Test │
+│ CAR-9012   │ Dent        │ Group 1   │ Rank A        │ Plan B (Hold/Paint)│ 🔴 HELD (Rework)    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. Tech Stack & Integration
+
+- **Frontend:** Next.js / React, TypeScript, Tailwind CSS, Canvas / SVG Overlay
+- **Backend & APIs:** FastAPI (Python), REST API, WebSocket / SSE
+- **AI & Computer Vision Engine:** PyTorch, ONNX Runtime / TensorRT (Vision Detection), LLM / Agent Reasoning Engine
+- **Database & Storage:** PostgreSQL (Metadata, Logs, GD&T Standards), Redis (Realtime State), MinIO / S3 (Image & Inspection Archive)
+- **Agent Orchestration:** LangGraph (Điều phối luồng: Vision Capture $\rightarrow$ GD&T & Material Lookup $\rightarrow$ Rank Decision $\rightarrow$ Action Plan $\rightarrow$ HITL)
+- **Monitoring & Tracing:** Phoenix (LLM Log & Execution Tracing)
 
 ## 4. AI Log Setup
 - [x] Đã tạo API Key trên Phoenix
