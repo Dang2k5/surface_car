@@ -115,15 +115,15 @@ Kết quả được lưu tại `agent_flow.mmd`; bản giải thích trực qua
 
 ### Trách nhiệm của node
 
-| Node | Vai trò |
-|---|---|
-| `prepare_input` | Kiểm tra ảnh đầu vào và khởi tạo metadata an toàn |
-| `detect_defect` | Gọi detector adapter và chuẩn hóa kết quả CV |
-| `assess_result` | Áp threshold để chọn PASS, CONFIRMED, VERIFY hoặc HITL |
-| `verify_defect` | Thực hiện second pass và quay lại assessment |
-| `human_review` | Dừng graph bằng `interrupt()` để QC quyết định |
-| `generate_recommendation` | Chọn phương pháp kiểm soát theo policy deterministic |
-| `save_result` | Lưu state cuối qua repository |
+| Node                      | Vai trò                                                |
+| ------------------------- | ------------------------------------------------------ |
+| `prepare_input`           | Kiểm tra ảnh đầu vào và khởi tạo metadata an toàn      |
+| `detect_defect`           | Gọi detector adapter và chuẩn hóa kết quả CV           |
+| `assess_result`           | Áp threshold để chọn PASS, CONFIRMED, VERIFY hoặc HITL |
+| `verify_defect`           | Thực hiện second pass và quay lại assessment           |
+| `human_review`            | Dừng graph bằng `interrupt()` để QC quyết định         |
+| `generate_recommendation` | Chọn phương pháp kiểm soát theo policy deterministic   |
+| `save_result`             | Lưu state cuối qua repository                          |
 
 ### Conditional routing và loop guard
 
@@ -164,15 +164,15 @@ cần thay đổi node.
 
 Database mặc định: `data/visual_qc.db`.
 
-| Table | Nội dung |
-|---|---|
-| `inspections` | Vehicle, station, ảnh nguồn và trạng thái inspection |
-| `defects` | Class CV, confidence, camera, bbox và model metadata |
-| `classifications` | Panel, material, GD&T mock, measurement và severity |
-| `decisions` | Recommendation, route, policy refs và method steps |
-| `hitl_reviews` | Reviewer, action, lý do và quyết định cuối |
-| `workflow_runs` | Audit JSON của baseline workflow tương thích API cũ |
-| `agent_graph_runs` | State cuối của LangGraph theo `thread_id` |
+| Table              | Nội dung                                             |
+| ------------------ | ---------------------------------------------------- |
+| `inspections`      | Vehicle, station, ảnh nguồn và trạng thái inspection |
+| `defects`          | Class CV, confidence, camera, bbox và model metadata |
+| `classifications`  | Panel, material, GD&T mock, measurement và severity  |
+| `decisions`        | Recommendation, route, policy refs và method steps   |
+| `hitl_reviews`     | Reviewer, action, lý do và quyết định cuối           |
+| `workflow_runs`    | Audit JSON của baseline workflow tương thích API cũ  |
+| `agent_graph_runs` | State cuối của LangGraph theo `thread_id`            |
 
 `InMemorySaver` giữ checkpoint đang chạy hoặc đang chờ HITL. SQLite giữ kết quả
 cuối để History và QC Queue vẫn đọc được sau khi backend restart.
@@ -183,30 +183,30 @@ Swagger: `http://127.0.0.1:8000/docs`
 
 ### LangGraph API
 
-| Method | Endpoint | Mục đích |
-|---|---|---|
-| POST | `/inspections` | Bắt đầu graph thread |
-| POST | `/inspections/stream` | Chạy inspection và stream từng node |
-| GET | `/inspections/{thread_id}/state` | Đọc checkpoint/state hiện tại |
-| POST | `/inspections/{thread_id}/resume` | Resume HITL |
-| GET | `/agent/runs` | Danh sách graph run đã lưu |
-| DELETE | `/agent/runs` | Xóa trace/history, giữ nguyên ảnh và case |
-| GET | `/agent/graph` | Trả Mermaid từ graph thật |
+| Method | Endpoint                          | Mục đích                                  |
+| ------ | --------------------------------- | ----------------------------------------- |
+| POST   | `/inspections`                    | Bắt đầu graph thread                      |
+| POST   | `/inspections/stream`             | Chạy inspection và stream từng node       |
+| GET    | `/inspections/{thread_id}/state`  | Đọc checkpoint/state hiện tại             |
+| POST   | `/inspections/{thread_id}/resume` | Resume HITL                               |
+| GET    | `/agent/runs`                     | Danh sách graph run đã lưu                |
+| DELETE | `/agent/runs`                     | Xóa trace/history, giữ nguyên ảnh và case |
+| GET    | `/agent/graph`                    | Trả Mermaid từ graph thật                 |
 
 Các alias `/api/langgraph/...` và `/api/agent/...` cũng được hỗ trợ.
 
 ### Baseline/mock API
 
-| Method | Endpoint | Mục đích |
-|---|---|---|
-| POST | `/api/mock/seed?reset=true` | Reset và seed 8 case có ảnh |
-| GET | `/api/simulations/cases` | Lấy catalog case demo |
-| POST | `/api/simulations/{case_id}/run` | Chạy case mô phỏng |
-| GET | `/api/mock/yolo-detections` | Xem payload YOLO mock |
-| GET | `/api/inspections` | Inspection có ảnh và Agent decision |
-| GET | `/api/inspections/{id}/classifications` | Classification của inspection |
-| GET | `/api/inspections/{id}/decisions` | Decision của inspection |
-| GET | `/api/inspections/{id}/workflows/latest` | Workflow gần nhất |
+| Method | Endpoint                                 | Mục đích                            |
+| ------ | ---------------------------------------- | ----------------------------------- |
+| POST   | `/api/mock/seed?reset=true`              | Reset và seed 8 case có ảnh         |
+| GET    | `/api/simulations/cases`                 | Lấy catalog case demo               |
+| POST   | `/api/simulations/{case_id}/run`         | Chạy case mô phỏng                  |
+| GET    | `/api/mock/yolo-detections`              | Xem payload YOLO mock               |
+| GET    | `/api/inspections`                       | Inspection có ảnh và Agent decision |
+| GET    | `/api/inspections/{id}/classifications`  | Classification của inspection       |
+| GET    | `/api/inspections/{id}/decisions`        | Decision của inspection             |
+| GET    | `/api/inspections/{id}/workflows/latest` | Workflow gần nhất                   |
 
 ## 7. Yêu cầu môi trường
 
