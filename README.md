@@ -36,8 +36,7 @@ Chưa có trong baseline:
 
 ## 2. Mock hoạt động như thế nào?
 
-Hệ thống hiện **không dùng LLM để nhìn ảnh** và **không phân tích pixel bằng
-YOLO thật**. Mỗi ảnh demo được gắn một annotation mô phỏng trong
+Mỗi ảnh demo được gắn một annotation mô phỏng trong
 `backend/app/simulation_cases.py`, gồm:
 
 - loại lỗi;
@@ -289,9 +288,6 @@ DATABASE_URL=sqlite:///./data/visual_qc.db
 ```dotenv
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 ```
-
-Không cần `OPENAI_API_KEY` hoặc Gemini key cho baseline này. Không commit `.env`
-hoặc `.env.local`.
 
 ## 10. Chuẩn bị và chạy demo
 
