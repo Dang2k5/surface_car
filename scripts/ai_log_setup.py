@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Install AI logging support for Copilot and git push submission."""
+"""Install AI logging support for Antigravity IDE and git push submission."""
 from __future__ import annotations
 
-import json
+import os
 from pathlib import Path
 from textwrap import dedent
 from typing import Dict
@@ -34,7 +34,8 @@ def write_pre_push_hook(repo_root: Path) -> None:
     hook_text = dedent(
         """\
         #!/usr/bin/env bash
-        # Submit AI logs from .ai-log/session.jsonl before git push.
+        # Pre-push: sweep recent Antigravity / Gemini prompts, then submit AI logs.
+        bash scripts/_pyrun.sh scripts/log_antigravity.py --auto || true
         bash scripts/_pyrun.sh scripts/submit_log.py || true
         exit 0
         """
@@ -47,43 +48,17 @@ def write_pre_push_hook(repo_root: Path) -> None:
     print(f"[ai-log] Installed git pre-push hook: {hook_file}")
 
 
-def ensure_copilot_hook_config(repo_root: Path) -> None:
-    hooks_dir = repo_root / ".github" / "hooks"
-    ensure_dir(hooks_dir)
-    hooks_file = hooks_dir / "hooks.json"
-    copilot_config = {
-        "version": 1,
-        "hooks": {
-            "userPromptSubmitted": [
-                {
-                    "type": "command",
-                    "bash": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=copilot",
-                    "powershell": "scripts\\_pyrun.cmd scripts\\log_hook.py --tool=copilot",
-                    "timeoutSec": 10,
-                }
-            ],
-            "sessionEnd": [
-                {
-                    "type": "command",
-                    "bash": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=copilot",
-                    "powershell": "scripts\\_pyrun.cmd scripts\\log_hook.py --tool=copilot",
-                    "timeoutSec": 10,
-                }
-            ],
-        },
-    }
-
-    if hooks_file.exists():
+def cleanup_copilot_hook_config(repo_root: Path) -> None:
+    copilot_file = repo_root / ".github" / "hooks" / "hooks.json"
+    if copilot_file.exists():
         try:
-            existing = json.loads(hooks_file.read_text(encoding="utf-8"))
-            if existing.get("hooks", {}).get("userPromptSubmitted") and existing.get("hooks", {}).get("sessionEnd"):
-                print(f"[ai-log] Copilot hook config already exists: {hooks_file}")
-                return
-        except json.JSONDecodeError:
+            copilot_file.unlink()
+            print(f"[ai-log] Removed legacy Copilot hook config: {copilot_file}")
+            hooks_dir = copilot_file.parent
+            if hooks_dir.exists() and not any(hooks_dir.iterdir()):
+                hooks_dir.rmdir()
+        except OSError:
             pass
-
-    hooks_file.write_text(json.dumps(copilot_config, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"[ai-log] Created Copilot hook config: {hooks_file}")
 
 
 def main() -> int:
@@ -100,11 +75,12 @@ def main() -> int:
     if not keep_path.exists():
         keep_path.write_text("", encoding="utf-8")
     print(f"[ai-log] Ensured AI log directory exists: {log_dir}")
-    ensure_copilot_hook_config(repo_root)
+    cleanup_copilot_hook_config(repo_root)
     write_pre_push_hook(repo_root)
-    print("[ai-log] Setup complete. Use 'git push' to submit logs, or run 'python scripts/submit_log.py' manually.")
+    print("[ai-log] Antigravity AI log setup complete. Use 'git push' to sweep and submit logs, or run 'python scripts/submit_log.py' manually.")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
