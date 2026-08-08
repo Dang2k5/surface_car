@@ -15,7 +15,7 @@ prepare_input → detect_defect → assess_result
 Vòng verify có guard tối đa hai lần. Trường hợp vẫn mơ hồ sẽ pause thật bằng
 LangGraph `interrupt()` và resume bằng `Command(resume=...)` trên cùng `thread_id`.
 Development dùng `InMemorySaver`; kết quả cuối được lưu trong bảng SQLite
-`agent_graph_runs`. Xem `AGENT_FLOW.md` và `agent/README.md`.
+`agent_graph_runs`. Xem `README.md` và `AGENT_FLOW.md`.
 
 ## 1. Vai trò của tài liệu này
 
