@@ -6,7 +6,7 @@ The CV Simulation Workbench demonstrates the boundary between a visual detector,
 
 ## Image annotation status
 
-The repository contains six files in `data/train`. No accompanying YOLO label file, measurement report, material record, or approved plant work instruction is present. For that reason, each image is exposed with a **demo annotation**:
+The repository contains eight files in `data/train`. No accompanying YOLO label file, measurement report, material record, or approved plant work instruction is present. For that reason, each image is exposed with a **demo annotation**:
 
 - defect type and bounding box are selected for visual demonstration;
 - confidence is a mock detector score;

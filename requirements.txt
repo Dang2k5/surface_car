@@ -1,4 +1,4 @@
-# Core
+# Backend runtime
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.34,<1.0
 pydantic>=2.10,<3.0
@@ -9,9 +9,8 @@ langgraph>=0.2.74,<2.0
 # Production checkpoint migration:
 # langgraph-checkpoint-postgres>=2.0,<4.0
 
-# Dev tools
+# Development and automated tests
 ruff>=0.8,<1.0
 pytest>=8.0,<9.0
 pytest-asyncio>=0.24,<1.0
 httpx>=0.28,<1.0
-certifi>=2024.11,<2026.0

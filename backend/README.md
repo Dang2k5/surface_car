@@ -37,7 +37,7 @@ SQLite `agent_graph_runs` table.
 
 The visible inspection feed is intentionally curated: `GET /api/inspections`
 returns only records with `source_image_url` and a persisted Agent decision.
-`POST /api/mock/seed?reset=true` now resets the old data and creates the six local
+`POST /api/mock/seed?reset=true` now resets the old data and creates the eight local
 image cases from `data/train`; it no longer creates the legacy image-less fleet.
 
 The policy engine returns concrete action codes such as

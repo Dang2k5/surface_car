@@ -51,6 +51,7 @@ In a second PowerShell window, start the frontend:
 
 ```powershell
 cd frontend
+Copy-Item .env.example .env.local
 npm ci
 npm run dev
 ```
@@ -59,7 +60,7 @@ Open the URL printed by the frontend server (normally `http://localhost:3000`). 
 
 ## Demo flow
 
-1. Open **Agent inspection** and select one of six image-backed vehicle examples.
+1. Open **Agent inspection** and select one of eight image-backed vehicle examples.
 2. Press **Start inspection**. The example carries its own mock CV profile, so no
    test-branch selector is required.
 3. Watch node updates stream from LangGraph one at a time while image evidence,
@@ -80,6 +81,10 @@ From `frontend`:
 ```powershell
 npm run build
 ```
+
+The expected baseline result is a passing backend test suite and a successful
+frontend production build. No Gemini/OpenAI API key is required: routing,
+verification and recommendations are deterministic in this MVP.
 
 Useful backend checks:
 
@@ -119,9 +124,11 @@ The local image simulation policy and its production boundary are documented in 
 ## Troubleshooting
 
 - `spawn EINVAL` or frontend startup errors: upgrade to Node.js 22.13+ and reopen PowerShell.
-- `401 Invalid token` from an explanation request: replace the key with a valid key from the selected provider. The inspection workflow will still complete without it.
+- A copied or moved virtual environment may reference a Python installation that
+  no longer exists. Delete only that local `.venv`/`.venv-new` folder, recreate it
+  with `python -m venv .venv`, and reinstall `requirements.txt`.
 - Port 8000 is busy: stop the old Uvicorn process, or add `--port 8001` and set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001` in `frontend/.env.local`.
 - To reset demo records, call `POST /api/mock/seed?reset=true`. It deletes old QC
-  records and recreates only the six image-backed cases from `data/train`.
+  records and recreates only the eight image-backed cases from `data/train`.
 - `GET /api/inspections` returns only image-backed inspections with a persisted
   Agent decision. Incomplete, failed, or image-less records are hidden from the UI.
