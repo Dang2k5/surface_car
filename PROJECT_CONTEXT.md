@@ -1,5 +1,22 @@
 # Visual QC Agent — Project Context
 
+## 0. Trạng thái baseline hiện tại (cập nhật mới nhất)
+
+Baseline MVP hiện tại đã tích hợp FastAPI + SQLite + LangGraph, nhưng vẫn giữ
+detector/verifier và policy ở dạng mock deterministic trước khi đưa model CV thật
+vào. Output nghiệp vụ không dùng Plan A/Plan B; Agent trả phương pháp cụ thể,
+reason và trạng thái routing. LangGraph chạy theo các node:
+
+```text
+prepare_input → detect_defect → assess_result
+              → verify loop / HITL → generate_recommendation → save_result
+```
+
+Vòng verify có guard tối đa hai lần. Trường hợp vẫn mơ hồ sẽ pause thật bằng
+LangGraph `interrupt()` và resume bằng `Command(resume=...)` trên cùng `thread_id`.
+Development dùng `InMemorySaver`; kết quả cuối được lưu trong bảng SQLite
+`agent_graph_runs`. Xem `AGENT_FLOW.md` và `agent/README.md`.
+
 ## 1. Vai trò của tài liệu này
 
 Đây là tài liệu bối cảnh chính thức dành cho Codex và các thành viên phát triển dự án Visual QC Agent. Trước khi sửa code hoặc đề xuất kiến trúc, hãy đọc tài liệu này và kiểm tra trạng thái thực tế của repository.
@@ -236,7 +253,8 @@ GET  /api/inspections
 GET  /api/inspections/{inspection_id}
 ```
 
-Baseline đang dùng SQLite local và mock data. Chưa tích hợp LangGraph, model CV thật, PostgreSQL, MinIO hoặc frontend.
+Baseline đang dùng SQLite local, mock detector/verifier, LangGraph và frontend
+workstation. Chưa tích hợp model CV thật, PostgreSQL checkpointer hoặc MinIO.
 
 ## 12. Checkpoints phát triển
 
@@ -266,15 +284,18 @@ Rule engine độc lập, có reason codes và unit tests.
 
 ### CP6 — LangGraph
 
-Điều phối detect → classify → validate → decide → HITL → execute → report.
+Đã hoàn thành: state, bảy node, conditional edge, verify loop, HITL interrupt,
+checkpointer, repository abstraction và Mermaid export.
 
 ### CP7 — HITL API
 
-QC confirm, override, reject, bắt buộc nhập lý do override.
+Đã hoàn thành cho LangGraph: API pause/state/resume, approve/reject/override và
+bắt buộc nhập lý do.
 
 ### CP8 — Frontend QC workstation
 
-Ảnh, annotation, reasoning, action plan, routing log và HITL controls.
+Đã hoàn thành cho baseline: ảnh, state, node trace, routing outcome, Mermaid và
+HITL resume controls song ngữ.
 
 ### CP9 — End-to-end demo
 
@@ -339,4 +360,3 @@ Prompt khởi động cho Codex:
 ```text
 Đọc PROJECT_CONTEXT.md và kiểm tra backend hiện tại. Chúng ta đang ở CP1 và cần triển khai CP2: chuẩn hóa domain model cho Vehicle, Inspection, CameraImage, Defect, Classification, Decision, HITLReview và AuditLog. Giữ SQLite, chưa thêm LangGraph hoặc model CV thật. Trước khi sửa code, hãy nêu kế hoạch file sẽ thay đổi và các giả định. Sau đó triển khai migration/khởi tạo database, schema Pydantic, API tối thiểu và test cho các entity mới.
 ```
-

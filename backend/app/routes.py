@@ -1,32 +1,34 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 
 from agent.mock_workflow import MockQCAgent
-from .llm import LLMNotConfiguredError, explain_qc_case, is_auto_explain_enabled
 
+from .qc_policy import evaluate_demo_qc_policy
 from .schemas import (
+    ClassificationResponse,
+    DecisionRecommendation,
+    DecisionResponse,
     DefectCreate,
     DefectResponse,
-    InspectionCreate,
-    InspectionResponse,
-    InspectionStatus,
-    YoloImageResult,
-    YoloDetection,
-    ClassificationResponse,
-    DecisionResponse,
-    DecisionRecommendation,
     HITLAction,
     HITLReviewCreate,
     HITLReviewResponse,
+    InspectionCreate,
+    InspectionResponse,
+    InspectionStatus,
+    SimulationCaseResponse,
+    SimulationRunRequest,
+    SimulationRunResponse,
     WorkflowRunResponse,
-    AgentExplainRequest,
-    AgentExplainResponse,
+    YoloDetection,
+    YoloImageResult,
 )
+from .simulation_cases import TRAIN_SIMULATION_CASES, get_simulation_case
 
 router = APIRouter(prefix="/api")
 
@@ -36,6 +38,28 @@ MOCK_CLASSIFICATION_RULES = {
     "dent": {"panel": "quarter_panel", "material": "hot_stamped_steel", "gdt_group": 1, "tolerance_mm": 0.7, "measurement_mm": 1.1, "severity_rank": "P"},
     "paint_defect": {"panel": "hood_class_a_surface", "material": "coated_steel", "gdt_group": 2, "tolerance_mm": 0.3, "measurement_mm": 0.4, "severity_rank": "A"},
 }
+
+
+def _simulation_case_response(case) -> SimulationCaseResponse:
+    return SimulationCaseResponse(
+        id=case.id,
+        image_url=f"/assets/train/{case.filename}",
+        filename=case.filename,
+        vehicle_id=case.vehicle_id,
+        model=case.model,
+        defect_type=case.defect_type,
+        confidence=case.confidence,
+        camera_id=case.camera_id,
+        panel=case.panel,
+        bbox=case.bbox,
+        severity_rank=case.severity_rank,
+        visual_note=case.visual_note,
+        graph_scenario=case.graph_scenario,
+        case_title=case.case_title,
+        expected_path=case.expected_path,
+        expected_outcome=case.expected_outcome,
+        annotation_source="demo_annotation_from_local_train_image",
+    )
 
 
 def _inspection_from_row(request: Request, row) -> InspectionResponse:
@@ -56,19 +80,36 @@ def _inspection_from_row(request: Request, row) -> InspectionResponse:
         vin=row["vin"],
         model=row["model"],
         station=row["station"],
+        source_image_url=row["source_image_url"],
         status=row["status"],
         created_at=datetime.fromisoformat(row["created_at"]),
         defects=response_defects,
     )
 
 
-def _create_inspection(request: Request, payload: InspectionCreate) -> InspectionResponse:
+def _create_inspection(
+    request: Request,
+    payload: InspectionCreate,
+    *,
+    auto_run: bool = True,
+    source_image_url: str | None = None,
+) -> InspectionResponse:
     database = request.app.state.database
     inspection_id = str(uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
     database.execute(
-        "INSERT INTO inspections (id, vin, model, station, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (inspection_id, payload.vin, payload.model, payload.station, InspectionStatus.OPEN.value, created_at),
+        """INSERT INTO inspections
+        (id, vin, model, station, source_image_url, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            inspection_id,
+            payload.vin,
+            payload.model,
+            payload.station,
+            source_image_url,
+            InspectionStatus.OPEN.value,
+            created_at,
+        ),
     )
     for defect in payload.defects:
         database.execute(
@@ -93,12 +134,14 @@ def _create_inspection(request: Request, payload: InspectionCreate) -> Inspectio
     inspection = _inspection_from_row(request, row)
     # CP3-CP5 mock workflow runs automatically after every inspection is created.
     # A production deployment will move this work to a background worker/event consumer.
-    run_mock_workflow(request, inspection_id)
+    if auto_run:
+        run_mock_workflow(request, inspection_id)
     return inspection
 
 
 @router.post("/mock/seed", response_model=list[InspectionResponse])
 def seed_mock_data(request: Request, reset: bool = False) -> list[InspectionResponse]:
+    """Reset and create only image-backed train simulation records."""
     database = request.app.state.database
     if reset:
         database.execute("DELETE FROM hitl_reviews")
@@ -107,64 +150,71 @@ def seed_mock_data(request: Request, reset: bool = False) -> list[InspectionResp
         database.execute("DELETE FROM classifications")
         database.execute("DELETE FROM defects")
         database.execute("DELETE FROM inspections")
-    existing = database.connection.execute("SELECT COUNT(*) AS count FROM inspections").fetchone()["count"]
+    existing = database.connection.execute(
+        "SELECT COUNT(*) AS count FROM inspections WHERE source_image_url IS NOT NULL"
+    ).fetchone()["count"]
     if existing:
-        rows = database.connection.execute("SELECT * FROM inspections ORDER BY created_at").fetchall()
+        rows = database.connection.execute(
+            """SELECT * FROM inspections i
+            WHERE source_image_url IS NOT NULL
+              AND EXISTS (SELECT 1 FROM decisions d WHERE d.inspection_id = i.id)
+            ORDER BY created_at"""
+        ).fetchall()
         return [_inspection_from_row(request, row) for row in rows]
-    seed = [
-        InspectionCreate(
-            vin="MOCK-VIN-SCRATCH-001",
-            model="Demo Sedan",
-            defects=[DefectCreate(defect_type="scratch", class_id=0, confidence=0.96, camera_id="cam-front-left", bbox={"x1": 410, "y1": 235, "x2": 690, "y2": 310}, severity_rank="C")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-DENT-001",
-            model="Demo SUV",
-            defects=[DefectCreate(defect_type="dent", class_id=1, confidence=0.91, camera_id="cam-rear-right", bbox={"x1": 1020, "y1": 380, "x2": 1325, "y2": 720}, severity_rank="P")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-PAINT-001",
-            model="Demo Hatchback",
-            defects=[DefectCreate(defect_type="paint_defect", class_id=2, confidence=0.87, camera_id="cam-roof-top", bbox={"x1": 720, "y1": 145, "x2": 940, "y2": 230}, severity_rank="A")],
-        ),
-        InspectionCreate(vin="MOCK-VIN-PASS-001", model="Demo Wagon"),
-        InspectionCreate(
-            vin="MOCK-VIN-SCRATCH-LOW-001",
-            model="Demo Sedan",
-            defects=[DefectCreate(defect_type="scratch", class_id=0, confidence=0.62, camera_id="cam-front-left", bbox={"x1": 285, "y1": 360, "x2": 510, "y2": 420}, severity_rank="C")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-DENT-LOW-001",
-            model="Demo SUV",
-            defects=[DefectCreate(defect_type="dent", class_id=1, confidence=0.74, camera_id="cam-rear-right", bbox={"x1": 1150, "y1": 410, "x2": 1390, "y2": 690}, severity_rank="P")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-PAINT-LOW-001",
-            model="Demo Hatchback",
-            defects=[DefectCreate(defect_type="paint_defect", class_id=2, confidence=0.68, camera_id="cam-roof-top", bbox={"x1": 630, "y1": 210, "x2": 835, "y2": 290}, severity_rank="A")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-SCRATCH-BORDERLINE-001",
-            model="Demo Sedan",
-            defects=[DefectCreate(defect_type="scratch", class_id=0, confidence=0.79, camera_id="cam-front-left", bbox={"x1": 890, "y1": 285, "x2": 1090, "y2": 345}, severity_rank="C")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-DENT-BORDERLINE-001",
-            model="Demo SUV",
-            defects=[DefectCreate(defect_type="dent", class_id=1, confidence=0.77, camera_id="cam-rear-right", bbox={"x1": 950, "y1": 430, "x2": 1200, "y2": 710}, severity_rank="P")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-PAINT-BORDERLINE-001",
-            model="Demo Hatchback",
-            defects=[DefectCreate(defect_type="paint_defect", class_id=2, confidence=0.72, camera_id="cam-roof-top", bbox={"x1": 740, "y1": 175, "x2": 990, "y2": 260}, severity_rank="A")],
-        ),
-        InspectionCreate(
-            vin="MOCK-VIN-SCRATCH-HIGH-001",
-            model="Demo Wagon",
-            defects=[DefectCreate(defect_type="scratch", class_id=0, confidence=0.84, camera_id="cam-front-left", bbox={"x1": 340, "y1": 460, "x2": 550, "y2": 520}, severity_rank="C")],
-        ),
+    return [
+        run_train_image_simulation(request, case.id, None).inspection
+        for case in TRAIN_SIMULATION_CASES
     ]
-    return [_create_inspection(request, item) for item in seed]
+
+
+@router.get("/simulations/cases", response_model=list[SimulationCaseResponse])
+def list_simulation_cases() -> list[SimulationCaseResponse]:
+    """Expose local train images with explicitly mock annotations for demo use."""
+    return [_simulation_case_response(case) for case in TRAIN_SIMULATION_CASES]
+
+
+@router.post("/simulations/{case_id}/run", response_model=SimulationRunResponse, status_code=201)
+def run_train_image_simulation(
+    request: Request, case_id: str, payload: SimulationRunRequest | None = None
+) -> SimulationRunResponse:
+    """Simulate the detector payload for a selected local image, then orchestrate it."""
+    case = get_simulation_case(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Simulation case not found")
+    inspection = _create_inspection(
+        request,
+        InspectionCreate(
+            vin=case.vehicle_id,
+            model=case.model,
+            station="FNS Line - HA",
+            defects=[
+                DefectCreate(
+                    defect_type=case.defect_type,
+                    class_id={"scratch": 0, "dent": 1, "paint_defect": 2}[case.defect_type.value],
+                    confidence=case.confidence,
+                    camera_id=case.camera_id,
+                    bbox=case.bbox,
+                    image_width=640,
+                    image_height=640,
+                    model_name="mock-yolo-qc-train-image",
+                    model_version="demo-annotation-1.0",
+                    severity_rank=case.severity_rank,
+                )
+            ],
+        ),
+        auto_run=False,
+        source_image_url=f"/assets/train/{case.filename}",
+    )
+    workflow = run_mock_workflow(
+        request,
+        inspection.id,
+        fail_at_step=payload.fail_at_step if payload else None,
+    )
+    return SimulationRunResponse(
+        case=_simulation_case_response(case),
+        inspection=inspection,
+        workflow=workflow,
+    )
 
 
 @router.post("/inspections", response_model=InspectionResponse, status_code=201)
@@ -174,7 +224,12 @@ def create_inspection(request: Request, payload: InspectionCreate) -> Inspection
 
 @router.get("/inspections", response_model=list[InspectionResponse])
 def list_inspections(request: Request) -> list[InspectionResponse]:
-    rows = request.app.state.database.connection.execute("SELECT * FROM inspections ORDER BY created_at DESC").fetchall()
+    rows = request.app.state.database.connection.execute(
+        """SELECT * FROM inspections i
+        WHERE source_image_url IS NOT NULL
+          AND EXISTS (SELECT 1 FROM decisions d WHERE d.inspection_id = i.id)
+        ORDER BY created_at DESC"""
+    ).fetchall()
     return [_inspection_from_row(request, row) for row in rows]
 
 
@@ -217,7 +272,7 @@ def classify_inspection(request: Request, inspection_id: str) -> list[Classifica
                 str(uuid4()), inspection_id, defect["id"], rule["panel"], rule["material"],
                 rule["gdt_group"], rule["tolerance_mm"], rule["measurement_mm"],
                 rule["severity_rank"], defect["confidence"], "mock_rule_engine", 1,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
     return _classifications_for_inspection(request, inspection_id)
@@ -241,9 +296,12 @@ def _decisions_for_inspection(request: Request, inspection_id: str) -> list[Deci
             id=row["id"],
             inspection_id=row["inspection_id"],
             recommendation=row["recommendation"],
+            action_code=row["action_code"],
             action=row["action"],
             route=row["route"],
             reason_codes=json.loads(row["reason_codes"]),
+            policy_refs=json.loads(row["policy_refs"]),
+            method_steps=json.loads(row["method_steps"]),
             explanation=row["explanation"],
             test_drive_allowed=bool(row["test_drive_allowed"]),
             is_mock=bool(row["is_mock"]),
@@ -251,45 +309,6 @@ def _decisions_for_inspection(request: Request, inspection_id: str) -> list[Deci
         )
         for row in rows
     ]
-
-
-def _calculate_decision(classifications: list, defect_count: int) -> tuple[DecisionRecommendation, str, str, list[str], str, bool]:
-    if not classifications:
-        if defect_count:
-            return (
-                DecisionRecommendation.HITL_REQUIRED,
-                "QC review required",
-                "QC Review",
-                ["CLASSIFICATION_MISSING"],
-                "A detected defect has no classification result.",
-                False,
-            )
-        return (
-            DecisionRecommendation.PASS,
-            "Release vehicle",
-            "Final Line",
-            ["NO_DEFECTS"],
-            "No classified defects were found.",
-            True,
-        )
-
-    reason_codes: list[str] = []
-    for item in classifications:
-        if item["classification_confidence"] < 0.80:
-            reason_codes.append("LOW_CLASSIFICATION_CONFIDENCE")
-        if item["measurement_mm"] > item["tolerance_mm"]:
-            reason_codes.append("MEASUREMENT_OVER_TOLERANCE")
-        if item["severity_rank"] in {"P", "S", "A"}:
-            reason_codes.append("HIGH_SEVERITY_RANK")
-        if item["material"] == "hot_stamped_steel":
-            reason_codes.append("HOT_STAMPED_STEEL")
-
-    reason_codes = list(dict.fromkeys(reason_codes))
-    if "LOW_CLASSIFICATION_CONFIDENCE" in reason_codes:
-        return (DecisionRecommendation.HITL_REQUIRED, "QC review required", "QC Review", reason_codes, "Classification confidence is below the mock review threshold.", False)
-    if reason_codes:
-        return (DecisionRecommendation.PLAN_B, "HOLD and send to Rework", "Rework Shop", reason_codes, "The mock rules identified a condition that must not proceed to test drive.", False)
-    return (DecisionRecommendation.PLAN_A, "Buffing and test drive", "FNS Buffing Station", ["MINOR_DEFECT_WITHIN_TOLERANCE"], "The defect is within mock tolerance and has sufficient confidence for local buffing.", True)
 
 
 @router.post("/inspections/{inspection_id}/decide", response_model=DecisionResponse)
@@ -304,17 +323,19 @@ def decide_inspection(request: Request, inspection_id: str) -> DecisionResponse:
     defect_count = database.connection.execute(
         "SELECT COUNT(*) AS count FROM defects WHERE inspection_id = ?", (inspection_id,)
     ).fetchone()["count"]
-    recommendation, action, route, reasons, explanation, test_drive = _calculate_decision(classifications, defect_count)
+    outcome = evaluate_demo_qc_policy(classifications, defect_count)
     decision_id = str(uuid4())
     database.execute(
         """INSERT INTO decisions
-        (id, inspection_id, recommendation, action, route, reason_codes,
-         explanation, test_drive_allowed, is_mock, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (id, inspection_id, recommendation, action_code, action, route, reason_codes,
+         policy_refs, method_steps, explanation, test_drive_allowed, is_mock, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            decision_id, inspection_id, recommendation.value, action, route,
-            json.dumps(reasons), explanation, int(test_drive), 1,
-            datetime.now(timezone.utc).isoformat(),
+            decision_id, inspection_id, outcome.recommendation.value, outcome.action_code,
+            outcome.action, outcome.route, json.dumps(outcome.reason_codes),
+            json.dumps(outcome.policy_refs), json.dumps(outcome.method_steps),
+            outcome.explanation, int(outcome.test_drive_allowed), 1,
+            datetime.now(UTC).isoformat(),
         ),
     )
     return _decisions_for_inspection(request, inspection_id)[-1]
@@ -356,7 +377,7 @@ def create_hitl_review(
     if payload.action == HITLAction.OVERRIDE:
         final = payload.final_recommendation
     elif payload.action == HITLAction.REJECT:
-        final = DecisionRecommendation.HITL_REQUIRED
+        final = DecisionRecommendation.MANUAL_VISUAL_REINSPECTION
 
     review_id = str(uuid4())
     database.execute(
@@ -373,7 +394,7 @@ def create_hitl_review(
             original.value,
             final.value,
             payload.reason.strip() if payload.reason else None,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
         ),
     )
     return _hitl_reviews_for_inspection(request, inspection_id)[-1]
@@ -387,43 +408,10 @@ def get_hitl_reviews(request: Request, inspection_id: str) -> list[HITLReviewRes
     return _hitl_reviews_for_inspection(request, inspection_id)
 
 
-def _agent_facts(request: Request, inspection_id: str) -> dict:
-    database = request.app.state.database
-    inspection = database.connection.execute("SELECT * FROM inspections WHERE id = ?", (inspection_id,)).fetchone()
-    decision = database.connection.execute(
-        "SELECT * FROM decisions WHERE inspection_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
-        (inspection_id,),
-    ).fetchone()
-    if inspection is None or decision is None:
-        raise ValueError("Inspection or decision is missing")
-    defects = [dict(row) for row in database.connection.execute(
-        "SELECT * FROM defects WHERE inspection_id = ? ORDER BY id", (inspection_id,)
-    ).fetchall()]
-    classifications = [dict(row) for row in database.connection.execute(
-        "SELECT * FROM classifications WHERE inspection_id = ? ORDER BY created_at, id", (inspection_id,)
-    ).fetchall()]
-    for defect in defects:
-        for key in ("bbox", "location"):
-            if defect.get(key):
-                defect[key] = json.loads(defect[key])
-    return {
-        "inspection": {"vin": inspection["vin"], "model": inspection["model"], "station": inspection["station"]},
-        "detections": defects,
-        "classifications": classifications,
-        "decision": {
-            "recommendation": decision["recommendation"],
-            "action": decision["action"],
-            "route": decision["route"],
-            "reason_codes": json.loads(decision["reason_codes"]),
-            "explanation": decision["explanation"],
-            "test_drive_allowed": bool(decision["test_drive_allowed"]),
-            "is_mock": bool(decision["is_mock"]),
-        },
-    }
-
-
 @router.post("/inspections/{inspection_id}/run-workflow", response_model=WorkflowRunResponse, status_code=201)
-def run_mock_workflow(request: Request, inspection_id: str) -> WorkflowRunResponse:
+def run_mock_workflow(
+    request: Request, inspection_id: str, fail_at_step: str | None = None
+) -> WorkflowRunResponse:
     inspection = request.app.state.database.connection.execute(
         "SELECT * FROM inspections WHERE id = ?", (inspection_id,)
     ).fetchone()
@@ -437,18 +425,8 @@ def run_mock_workflow(request: Request, inspection_id: str) -> WorkflowRunRespon
         detections=detections,
         classify=lambda: classify_inspection(request, inspection_id),
         decide=lambda: decide_inspection(request, inspection_id),
+        fail_at_step=fail_at_step,
     )
-    if is_auto_explain_enabled():
-        try:
-            answer, _ = explain_qc_case(_agent_facts(request, inspection_id), "vi", None)
-            workflow = workflow.model_copy(
-                update={"agent_explanation": answer, "agent_explanation_status": "COMPLETED"}
-            )
-        except LLMNotConfiguredError:
-            workflow = workflow.model_copy(update={"agent_explanation_status": "NOT_CONFIGURED"})
-        except Exception:
-            # The deterministic QC workflow must finish even if the optional LLM is unavailable.
-            workflow = workflow.model_copy(update={"agent_explanation_status": "UNAVAILABLE"})
     request.app.state.database.execute(
         "INSERT INTO workflow_runs (id, inspection_id, status, result_json, created_at) VALUES (?, ?, ?, ?, ?)",
         (
@@ -486,34 +464,6 @@ def get_latest_workflow_run(request: Request, inspection_id: str) -> WorkflowRun
     if row is None:
         raise HTTPException(status_code=404, detail="No workflow run found for inspection")
     return WorkflowRunResponse.model_validate_json(row["result_json"])
-
-
-@router.post("/inspections/{inspection_id}/agent/explain", response_model=AgentExplainResponse)
-def explain_inspection_with_agent(
-    request: Request, inspection_id: str, payload: AgentExplainRequest
-) -> AgentExplainResponse:
-    database = request.app.state.database
-    inspection = database.connection.execute("SELECT * FROM inspections WHERE id = ?", (inspection_id,)).fetchone()
-    if inspection is None:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-    decision = database.connection.execute(
-        "SELECT * FROM decisions WHERE inspection_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
-        (inspection_id,),
-    ).fetchone()
-    if decision is None:
-        raise HTTPException(status_code=409, detail="Run the workflow before requesting an agent explanation")
-    try:
-        answer, model = explain_qc_case(_agent_facts(request, inspection_id), payload.language, payload.question)
-    except LLMNotConfiguredError as error:
-        raise HTTPException(status_code=503, detail="QC explanation LLM is not configured") from error
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"QC explanation request failed: {error}") from error
-    return AgentExplainResponse(
-        inspection_id=inspection_id,
-        answer=answer,
-        model=model,
-        language=payload.language,
-    )
 
 
 @router.get("/mock/yolo-detections", response_model=list[YoloImageResult])

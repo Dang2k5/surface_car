@@ -1,212 +1,127 @@
-# 🤖 AI20K Agent Template
+# Visual QC Agent for FNS
 
-Template chính thức cho học viên **VinUni AI20K Build Phase** — cung cấp sẵn cấu trúc dự án, code mẫu, và hướng dẫn kỹ thuật chi tiết để xây dựng AI Agent đạt điểm cao (35+/50).
+Mock-first demo for an automotive final-inspection station. The current build demonstrates both the stable baseline API and the checkpointed LangGraph flow:
 
-> 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-
-## 🎯 Template này dùng để làm gì?
-
-Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent hoàn chỉnh — từ kiến trúc, code, test, đến deploy. Thay vì bắt đầu từ con số không, template này cung cấp:
-
-- **Cấu trúc thư mục chuẩn** — đã được thiết kế theo best practices (separation of concerns)
-- **Code mẫu** cho các phần cốt lõi: LangGraph agent, FastAPI API, config, schemas
-- **Docker + CI/CD sẵn** — Dockerfile multi-stage, GitHub Actions workflow
-- **Hướng dẫn kỹ thuật 10 chương** — từ clone template đến nộp bài Demo Day
-- **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
-- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
-
-# Team 235 — AI Agent
-
-## Mô tả
-AI Agent Kiểm Tra Chất Lượng Bề Mặt Bằng Computer Vision (Visual QC Agent).
-
-## Thành viên
-- Phạm Bá Huy — PM
-- Đào Hải Đăng — PO
-- Hoàng Văn Thành — DEV
-- Lê Quốc An - DEV
-
-## ⚡ Quick Start
-
-### Bước 1: Fork hoặc Clone
-
-```bash
-# Clone template
-git clone https://github.com/AI20K-Build-Cohort-2/starter-code-template.git team-YOUR_TEAM_NAME
-cd team-YOUR_TEAM_NAME
-
-# Xóa git history cũ và khởi tạo lại
-rm -rf .git
-git init
-git add .
-git commit -m "feat: khởi tạo dự án từ template"
+```text
+image input -> detect -> assess -> verify loop / HITL -> recommendation -> persist
 ```
 
-### Bước 2: Setup môi trường
+It includes mock defects for dents, scratches, and paint defects; deterministic,
+policy-referenced repair/reinspection methods; checkpoint pause/resume behavior; a
+FastAPI backend; SQLite; and a Next.js/React
+dashboard. It does **not** use a production YOLO model, approved plant GD&T data,
+PostgreSQL, MinIO, or a production CV model yet. LangGraph orchestration is active
+with an in-memory development checkpointer and SQLite final-result persistence.
 
-```bash
-# Tạo virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
+## Requirements
 
-# Cài dependencies
-pip install -e ".[dev]"
+- Git
+- Python 3.11 or newer (3.11 is recommended)
+- Node.js 22.13 or newer for the frontend
+- Docker Desktop only if you want to run the backend in Docker
 
-# Cấu hình API keys
-cp .env.example .env
-# Mở .env và thêm OPENAI_API_KEY của bạn
-# Đồng thời cập nhật AI_LOG_API_KEY bằng key riêng từ link mời của BTC
-# (giá trị trong .env.example chỉ là placeholder)
+Check installed versions:
+
+```powershell
+python --version
+node --version
+npm --version
 ```
 
-### Bước 3: Cài AI Logging Hooks
+## Run on a new machine
 
-```bash
-# Linux / macOS / Git Bash
-bash scripts/setup_hooks.sh
+Clone the repository, then open PowerShell in the repository folder.
 
-# Windows PowerShell
-# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
+```powershell
+Copy-Item .env.example .env
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m uvicorn backend.app.main:app --reload
 ```
 
-Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
+If PowerShell blocks activation, run this once for the current window and activate again:
 
-### Bước 4: Chạy server
-
-```bash
-# Chạy FastAPI backend
-uvicorn src.main:app --reload --port 8000
-
-# Mở Swagger UI
-# http://localhost:8000/docs
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-### Bước 5: Đọc hướng dẫn
+In a second PowerShell window, start the frontend:
 
-📖 Mở **[Technical Guidebook](https://phoenix.note.transformerlabs.ai/technical-book)** và làm theo từng chương.
-
-## 📁 Cấu trúc dự án
-
-```
-├── src/
-│   ├── agents/           # 🧠 LangGraph Agent
-│   │   ├── graph.py      #    State graph (nodes + edges)
-│   │   ├── state.py      #    State schema (TypedDict)
-│   │   ├── nodes/        #    Node functions
-│   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
-├── tests/                # 🧪 pytest suite
-│   ├── test_agents/      #    Agent/graph tests
-│   └── test_api/         #    API endpoint tests
-├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
-│   ├── log_antigravity.py#    Antigravity IDE prompt scanner
-│   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
-│   ├── submit_log.py     #    Submit logs on git push
-│   └── setup_hooks.sh    #    One-time hook installer
-├── .claude/ .codex/ .cursor/ .gemini/  # Per-tool hook configs
-├── .agents/              # Antigravity rules + workflows
-├── .ai-log/              # 📊 AI usage logs (auto-generated)
-├── docs/
-│   ├── guide/            # 📖 Technical Guidebook (10 chapters)
-│   └── architecture_diagram.md
-├── eval/                 # 📊 Evaluation results
-├── presentation/         # 🎤 Demo Day slides
-├── .github/workflows/    # ⚡ CI/CD (GitHub Actions)
-├── .github/hooks/        # 🪝 Copilot hook config
-├── Dockerfile            # 🐳 Multi-stage build
-├── docker-compose.yml    # 🐙 Full stack orchestration
-└── README_boilerplate.md # 📝 README template cho đội của bạn
+```powershell
+cd frontend
+npm ci
+npm run dev
 ```
 
-## 📚 Technical Guidebook — 10 Chương
+Open the URL printed by the frontend server (normally `http://localhost:3000`). Swagger is available at `http://127.0.0.1:8000/docs`.
 
-| Chương | Nội dung | Thời gian |
-|---------|----------|-----------|
-| 1 | Lời mở đầu — Mục tiêu, cách sử dụng | 15 phút |
-| 2 | Khởi tạo dự án — Clone, setup, git workflow | 4 giờ |
-| 3 | Thiết kế kiến trúc — 3-tier, diagrams, ADR | 6 giờ |
-| 4 | **LangGraph Agent** — State, nodes, edges, tools, RAG | 8 giờ |
-| 5 | FastAPI — Routes, validation, error handling, streaming | 6 giờ |
-| 6 | Giao diện — Next.js + Streamlit quickstart | 6 giờ |
-| 7 | DevOps — Docker, CI/CD, deploy, logging | 6 giờ |
-| 8 | Kiểm thử — Unit test, integration test, RAGAS | 4 giờ |
-| 9 | Demo Day — 10 deliverables, checklist, tips | 2 giờ |
-| 10 | Tài nguyên — Khóa học, docs, BMAD method | tham khảo |
+## Demo flow
 
-📖 **Đọc online:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+1. Open **Agent inspection** and select one of six image-backed vehicle examples.
+2. Press **Start inspection**. The example carries its own mock CV profile, so no
+   test-branch selector is required.
+3. Watch node updates stream from LangGraph one at a time while image evidence,
+   state and the operational outcome remain in the same workstation.
+4. For an uncertain case, approve or reject at the real HITL checkpoint. The same
+   thread resumes, completes and is recorded in History.
 
-## 📋 10 Deliverables cho Demo Day
+## Verify the installation
 
-| # | Deliverable | File vị trí | Template có sẵn |
-|---|-------------|-------------|:---:|
-| 1 | Source Code | `src/` | ✅ |
-| 2 | README.md | `README_boilerplate.md` → copy thành `README.md` | ✅ |
-| 3 | Architecture Diagram | `docs/architecture_diagram.md` | ✅ |
-| 4 | AI Logs | LangSmith (3 env vars) + Auto AI Usage Logging | ✅ |
-| 5 | Live URL | Deploy lên Render/Vercel | ⚡ CI/CD sẵn |
-| 6 | Video Demo | `presentation/` | 📝 |
-| 7 | Pitch Deck | `presentation/` | 📝 |
-| 8 | Development Journal | `JOURNAL.md` | ✅ |
-| 9 | Worklog | `WORKLOG.md` | ✅ |
-| 10 | Evaluation Evidence | `eval/` | 📝 |
+From the repository root, with the virtual environment active:
 
-## 🛠 Tech Stack
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| AI Agent | LangGraph + LangChain | Latest |
-| Backend | FastAPI + Uvicorn | 0.100+ |
-| LLM | OpenAI GPT-4o-mini | API |
-| Frontend | Next.js / Streamlit | 14+ / 1.30+ |
-| Database | SQLite (dev) / PostgreSQL (prod) | — |
-| DevOps | Docker + GitHub Actions | — |
-| Testing | pytest + pytest-asyncio | 8+ |
-
-## 📊 AI Usage Logging
-
-Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
-
-| Tool | Cơ chế | Config |
-|------|--------|--------|
-| Claude Code | `.claude/settings.json` hooks | Tự động |
-| Cursor | `.cursor/hooks.json` | Tự động |
-| OpenAI Codex CLI | `.codex/hooks.json` | Tự động |
-| Gemini CLI | `.gemini/settings.json` | Tự động |
-| GitHub Copilot | `.github/hooks/hooks.json` | Tự động |
-| Antigravity IDE | Pre-push scan transcript | Tự động trên `git push` |
-
-Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`.
-
-**ChatGPT / web tools khác** — log thủ công:
-```bash
-bash scripts/_pyrun.sh scripts/log_manual.py --tool chatgpt --prompt "What you asked"
+```powershell
+python -m pytest -q
 ```
 
-> ⚠️ Chạy `bash scripts/setup_hooks.sh` một lần sau khi clone để cài pre-push hook.
+From `frontend`:
 
-## 📖 Đọc Technical Guidebook
+```powershell
+npm run build
+```
 
-**Online (khuyến nghị):** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+Useful backend checks:
 
-Đăng nhập bằng GitHub (cùng account đã được BTC mời vào org `AI20K-Build-Cohort-2`)
-→ chọn tab **Technical Book** ở sidebar trái → đọc 10 chương + topic sections,
-có table of contents bên phải, hỗ trợ light/dark/cyberpunk theme.
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/api/mock/seed?reset=true"
+Invoke-RestMethod http://127.0.0.1:8000/api/inspections
+```
 
-**Offline:** mọi chương đều ở thư mục `docs/guide/` trong template này — mở bằng
-bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
+`curl` is an alias for `Invoke-WebRequest` in Windows PowerShell, so use `Invoke-RestMethod` as above, or explicitly call `curl.exe`.
 
-## 🔗 Liên kết
+## Docker backend (optional)
 
-- 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Trần Thành Trung
+After copying `.env`, run:
 
-## 📄 License
+```powershell
+docker compose up --build
+```
 
-MIT — Sử dụng tự do cho mục đích giáo dục.
+The container serves the backend at `http://127.0.0.1:8000`. The frontend remains a local Node process and should be started with `npm run dev`.
+
+## Project layout
+
+```text
+backend/       FastAPI API, SQLite persistence, mock QC routes
+agent/         LangGraph state, nodes, routing and injectable service adapters
+frontend/      bilingual Next.js/React dashboard
+tests/         backend API tests
+data/          local SQLite database (generated; not committed)
+```
+
+More API detail is in [backend/README.md](backend/README.md), and frontend-only setup is in [frontend/README.md](frontend/README.md).
+The complete graph/state/HITL explanation is in [agent/README.md](agent/README.md)
+and [AGENT_FLOW.md](AGENT_FLOW.md).
+The local image simulation policy and its production boundary are documented in [docs/SIMULATION_POLICY.md](docs/SIMULATION_POLICY.md).
+
+## Troubleshooting
+
+- `spawn EINVAL` or frontend startup errors: upgrade to Node.js 22.13+ and reopen PowerShell.
+- `401 Invalid token` from an explanation request: replace the key with a valid key from the selected provider. The inspection workflow will still complete without it.
+- Port 8000 is busy: stop the old Uvicorn process, or add `--port 8001` and set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001` in `frontend/.env.local`.
+- To reset demo records, call `POST /api/mock/seed?reset=true`. It deletes old QC
+  records and recreates only the six image-backed cases from `data/train`.
+- `GET /api/inspections` returns only image-backed inspections with a persisted
+  Agent decision. Incomplete, failed, or image-less records are hidden from the UI.

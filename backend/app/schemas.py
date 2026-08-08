@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class InspectionStatus(str, Enum):
+class InspectionStatus(StrEnum):
     OPEN = "OPEN"
     COMPLETED = "COMPLETED"
 
 
-class DefectType(str, Enum):
+class DefectType(StrEnum):
     SCRATCH = "scratch"
     DENT = "dent"
     PAINT_DEFECT = "paint_defect"
@@ -73,6 +73,7 @@ class InspectionResponse(BaseModel):
     vin: str
     model: str
     station: str
+    source_image_url: str | None = None
     status: InspectionStatus
     created_at: datetime
     defects: list[DefectResponse] = Field(default_factory=list)
@@ -94,8 +95,14 @@ class ClassificationResponse(BaseModel):
     created_at: datetime
 
 
-class DecisionRecommendation(str, Enum):
+class DecisionRecommendation(StrEnum):
     PASS = "PASS"
+    SURFACE_POLISH_REINSPECT = "SURFACE_POLISH_REINSPECT"
+    BODY_REPAIR_ASSESSMENT = "BODY_REPAIR_ASSESSMENT"
+    PAINT_REPAIR_ASSESSMENT = "PAINT_REPAIR_ASSESSMENT"
+    MANUAL_VISUAL_REINSPECTION = "MANUAL_VISUAL_REINSPECTION"
+    RETRY_REQUIRED = "RETRY_REQUIRED"
+    # Legacy values remain readable for existing SQLite demo records.
     PLAN_A = "PLAN_A"
     PLAN_B = "PLAN_B"
     HITL_REQUIRED = "HITL_REQUIRED"
@@ -105,16 +112,19 @@ class DecisionResponse(BaseModel):
     id: str
     inspection_id: str
     recommendation: DecisionRecommendation
+    action_code: str = "LEGACY_ACTION"
     action: str
     route: str
     reason_codes: list[str]
+    policy_refs: list[str] = Field(default_factory=list)
+    method_steps: list[str] = Field(default_factory=list)
     explanation: str
     test_drive_allowed: bool
     is_mock: bool
     created_at: datetime
 
 
-class HITLAction(str, Enum):
+class HITLAction(StrEnum):
     CONFIRM = "CONFIRM"
     OVERRIDE = "OVERRIDE"
     REJECT = "REJECT"
@@ -127,7 +137,7 @@ class HITLReviewCreate(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
-    def validate_review(self) -> "HITLReviewCreate":
+    def validate_review(self) -> HITLReviewCreate:
         if self.action == HITLAction.OVERRIDE:
             if self.final_recommendation is None:
                 raise ValueError("final_recommendation is required for OVERRIDE")
@@ -150,15 +160,19 @@ class HITLReviewResponse(BaseModel):
     created_at: datetime
 
 
-class WorkflowStatus(str, Enum):
+class WorkflowStatus(StrEnum):
     COMPLETED = "COMPLETED"
     WAITING_FOR_HITL = "WAITING_FOR_HITL"
+    STOPPED_RETRY_REQUIRED = "STOPPED_RETRY_REQUIRED"
 
 
 class WorkflowStep(BaseModel):
     name: str
     status: str
     detail: str
+    policy_refs: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+    retryable: bool = False
 
 
 class WorkflowRunResponse(BaseModel):
@@ -168,21 +182,38 @@ class WorkflowRunResponse(BaseModel):
     steps: list[WorkflowStep]
     detections: list[DefectResponse]
     classifications: list[ClassificationResponse]
-    decision: DecisionResponse
+    decision: DecisionResponse | None = None
     hitl_required: bool
-    agent_explanation: str | None = None
-    agent_explanation_status: str = "NOT_REQUESTED"
     created_at: datetime
 
 
-class AgentExplainRequest(BaseModel):
-    language: Literal["en", "vi"] = "vi"
-    question: str | None = Field(default=None, max_length=1000)
-
-
-class AgentExplainResponse(BaseModel):
-    inspection_id: str
-    answer: str
+class SimulationCaseResponse(BaseModel):
+    id: str
+    image_url: str
+    filename: str
+    vehicle_id: str
     model: str
-    language: Literal["en", "vi"]
-    source: Literal["llm_explanation"] = "llm_explanation"
+    defect_type: DefectType
+    confidence: float
+    camera_id: str
+    panel: str
+    bbox: YoloBBox
+    severity_rank: str
+    visual_note: str
+    graph_scenario: Literal[
+        "no_defect", "high_confidence", "medium_confirmed", "verify_uncertain", "low_confidence"
+    ]
+    case_title: str
+    expected_path: str
+    expected_outcome: str
+    annotation_source: Literal["demo_annotation_from_local_train_image"]
+
+
+class SimulationRunResponse(BaseModel):
+    case: SimulationCaseResponse
+    inspection: InspectionResponse
+    workflow: WorkflowRunResponse
+
+
+class SimulationRunRequest(BaseModel):
+    fail_at_step: Literal["detect", "validate", "classify", "policy_evaluate"] | None = None

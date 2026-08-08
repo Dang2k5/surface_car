@@ -1,66 +1,66 @@
-# Visual QC Agent — Backend
+# Visual QC Agent backend
 
-FastAPI + SQLite mock backend for CP1. It is intentionally independent from the existing `src/` starter template.
+FastAPI, SQLite and LangGraph backend for the mock-first FNS Visual QC demo.
 
-Run from the repository root:
+## Run
 
-```powershell
-uvicorn backend.app.main:app --reload
-```
-
-Open Swagger at `http://localhost:8000/docs`.
-
-Useful calls:
+From the repository root, after installing [requirements.txt](../requirements.txt):
 
 ```powershell
-curl -X POST "http://localhost:8000/api/mock/seed?reset=true"
-curl "http://localhost:8000/api/inspections"
-curl "http://localhost:8000/api/mock/yolo-detections"
-curl -X POST "http://localhost:8000/api/inspections/{inspection_id}/classify"
-curl "http://localhost:8000/api/inspections/{inspection_id}/classifications"
-curl -X POST "http://localhost:8000/api/inspections/{inspection_id}/decide"
-curl "http://localhost:8000/api/inspections/{inspection_id}/decisions"
-curl -X POST "http://localhost:8000/api/inspections/{inspection_id}/hitl/reviews"
-curl "http://localhost:8000/api/inspections/{inspection_id}/hitl/reviews"
-curl -X POST "http://localhost:8000/api/inspections/{inspection_id}/run-workflow"
-curl "http://localhost:8000/api/workflows/{workflow_id}"
+python -m uvicorn backend.app.main:app --reload
 ```
 
-`/api/mock/yolo-detections` returns the serialized YOLO contract: `class_id`, `class_name`, `confidence`, and pixel `bbox` in `xyxy` form, plus image and model metadata. The SQLite file is created at `data/visual_qc.db` and contains mock inspection and defect records only.
+Open Swagger at `http://127.0.0.1:8000/docs`. The default SQLite database is `data/visual_qc.db`; set `DATABASE_URL` in the root `.env` to use another SQLite file.
 
-`/classify` applies explicitly mock domain rules and returns panel, material, GD&T group, mock tolerance/measurement, severity rank, and `is_mock=true`. These technical values are placeholders and must be replaced by approved plant data before production use.
+## Workflow
 
-`/decide` applies fail-safe mock rules: no defects returns `PASS`, a minor in-tolerance defect returns `PLAN_A`, an over-tolerance/high-severity/material-risk defect returns `PLAN_B`, and low confidence returns `HITL_REQUIRED`.
-
-`/hitl/reviews` records QC confirmation, override, or rejection of the latest decision. Overrides and rejections require a reason.
-
-`/run-workflow` is the mock agent demo. It orchestrates persisted mock YOLO detections through classify and decide, then returns a four-step trace (`detect`, `classify`, `decide`, `hitl`). A `HITL_REQUIRED` decision ends in `WAITING_FOR_HITL`; all other mock decisions complete.
-
-Every newly created inspection and mock seed now starts this workflow automatically. Use `GET /api/inspections/{inspection_id}/workflows/latest` to retrieve its current result. `POST /run-workflow` remains available only for rerunning a mock case during debugging.
-
-## Optional LLM explanation agent
-
-The LLM can explain a completed workflow, but cannot make or override a technical QC decision.
+Every newly-created inspection and every seeded inspection automatically runs:
 
 ```text
-POST /api/inspections/{inspection_id}/agent/explain
+detect -> validate -> classify -> policy evaluation -> controlled route -> HITL
 ```
 
-Configure a new, private key in `.env` (never commit it):
+`GET /api/inspections/{inspection_id}/workflows/latest` retrieves its result. `POST /api/inspections/{inspection_id}/run-workflow` is provided only to rerun a case during debugging.
 
-```dotenv
-OPENAI_API_KEY=replace_with_a_new_key
-OPENAI_BASE_URL=https://api.key4u.vn/v1
-OPENAI_MODEL=gpt-4o-mini
-# Optional: generate a Vietnamese explanation after every automatic workflow.
-QC_LLM_AUTO_EXPLAIN=false
+The new checkpointed LangGraph API is:
+
+```text
+POST /inspections                       start a graph thread
+GET  /inspections/{thread_id}/state     inspect checkpointed state
+POST /inspections/{thread_id}/resume    resume an interrupted HITL thread
+GET  /agent/graph                       return generated Mermaid
 ```
 
-For OpenAI-compatible providers, set `OPENAI_BASE_URL` to the API root ending in `/v1`, not the `/chat/completions` endpoint. Set `QC_LLM_AUTO_EXPLAIN=true` only when automatic LLM explanations are desired; the deterministic workflow will still complete if the provider is unavailable. Example body:
+The `/api/langgraph/...` aliases are available when a prefixed route is preferred.
+Development uses `InMemorySaver`; completed graph results are upserted into the
+SQLite `agent_graph_runs` table.
 
-```json
-{
-  "language": "vi",
-  "question": "Tóm tắt quyết định và hành động cần thực hiện cho QC."
-}
+The visible inspection feed is intentionally curated: `GET /api/inspections`
+returns only records with `source_image_url` and a persisted Agent decision.
+`POST /api/mock/seed?reset=true` now resets the old data and creates the six local
+image cases from `data/train`; it no longer creates the legacy image-less fleet.
+
+The policy engine returns concrete action codes such as
+`SURFACE_POLISH_AND_REINSPECT`, `ISOLATE_FOR_BODY_REPAIR_ASSESSMENT`,
+`ISOLATE_FOR_PAINT_REPAIR_ASSESSMENT`, and `MANUAL_VISUAL_REINSPECTION`.
+Every result includes ordered method steps and `DEMO-QC-*` policy references. A failed
+checkpoint stops downstream execution with `STOPPED_RETRY_REQUIRED`. All tolerances,
+materials, severity values, policy references, and methods remain placeholders until
+plant-approved controlled data replaces them.
+
+## Common API calls in PowerShell
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/api/mock/seed?reset=true"
+Invoke-RestMethod http://127.0.0.1:8000/api/inspections
+Invoke-RestMethod http://127.0.0.1:8000/api/mock/yolo-detections
 ```
+
+The YOLO mock payload provides `class_id`, `class_name`, confidence, an `xyxy` pixel bounding box, and image/model metadata.
+
+`POST /inspections/stream` returns NDJSON node updates for the live workstation.
+`GET /agent/runs` returns the same persisted LangGraph states used by History and
+the QC review queue.
+`DELETE /agent/runs` clears only persisted Agent traces and development HITL
+checkpoints; source images and mock case definitions are preserved.
