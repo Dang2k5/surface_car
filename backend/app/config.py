@@ -24,6 +24,9 @@ class ModelSettings:
     auto_pass_enabled: bool
     confirmed_threshold: float
     verify_threshold: float
+    reasoning_provider: str
+    groq_api_key: str | None
+    groq_model: str
 
     @classmethod
     def from_env(cls) -> ModelSettings:
@@ -38,4 +41,7 @@ class ModelSettings:
             auto_pass_enabled=_env_bool("AUTO_PASS_ENABLED", False),
             confirmed_threshold=float(os.getenv("CONFIRMED_THRESHOLD", "0.70")),
             verify_threshold=float(os.getenv("VERIFY_THRESHOLD", "0.40")),
+            reasoning_provider=os.getenv("QC_REASONING_PROVIDER", "deterministic").strip().lower(),
+            groq_api_key=os.getenv("GROQ_API_KEY") or None,
+            groq_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip(),
         )

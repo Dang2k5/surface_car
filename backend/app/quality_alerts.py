@@ -15,6 +15,35 @@ from docx.shared import Inches, Pt, RGBColor
 from pydantic import BaseModel
 
 
+class InspectionFinding(BaseModel):
+    inspection_id: str
+    thread_id: str
+    vehicle_id: str
+    inspected_at: str
+    defect_type: str
+    panel: str
+    camera_id: str
+    confidence: float
+    severity: str
+    decision: str
+    final_status: str
+    recommendation_code: str
+    recommendation: str
+    image_url: str
+
+
+class DefectAggregate(BaseModel):
+    defect_type: str
+    occurrence_count: int
+    affected_vehicle_count: int
+    panels: list[str]
+    camera_ids: list[str]
+    average_confidence: float
+    maximum_confidence: float
+    first_seen: str
+    last_seen: str
+
+
 class QualityAlert(BaseModel):
     id: str
     severity: str
@@ -36,6 +65,9 @@ class QualityAlert(BaseModel):
     recommendation_vi: str
     upstream_checks_en: list[str]
     upstream_checks_vi: list[str]
+    occurrences: list[InspectionFinding]
+    policy_decision: dict[str, Any]
+    ai_analysis: dict[str, Any]
 
 
 class QualityAlertSummary(BaseModel):
@@ -43,14 +75,18 @@ class QualityAlertSummary(BaseModel):
     window_hours: int
     minimum_occurrences: int
     analyzed_inspections: int
+    defect_breakdown: list[DefectAggregate]
+    findings: list[InspectionFinding]
     alerts: list[QualityAlert]
 
 
 class RepetitionAlertService:
     """Deterministic quality trend monitor over persisted LangGraph results."""
 
-    def __init__(self, repository: Any) -> None:
+    def __init__(self, repository: Any, policy_catalog: Any, reasoning: Any) -> None:
         self.repository = repository
+        self.policy_catalog = policy_catalog
+        self.reasoning = reasoning
 
     def analyze(self, *, window_hours: int = 24, minimum_occurrences: int = 3) -> QualityAlertSummary:
         now = datetime.now(UTC)
@@ -73,6 +109,13 @@ class RepetitionAlertService:
             )
             grouped[key].append(state)
 
+        findings = sorted(
+            (_finding_from_state(state) for state in records),
+            key=lambda item: item.inspected_at,
+            reverse=True,
+        )
+        defect_breakdown = _build_defect_breakdown(records)
+
         alerts: list[QualityAlert] = []
         for (defect_type, panel, camera_id), items in grouped.items():
             vehicle_ids = sorted({str(item.get("vehicle_id", "UNKNOWN")) for item in items})
@@ -83,6 +126,25 @@ class RepetitionAlertService:
             severity = "CRITICAL" if len(vehicle_ids) >= max(5, minimum_occurrences + 2) else "WARNING"
             key_text = f"{defect_type}|{panel}|{camera_id}|{window_hours}"
             alert_id = hashlib.sha256(key_text.encode("utf-8")).hexdigest()[:16]
+            trend_state = {
+                "defect_type": defect_type,
+                "confidence": round(sum(confidences) / len(confidences), 4),
+                "panel": panel,
+                "camera_id": camera_id,
+                "severity": severity,
+                "evidence_tags": [
+                    "affected_vehicle_list",
+                    "time_window",
+                    "camera_and_panel_group",
+                ],
+                "trend_context": {
+                    "affected_vehicle_count": len(vehicle_ids),
+                    "affected_vehicle_ids": vehicle_ids,
+                    "window_hours": window_hours,
+                },
+            }
+            policy = self.policy_catalog.evaluate_named("FNS-TREND-001", trend_state)
+            analysis = self.reasoning.analyze(trend_state, policy)
             alerts.append(
                 QualityAlert(
                     id=alert_id,
@@ -116,6 +178,13 @@ class RepetitionAlertService:
                     ),
                     upstream_checks_en=_upstream_checks("en", panel, camera_id),
                     upstream_checks_vi=_upstream_checks("vi", panel, camera_id),
+                    occurrences=sorted(
+                        (_finding_from_state(item) for item in items),
+                        key=lambda item: item.inspected_at,
+                        reverse=True,
+                    ),
+                    policy_decision=policy.model_dump(mode="json"),
+                    ai_analysis=analysis.model_dump(mode="json"),
                 )
             )
         alerts.sort(key=lambda item: (item.severity != "CRITICAL", -item.affected_vehicle_count))
@@ -124,8 +193,54 @@ class RepetitionAlertService:
             window_hours=window_hours,
             minimum_occurrences=minimum_occurrences,
             analyzed_inspections=len(records),
+            defect_breakdown=defect_breakdown,
+            findings=findings,
             alerts=alerts,
         )
+
+
+def _finding_from_state(state: dict[str, Any]) -> InspectionFinding:
+    return InspectionFinding(
+        inspection_id=str(state.get("inspection_id") or "UNKNOWN"),
+        thread_id=str(state.get("thread_id") or "UNKNOWN"),
+        vehicle_id=str(state.get("vehicle_id") or "UNKNOWN"),
+        inspected_at=_parse_timestamp(state.get("_persisted_at")).isoformat(),
+        defect_type=str(state.get("defect_type") or "unknown"),
+        panel=str(state.get("panel") or "unknown_panel"),
+        camera_id=str(state.get("camera_id") or "unknown_camera"),
+        confidence=round(float(state.get("confidence") or 0), 4),
+        severity=str(state.get("severity") or "UNASSESSED"),
+        decision=str(state.get("decision") or "UNKNOWN"),
+        final_status=str(state.get("final_status") or "UNKNOWN"),
+        recommendation_code=str(state.get("recommendation_code") or ""),
+        recommendation=str(state.get("recommendation") or ""),
+        image_url=str(state.get("image_url") or ""),
+    )
+
+
+def _build_defect_breakdown(records: list[dict[str, Any]]) -> list[DefectAggregate]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for state in records:
+        grouped[str(state.get("defect_type") or "unknown")].append(state)
+
+    result: list[DefectAggregate] = []
+    for defect_type, items in grouped.items():
+        confidences = [float(item.get("confidence") or 0) for item in items]
+        timestamps = sorted(_parse_timestamp(item.get("_persisted_at")) for item in items)
+        result.append(
+            DefectAggregate(
+                defect_type=defect_type,
+                occurrence_count=len(items),
+                affected_vehicle_count=len({str(item.get("vehicle_id") or "UNKNOWN") for item in items}),
+                panels=sorted({str(item.get("panel") or "unknown_panel") for item in items}),
+                camera_ids=sorted({str(item.get("camera_id") or "unknown_camera") for item in items}),
+                average_confidence=round(sum(confidences) / len(confidences), 4),
+                maximum_confidence=round(max(confidences), 4),
+                first_seen=timestamps[0].isoformat(),
+                last_seen=timestamps[-1].isoformat(),
+            )
+        )
+    return sorted(result, key=lambda item: (-item.occurrence_count, item.defect_type))
 
 
 def _parse_timestamp(value: Any) -> datetime:
@@ -158,23 +273,23 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
     """Create an operator-ready DOCX using the compact_reference_guide preset."""
     document = Document()
     section = document.sections[0]
-    section.top_margin = Inches(0.72)
-    section.bottom_margin = Inches(0.72)
-    section.left_margin = Inches(0.8)
-    section.right_margin = Inches(0.8)
-    section.header_distance = Inches(0.35)
-    section.footer_distance = Inches(0.35)
+    section.top_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
+    section.header_distance = Inches(0.492)
+    section.footer_distance = Inches(0.492)
 
     styles = document.styles
     normal = styles["Normal"]
     normal.font.name = "Calibri"
-    normal.font.size = Pt(10.5)
+    normal.font.size = Pt(11)
     normal.paragraph_format.space_after = Pt(6)
-    normal.paragraph_format.line_spacing = 1.2
+    normal.paragraph_format.line_spacing = 1.25
     for name, size, color, before, after in (
-        ("Heading 1", 16, "1D5F7A", 16, 8),
-        ("Heading 2", 13, "1D5F7A", 12, 6),
-        ("Heading 3", 11.5, "24465B", 9, 4),
+        ("Heading 1", 16, "2E74B5", 18, 10),
+        ("Heading 2", 13, "2E74B5", 14, 7),
+        ("Heading 3", 12, "1F4D78", 10, 5),
     ):
         style = styles[name]
         style.font.name = "Calibri"
@@ -239,6 +354,64 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
     else:
         lead.add_run("No repeated-defect group crossed the configured threshold in this window.").bold = True
 
+    document.add_heading("Defect summary from inspection history", level=1)
+    if summary.defect_breakdown:
+        defect_table = document.add_table(rows=1, cols=5)
+        _set_table_geometry(defect_table, [1500, 1000, 1000, 4000, 1860])
+        for cell, value in zip(
+            defect_table.rows[0].cells,
+            ("Defect", "Events", "Vehicles", "Panels / cameras", "Confidence"),
+        ):
+            cell.text = value
+            _shade_cell(cell, "DCEAF1")
+            cell.paragraphs[0].runs[0].bold = True
+        for item in summary.defect_breakdown:
+            row = defect_table.add_row()
+            values = (
+                item.defect_type,
+                str(item.occurrence_count),
+                str(item.affected_vehicle_count),
+                f"{', '.join(item.panels)}\n{', '.join(item.camera_ids)}",
+                f"Avg {item.average_confidence:.1%}\nMax {item.maximum_confidence:.1%}",
+            )
+            for cell, value in zip(row.cells, values):
+                cell.text = value
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                for run in cell.paragraphs[0].runs:
+                    run.font.size = Pt(8)
+    else:
+        document.add_paragraph("No defect finding is retained in the selected monitoring window.")
+
+    document.add_heading("Inspection-level findings", level=1)
+    if summary.findings:
+        finding_table = document.add_table(rows=1, cols=7)
+        _set_table_geometry(finding_table, [1250, 1100, 1100, 1700, 850, 1050, 2310])
+        for cell, value in zip(
+            finding_table.rows[0].cells,
+            ("Time", "Inspection", "Vehicle", "Defect / location", "Conf.", "Severity", "Decision / route"),
+        ):
+            cell.text = value
+            _shade_cell(cell, "DCEAF1")
+            cell.paragraphs[0].runs[0].bold = True
+        for finding in summary.findings:
+            row = finding_table.add_row()
+            values = (
+                _format_dt(finding.inspected_at),
+                finding.inspection_id,
+                finding.vehicle_id,
+                f"{finding.defect_type}\n{finding.panel} / {finding.camera_id}",
+                f"{finding.confidence:.1%}",
+                finding.severity,
+                f"{finding.decision}\n{finding.final_status}\n{finding.recommendation_code}",
+            )
+            for cell, value in zip(row.cells, values):
+                cell.text = value
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                for run in cell.paragraphs[0].runs:
+                    run.font.size = Pt(7.5)
+    else:
+        document.add_paragraph("No inspection-level finding is available for this report.")
+
     for index, alert in enumerate(summary.alerts, start=1):
         document.add_heading(f"Alert {index}: {alert.defect_type.upper()} - {alert.panel}", level=2)
         alert_table = document.add_table(rows=5, cols=2)
@@ -259,6 +432,31 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
                 cell.paragraphs[0].runs[0].font.size = Pt(9)
 
+        document.add_heading("Inspections contributing to this alert", level=3)
+        occurrence_table = document.add_table(rows=1, cols=6)
+        _set_table_geometry(occurrence_table, [1450, 1450, 1450, 1550, 1100, 2360])
+        for cell, value in zip(
+            occurrence_table.rows[0].cells,
+            ("Time", "Inspection", "Vehicle", "Confidence", "Severity", "Final route"),
+        ):
+            cell.text = value
+            _shade_cell(cell, "F3E4E7")
+            cell.paragraphs[0].runs[0].bold = True
+        for occurrence in alert.occurrences:
+            row = occurrence_table.add_row()
+            values = (
+                _format_dt(occurrence.inspected_at),
+                occurrence.inspection_id,
+                occurrence.vehicle_id,
+                f"{occurrence.confidence:.1%}",
+                occurrence.severity,
+                occurrence.final_status,
+            )
+            for cell, value in zip(row.cells, values):
+                cell.text = value
+                for run in cell.paragraphs[0].runs:
+                    run.font.size = Pt(8)
+
         document.add_heading("Required upstream checks", level=3)
         for check in alert.upstream_checks_en:
             paragraph = document.add_paragraph(style="List Number")
@@ -272,6 +470,24 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
         label.bold = True
         label.font.color.rgb = RGBColor.from_string("A73343")
         recommendation.add_run(alert.recommendation_en)
+
+        document.add_heading("Policy and reasoning provenance", level=3)
+        provenance = document.add_paragraph()
+        policy = alert.policy_decision
+        analysis = alert.ai_analysis
+        provenance.add_run(
+            f"Policy: {policy.get('policy_id')} @ {policy.get('policy_revision')} "
+            f"({policy.get('policy_status')})\n"
+        ).bold = True
+        provenance.add_run(
+            f"Reasoning: {analysis.get('provider')} / {analysis.get('model')}\n"
+            f"Analysis: {analysis.get('summary_en')}"
+        )
+        for reference in policy.get("references", []):
+            paragraph = document.add_paragraph(style="List Bullet")
+            paragraph.add_run(
+                f"{reference.get('id')}: {reference.get('title')} — {reference.get('url')}"
+            )
 
     document.add_heading("QC sign-off", level=1)
     signoff = document.add_table(rows=3, cols=2)
@@ -307,6 +523,7 @@ def _shade_cell(cell: Any, fill: str) -> None:
 def _set_table_geometry(table: Any, widths: list[int]) -> None:
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
     table.autofit = False
+    table.style = "Table Grid"
     properties = table._tbl.tblPr
     table_width = properties.find(qn("w:tblW"))
     if table_width is None:
@@ -330,6 +547,19 @@ def _set_table_geometry(table: Any, widths: list[int]) -> None:
     for row in table.rows:
         for cell, width in zip(row.cells, widths):
             cell.width = Inches(width / 1440)
-            tc_width = cell._tc.get_or_add_tcPr().get_or_add_tcW()
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            tc_properties = cell._tc.get_or_add_tcPr()
+            tc_width = tc_properties.get_or_add_tcW()
             tc_width.set(qn("w:type"), "dxa")
             tc_width.set(qn("w:w"), str(width))
+            margins = tc_properties.first_child_found_in("w:tcMar")
+            if margins is None:
+                margins = OxmlElement("w:tcMar")
+                tc_properties.append(margins)
+            for side, value in (("top", 80), ("bottom", 80), ("start", 120), ("end", 120)):
+                node = margins.find(qn(f"w:{side}"))
+                if node is None:
+                    node = OxmlElement(f"w:{side}")
+                    margins.append(node)
+                node.set(qn("w:w"), str(value))
+                node.set(qn("w:type"), "dxa")

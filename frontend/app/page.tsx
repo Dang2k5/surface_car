@@ -9,13 +9,40 @@ type LiveEvent = TraceEvent & {
   id: number;
   phase: 'running' | 'completed' | 'waiting';
 };
+type PolicyReference = {
+  id: string;
+  document_family: string;
+  revision: string;
+  section: string;
+  effective_date?: string | null;
+  expiry_date?: string | null;
+  document_status: string;
+  title: string;
+  scope: string;
+  url: string;
+};
+type PolicyDocumentReview = {
+  query: Record<string, string>;
+  roles_completed: string[];
+  matched_document_count: number;
+  extracted_conditions: string[];
+  evidence_comparison: Array<{ evidence: string; available: boolean }>;
+  missing_data: string[];
+  checklist_status: string;
+  approved_checklist: string[];
+  proposed_checklist: string[];
+  citations: PolicyReference[];
+  warnings: Array<{ code: string; severity: string; message: string; document_id?: string | null }>;
+};
 type QCState = {
   thread_id: string;
   inspection_id: string;
   vehicle_id: string;
+  vehicle_model: string;
   image_url: string;
   camera_id: string;
   panel: string;
+  material: string;
   defect_detected?: boolean;
   defect_type?: string;
   confidence?: number;
@@ -43,6 +70,30 @@ type QCState = {
   human_decision?: { action: string; reviewer: string; reason: string };
   recommendation_code?: string;
   recommendation?: string;
+  policy_decision?: {
+    policy_id: string;
+    policy_revision: string;
+    policy_status: string;
+    approval_scope: string;
+    policy_title: string;
+    test_drive_allowed: boolean | null;
+    human_required: boolean;
+    required_steps: string[];
+    missing_evidence: string[];
+    production_eligible: boolean;
+    references: PolicyReference[];
+    document_review: PolicyDocumentReview;
+  };
+  ai_analysis?: {
+    summary_en: string;
+    summary_vi: string;
+    risk_flags: string[];
+    recommended_checks: string[];
+    cited_source_ids: string[];
+    provider: string;
+    model: string;
+    fallback_reason?: string | null;
+  };
   final_status?: string;
   execution_trace?: TraceEvent[];
 };
@@ -57,8 +108,37 @@ type UploadedEvidence = {
   file: File;
   previewUrl: string;
   vehicleId: string;
+  vehicleModel: string;
   cameraId: string;
   panel: string;
+  material: string;
+};
+type InspectionFinding = {
+  inspection_id: string;
+  thread_id: string;
+  vehicle_id: string;
+  inspected_at: string;
+  defect_type: string;
+  panel: string;
+  camera_id: string;
+  confidence: number;
+  severity: string;
+  decision: string;
+  final_status: string;
+  recommendation_code: string;
+  recommendation: string;
+  image_url: string;
+};
+type DefectAggregate = {
+  defect_type: string;
+  occurrence_count: number;
+  affected_vehicle_count: number;
+  panels: string[];
+  camera_ids: string[];
+  average_confidence: number;
+  maximum_confidence: number;
+  first_seen: string;
+  last_seen: string;
 };
 type QualityAlert = {
   id: string;
@@ -81,12 +161,17 @@ type QualityAlert = {
   recommendation_vi: string;
   upstream_checks_en: string[];
   upstream_checks_vi: string[];
+  occurrences: InspectionFinding[];
+  policy_decision: QCState['policy_decision'];
+  ai_analysis: QCState['ai_analysis'];
 };
 type QualityAlertSummary = {
   generated_at: string;
   window_hours: number;
   minimum_occurrences: number;
   analyzed_inspections: number;
+  defect_breakdown: DefectAggregate[];
+  findings: InspectionFinding[];
   alerts: QualityAlert[];
 };
 
@@ -193,6 +278,34 @@ const local = (
 ) => pair?.[lang === 'vi' ? 1 : 0] || fallback;
 const percent = (value?: number) => `${Math.round((value || 0) * 100)}%`;
 const pretty = (value?: string) => (value ? value.replaceAll('_', ' ') : '—');
+const policyStepLabel = (value: string, lang: Lang) => {
+  const labels: Record<string, readonly [string, string]> = {
+    CONTAIN_VEHICLE: ['Contain vehicle', 'Giữ xe trong khu vực kiểm soát'],
+    CAPTURE_CONTROLLED_LIGHT_IMAGE: ['Capture controlled-light evidence', 'Chụp evidence dưới ánh sáng kiểm soát'],
+    MEASURE_DEFECT_EXTENT: ['Measure defect extent', 'Đo phạm vi lỗi'],
+    APPLY_APPROVED_OEM_CRITERIA: ['Apply approved OEM criteria', 'Đối chiếu tiêu chí OEM đã phê duyệt'],
+    QC_SIGN_OFF: ['Record QC sign-off', 'QC xác nhận và ký duyệt'],
+    APPLY_HOLD: ['Apply vehicle hold', 'Áp dụng trạng thái giữ xe'],
+    TRANSFER_TO_BODY_REPAIR_ASSESSMENT: ['Transfer to Body Repair assessment', 'Chuyển đánh giá Body Repair'],
+    MEASURE_PANEL_GEOMETRY: ['Measure panel geometry', 'Đo hình học panel'],
+    COMPARE_WITH_APPROVED_DRAWING: ['Compare with approved drawing', 'Đối chiếu bản vẽ đã phê duyệt'],
+    QC_REINSPECTION: ['Perform QC reinspection', 'QC kiểm tra lại'],
+  };
+  return local(labels[value], lang, pretty(value));
+};
+const policyWarningLabel = (code: string, fallback: string, lang: Lang) => {
+  if (lang === 'en') return fallback;
+  const labels: Record<string, string> = {
+    POLICY_QUERY_CONTEXT_INCOMPLETE: 'Thiếu model xe, panel hoặc vật liệu để tìm đúng tài liệu.',
+    DOCUMENT_NOT_APPROVED_FOR_PLANT_USE: 'Tài liệu chỉ dùng tham chiếu, chưa được nhà máy phê duyệt để quyết định release.',
+    EFFECTIVE_DATE_UNCONFIRMED: 'Chưa xác nhận ngày hiệu lực trong danh mục tài liệu kiểm soát.',
+    DOCUMENT_EXPIRED: 'Tài liệu đã hết hiệu lực; không được dùng để đưa ra quyết định.',
+    REVISION_CONFLICT: 'Có nhiều revision cùng phù hợp; cần Quality Engineering xác nhận bản có hiệu lực.',
+    CHECKLIST_NOT_APPROVED: 'Checklist hiện là bản đề xuất, chưa phải checklist nhà máy đã phê duyệt.',
+    NO_APPROVED_CONTROLLED_DOCUMENT: 'Không tìm thấy tài liệu policy kiểm soát đã được phê duyệt cho ngữ cảnh này.',
+  };
+  return labels[code] || fallback;
+};
 const actionLabel = (state: QCState | undefined, lang: Lang) => {
   const code =
     state?.recommendation_code ||
@@ -396,8 +509,10 @@ export default function Home() {
       file,
       previewUrl: URL.createObjectURL(file),
       vehicleId: `UPLOAD-${Date.now().toString().slice(-6)}`,
+      vehicleModel: 'unknown_model',
       cameraId: 'cam-web-upload',
       panel: 'unknown_panel',
+      material: 'unknown_material',
     });
     setActiveRun(null);
     setLiveEvents([]);
@@ -475,8 +590,10 @@ export default function Home() {
       const form = new FormData();
       form.append('file', uploadedEvidence.file);
       form.append('vehicle_id', uploadedEvidence.vehicleId);
+      form.append('vehicle_model', uploadedEvidence.vehicleModel);
       form.append('camera_id', uploadedEvidence.cameraId);
       form.append('panel', uploadedEvidence.panel);
+      form.append('material', uploadedEvidence.material);
       const response = await fetch(`${API}/inspections/from-image`, {
         method: 'POST',
         body: form,
@@ -672,7 +789,7 @@ export default function Home() {
             </div>
           </div>
         </header>
-        <div className="content">
+        <div className={`content content-${view}`}>
           {(alertSummary?.alerts.length || 0) > 0 && view !== 'alerts' && (
             <button className="global-quality-alert" onClick={() => setView('alerts')}>
               <span>!</span>
@@ -977,8 +1094,15 @@ function InspectionStudio({
     ?.map(([x, y]) => `${(x / imageWidth) * 100}% ${(y / imageHeight) * 100}%`)
     .join(', ');
   const guide = run ? decisionGuide(run, lang) : null;
+  const policy = run?.state.policy_decision;
   const completedNodes = events.filter((event) => event.phase === 'completed').length;
-  const graphProgress = Math.min(100, Math.round((completedNodes / 7) * 100));
+  // Seven nodes exist in the graph, but conditional routes execute only the
+  // nodes required by the selected path. A completed route is therefore 100%.
+  const graphProgress = run?.status === 'COMPLETED'
+    ? 100
+    : run?.status === 'INTERRUPTED'
+      ? 85
+      : Math.min(90, completedNodes * 15);
   const evidenceImage = uploadedEvidence?.previewUrl ||
     (run?.state.image_url ? `${API}${run.state.image_url}` : '');
   const evidenceVehicle = uploadedEvidence?.vehicleId || run?.state.vehicle_id || '—';
@@ -1045,12 +1169,20 @@ function InspectionStudio({
               <input value={uploadedEvidence.vehicleId} onChange={(event) => onUpdateUpload({ vehicleId: event.target.value })} />
             </label>
             <label>
+              <small>{t('VEHICLE MODEL', 'MODEL XE')}</small>
+              <input value={uploadedEvidence.vehicleModel} onChange={(event) => onUpdateUpload({ vehicleModel: event.target.value })} />
+            </label>
+            <label>
               <small>CAMERA ID</small>
               <input value={uploadedEvidence.cameraId} onChange={(event) => onUpdateUpload({ cameraId: event.target.value })} />
             </label>
             <label>
               <small>PANEL</small>
               <input value={uploadedEvidence.panel} onChange={(event) => onUpdateUpload({ panel: event.target.value })} />
+            </label>
+            <label>
+              <small>{t('MATERIAL', 'VẬT LIỆU')}</small>
+              <input value={uploadedEvidence.material} onChange={(event) => onUpdateUpload({ material: event.target.value })} />
             </label>
             <button onClick={() => onUpload(null)} disabled={running}>×</button>
           </div>
@@ -1081,7 +1213,7 @@ function InspectionStudio({
         <article className="camera-card card">
           <header>
             <div>
-              <small>01 · VISUAL EVIDENCE</small>
+              <small>01 · {t('INSPECTION EVIDENCE', 'BẰNG CHỨNG KIỂM TRA')}</small>
               <h3>
                 {evidenceVehicle} · {evidenceModel}
               </h3>
@@ -1166,34 +1298,39 @@ function InspectionStudio({
             </>
           )}
         </article>
-        <article className="trace-card card">
-          <header>
-            <div>
-              <small>02 · LANGGRAPH LIVE TRACE</small>
-              <h3>{t('Node execution', 'Thực thi từng node')}</h3>
-            </div>
-            <div className="trace-progress">
-              <span>{run?.thread_id ? `#${run.thread_id.slice(0, 8)}` : 'READY'}</span>
-              <strong>{graphProgress}%</strong>
-            </div>
-          </header>
-          <div className="trace-meter"><i style={{ width: `${graphProgress}%` }} /></div>
-          <NodeTimeline events={events} running={running} t={t} lang={lang} />
-        </article>
         <article className="decision-card card">
           <header>
             <div>
-              <small>03 · OPERATIONAL OUTCOME</small>
-              <h3>{t('Agent decision', 'Quyết định của Agent')}</h3>
+              <small>02 · {t('QUALITY DISPOSITION', 'KẾT QUẢ & ĐIỀU PHỐI')}</small>
+              <h3>{t('QC operational decision', 'Quyết định vận hành QC')}</h3>
             </div>
-            <StatusPill run={run || undefined} t={t} />
+            {running ? (
+              <span className="status-pill agent-running-pill">
+                {t('AGENT RUNNING', 'AGENT ĐANG CHẠY')}
+              </span>
+            ) : <StatusPill run={run || undefined} t={t} />}
           </header>
-          {run ? (
+          {running ? (
+            <section className="decision-live-trace" aria-live="polite">
+              <header>
+                <div>
+                  <small>LANGGRAPH · LIVE EXECUTION</small>
+                  <b>{t('Analyzing evidence and applying QC policy', 'Đang phân tích evidence và áp dụng QC policy')}</b>
+                </div>
+                <div className="trace-progress">
+                  <span>{run?.thread_id ? `#${run.thread_id.slice(0, 8)}` : t('IN PROGRESS', 'ĐANG XỬ LÝ')}</span>
+                  <strong>{graphProgress}%</strong>
+                </div>
+              </header>
+              <div className="trace-meter"><i style={{ width: `${graphProgress}%` }} /></div>
+              <NodeTimeline events={events} running={running} t={t} lang={lang} />
+            </section>
+          ) : run ? (
             <>
               <div className={`outcome ${outcomeTone(run)}`}>
-                <small>{t('MANDATORY ACTION', 'HÀNH ĐỘNG BẮT BUỘC')}</small>
+                <small>{t('OPERATIONAL ACTION', 'HÀNH ĐỘNG VẬN HÀNH')}</small>
                 <strong>{actionLabel(run.state, lang)}</strong>
-                <p>{localizedReason(run.state, lang)}</p>
+                <p><b>{t('Plain-language explanation:', 'Giải thích dễ hiểu:')}</b> {localizedReason(run.state, lang)}</p>
               </div>
               <div className="decision-facts">
                 <Data
@@ -1226,58 +1363,121 @@ function InspectionStudio({
                   <div className="safety-gates">
                     <div className="safety-gate danger">
                       <small>{t('TEST DRIVE GATE', 'QUYỀN TEST DRIVE')}</small>
-                      <b>{guide.testDrive}</b>
+                      <b>{policy?.test_drive_allowed === false ? t('BLOCKED', 'TẠM KHÓA') : guide.testDrive}</b>
                     </div>
                     <div className="safety-gate">
                       <small>{t('RELEASE CONDITION', 'ĐIỀU KIỆN RELEASE')}</small>
-                      <b>{guide.releaseGate}</b>
+                      <b>{policy?.production_eligible
+                        ? guide.releaseGate
+                        : policy?.policy_status === 'APPROVED' && policy.approval_scope === 'DEMO_BASELINE_ONLY'
+                          ? t('Demo approved; production release remains locked', 'Đã phê duyệt demo; vẫn khóa release sản xuất')
+                          : t('Plant approval and QC sign-off required', 'Cần policy nhà máy phê duyệt và QC ký xác nhận')}</b>
                     </div>
                   </div>
-                  <section className="decision-method">
-                    <div className="section-title">
-                      <span>04</span>
+                  <details className="decision-rationale policy-disclosure">
+                    <summary>
+                      <span>DOC</span>
                       <div>
-                        <small>{t('CONTROLLED METHOD', 'PHƯƠNG PHÁP KIỂM SOÁT')}</small>
-                        <b>{t('Required execution sequence', 'Trình tự bắt buộc thực hiện')}</b>
+                        <small>{t('POLICY & AUDIT DETAILS', 'HỒ SƠ POLICY & AUDIT')}</small>
+                        <b>{policy ? `${policy.policy_id} · revision ${policy.policy_revision}` : `Thread #${run.thread_id.slice(0, 8)}`}</b>
                       </div>
-                    </div>
-                    <ol>
-                      {guide.steps.map((step, index) => (
-                        <li key={step}><span>{index + 1}</span><p>{step}</p></li>
-                      ))}
-                    </ol>
-                  </section>
-                  <div className="policy-basis">
-                    <span>i</span>
-                    <div>
-                      <small>{t('QC POLICY BASIS', 'CƠ SỞ QC POLICY')}</small>
-                      <p>{guide.policy}</p>
-                      <em>Thread #{run.thread_id.slice(0, 8)} · {t('Decision stored in SQLite audit', 'Quyết định đã lưu vào audit SQLite')}</em>
-                    </div>
-                  </div>
+                      <div className="policy-summary-meta">
+                        <i>{policy?.document_review?.matched_document_count || 0} {t('controlled documents', 'tài liệu kiểm soát')}</i>
+                        <strong>
+                          <span className="policy-open-label">{t('View dossier', 'Xem hồ sơ')}</span>
+                          <span className="policy-close-label">{t('Close dossier', 'Đóng hồ sơ')}</span>
+                        </strong>
+                      </div>
+                    </summary>
+                    {policy?.document_review ? (
+                      <div className="policy-dossier compact">
+                        <div className="policy-query-bar">
+                          <small>{t('LOOKUP CONTEXT', 'NGỮ CẢNH TRA CỨU')}</small>
+                          <div>{Object.entries(policy.document_review.query).map(([key, value]) => (
+                            <span className={value.startsWith('unknown') ? 'unknown' : ''} key={key}>
+                              <b>{pretty(key)}</b>{pretty(value)}
+                            </span>
+                          ))}</div>
+                        </div>
+                        {!!policy.document_review.warnings.length && (
+                          <div className="document-warnings">
+                            <small>{t('DOCUMENT WARNING', 'CẢNH BÁO TÀI LIỆU')}</small>
+                            {policy.document_review.warnings.map((warning, index) => (
+                              <p className={warning.severity.toLowerCase()} key={`${warning.code}-${index}`}>
+                                <b>{pretty(warning.code)}</b><span>{policyWarningLabel(warning.code, warning.message, lang)}</span>
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        <div className="evidence-matrix">
+                          <small>{t('EVIDENCE STATUS', 'TRẠNG THÁI EVIDENCE')} · {policy.document_review.missing_data.length} {t('missing', 'còn thiếu')}</small>
+                          <div>{policy.document_review.evidence_comparison.map((item) => (
+                            <span className={item.available ? 'available' : 'missing'} key={item.evidence}>
+                              <i>{item.available ? '✓' : '!'}</i>{pretty(item.evidence)}
+                            </span>
+                          ))}</div>
+                        </div>
+                        <div className="approved-checklist">
+                          <small>{t('APPROVED CHECKLIST', 'CHECKLIST ĐÃ PHÊ DUYỆT')} · {pretty(policy.document_review.checklist_status)}</small>
+                          <ol>
+                            {(policy.document_review.approved_checklist.length
+                              ? policy.document_review.approved_checklist
+                              : policy.document_review.proposed_checklist).map((step) => <li key={step}>{policyStepLabel(step, lang)}</li>)}
+                          </ol>
+                        </div>
+                        <details className="policy-details">
+                          <summary>
+                            {t('View policy conditions and citations', 'Xem điều kiện policy và trích dẫn')}
+                            <span>{policy.document_review.extracted_conditions.length} {t('conditions', 'điều kiện')} · {policy.document_review.citations.length} {t('documents', 'tài liệu')}</span>
+                          </summary>
+                          <div className="policy-detail-content">
+                            <div className="policy-conditions">
+                              <small>{t('EXTRACTED CONDITIONS', 'ĐIỀU KIỆN TRÍCH XUẤT')}</small>
+                              <ul>{policy.document_review.extracted_conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul>
+                            </div>
+                            <div className="document-citations">
+                              <small>{t('DOCUMENT CITATIONS', 'TRÍCH DẪN TÀI LIỆU')}</small>
+                              {policy.document_review.citations.length ? policy.document_review.citations.map((reference) => (
+                                <a key={reference.id} href={reference.url.startsWith('/') ? `${API}${reference.url}` : reference.url} target="_blank" rel="noreferrer">
+                                  <b>{reference.id}</b><span>{reference.title}</span>
+                                  <em>Rev. {reference.revision} · {reference.section} · {t('Effective', 'Hiệu lực')}: {reference.effective_date || t('unconfirmed', 'chưa xác nhận')}</em>
+                                </a>
+                              )) : <p>{t('No context-matched controlled document was found.', 'Không tìm thấy tài liệu kiểm soát phù hợp với ngữ cảnh.')}</p>}
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+                    ) : <p className="policy-dossier-empty">{t('Policy document review has not run.', 'Chưa thực hiện tra cứu tài liệu policy.')}</p>}
+                  </details>
                 </>
               )}
               {run.status === 'INTERRUPTED' && (
                 <div className="hitl-box">
                   <span>!</span>
                   <div>
-                    <b>{t('QC confirmation required', 'Cần QC xác nhận')}</b>
+                    <small>{t('HUMAN REVIEW CHECKPOINT', 'CHECKPOINT KIỂM DUYỆT')}</small>
+                    <b>{t('QC decision required to continue', 'Cần QC xác nhận để tiếp tục')}</b>
                     <p>
                       {t(
-                        'The graph is checkpointed. Choose an action to resume this exact thread.',
-                        'Graph đã lưu checkpoint. Chọn hành động để tiếp tục đúng thread này.',
+                        'The Agent cannot finalize this case automatically. Review the image and record your conclusion before resuming the workflow.',
+                        'Agent chưa đủ cơ sở tự động kết luận. Hãy đối chiếu ảnh và ghi nhận kết luận trước khi tiếp tục workflow.',
                       )}
                     </p>
-                    <textarea
-                      value={humanReason}
-                      onChange={(event) => setHumanReason(event.target.value)}
-                      aria-label={t('QC reason', 'Lý do QC')}
-                    />
-                    <div>
+                    <label>
+                      <span>{t('QC REVIEW NOTE', 'GHI NHẬN CỦA QC')}</span>
+                      <textarea
+                        value={humanReason}
+                        onChange={(event) => setHumanReason(event.target.value)}
+                        aria-label={t('QC reason', 'Lý do QC')}
+                        placeholder={t('Describe the visual evidence supporting your decision…', 'Mô tả evidence quan sát được để làm cơ sở quyết định…')}
+                      />
+                    </label>
+                    <div className="hitl-actions">
                       <button
                         disabled={running}
                         onClick={() => onResume('REJECT')}
                       >
+                        <small>{t('MODEL RESULT INCORRECT', 'KẾT QUẢ MODEL KHÔNG ĐÚNG')}</small>
                         {t('Reject finding', 'Không xác nhận lỗi')}
                       </button>
                       <button
@@ -1285,6 +1485,7 @@ function InspectionStudio({
                         disabled={running}
                         onClick={() => onResume('APPROVE')}
                       >
+                        <small>{t('DEFECT OBSERVED', 'ĐÃ QUAN SÁT THẤY LỖI')}</small>
                         {t('Confirm defect', 'Xác nhận lỗi')}
                       </button>
                     </div>
@@ -1431,11 +1632,50 @@ function QualityAlertsPage({
         </article>
       </section>
 
+      {!!summary?.defect_breakdown.length && (
+        <section className="defect-breakdown card">
+          <header>
+            <div>
+              <small>{t('INSPECTION HISTORY SUMMARY', 'TỔNG HỢP LỊCH SỬ KIỂM TRA')}</small>
+              <h3>{t('Defects retained in the monitoring window', 'Các lỗi ghi nhận trong cửa sổ giám sát')}</h3>
+            </div>
+            <span>{summary.findings.length} {t('findings', 'kết quả lỗi')}</span>
+          </header>
+          <div className="defect-breakdown-grid">
+            {summary.defect_breakdown.map((item) => (
+              <article key={item.defect_type}>
+                <div>
+                  <span>{pretty(item.defect_type).slice(0, 2).toUpperCase()}</span>
+                  <p><small>{t('DEFECT TYPE', 'LOẠI LỖI')}</small><b>{pretty(item.defect_type)}</b></p>
+                </div>
+                <dl>
+                  <div><dt>{t('Occurrences', 'Số lần')}</dt><dd>{item.occurrence_count}</dd></div>
+                  <div><dt>{t('Vehicles', 'Số xe')}</dt><dd>{item.affected_vehicle_count}</dd></div>
+                  <div><dt>{t('Average', 'Trung bình')}</dt><dd>{percent(item.average_confidence)}</dd></div>
+                  <div><dt>{t('Maximum', 'Cao nhất')}</dt><dd>{percent(item.maximum_confidence)}</dd></div>
+                </dl>
+                <p className="breakdown-scope">
+                  <b>{item.panels.map(pretty).join(', ')}</b>
+                  <span>{item.camera_ids.join(', ')}</span>
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {summary?.alerts.length ? (
         <section className="alert-stack">
           {summary.alerts.map((alert) => {
             const checks =
               lang === 'vi' ? alert.upstream_checks_vi : alert.upstream_checks_en;
+            const routeCounts = (alert.occurrences || []).reduce<Record<string, number>>(
+              (counts, occurrence) => ({
+                ...counts,
+                [occurrence.final_status]: (counts[occurrence.final_status] || 0) + 1,
+              }),
+              {},
+            );
             return (
               <article
                 className={`trend-alert ${alert.severity.toLowerCase()}`}
@@ -1461,14 +1701,43 @@ function QualityAlertsPage({
                   <div><small>{t('MAX CONFIDENCE', 'CONFIDENCE CAO NHẤT')}</small><b>{percent(alert.maximum_confidence)}</b></div>
                   <div><small>{t('LAST SEEN', 'LẦN CUỐI')}</small><b>{new Date(alert.last_seen).toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US')}</b></div>
                 </div>
-                <div className="affected-vehicles">
-                  <small>{t('AFFECTED VEHICLES', 'XE LIÊN QUAN')}</small>
-                  <div>
-                    {alert.affected_vehicle_ids.map((vehicle) => (
-                      <span key={vehicle}>{vehicle}</span>
-                    ))}
+                <section className="trend-analysis">
+                  <div className="trend-analysis-copy">
+                    <div className="trend-analysis-title">
+                      <span>AI</span>
+                      <p>
+                        <small>{t('AGENT TREND ANALYSIS', 'AGENT PHÂN TÍCH XU HƯỚNG')}</small>
+                        <b>{t('Consolidated signal from inspection history', 'Tín hiệu tổng hợp từ lịch sử kiểm tra')}</b>
+                      </p>
+                    </div>
+                    <p>
+                      {alert.ai_analysis
+                        ? (lang === 'vi' ? alert.ai_analysis.summary_vi : alert.ai_analysis.summary_en)
+                        : (lang === 'vi' ? alert.message_vi : alert.message_en)}
+                    </p>
+                    {!!alert.ai_analysis?.risk_flags.length && (
+                      <div className="reasoning-flags">
+                        {alert.ai_analysis.risk_flags.map((flag) => <span key={flag}>{pretty(flag)}</span>)}
+                      </div>
+                    )}
                   </div>
-                </div>
+                  <div className="trend-overview">
+                    <small>{t('AGGREGATED INSPECTION SIGNAL', 'TỔNG QUAN CÁC LẦN KIỂM TRA')}</small>
+                    <dl>
+                      <div><dt>{t('Detections', 'Lần phát hiện')}</dt><dd>{alert.occurrence_count}</dd></div>
+                      <div><dt>{t('Vehicles', 'Xe ảnh hưởng')}</dt><dd>{alert.affected_vehicle_count}</dd></div>
+                      <div><dt>{t('Observed span', 'Khoảng ghi nhận')}</dt><dd>{new Date(alert.first_seen).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US')} – {new Date(alert.last_seen).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US')}</dd></div>
+                    </dl>
+                    <div className="route-summary">
+                      <b>{t('ROUTE DISTRIBUTION', 'PHÂN BỐ ĐIỀU PHỐI')}</b>
+                      <div>
+                        {Object.entries(routeCounts).map(([route, count]) => (
+                          <span key={route}>{pretty(route)} <strong>{count}</strong></span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
                 <div className="upstream-plan">
                   <div>
                     <small>AGENT CHECK PLAN</small>
@@ -1705,6 +1974,8 @@ function StatusPill({
   );
 }
 function localizedReason(state: QCState, lang: Lang) {
+  if (state.ai_analysis)
+    return lang === 'vi' ? state.ai_analysis.summary_vi : state.ai_analysis.summary_en;
   if (lang === 'en') return state.reason || 'No reason recorded.';
   const defect =
     state.defect_type === 'dent'

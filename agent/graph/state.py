@@ -16,10 +16,12 @@ class QCState(TypedDict, total=False):
     inspection_id: str
     thread_id: str
     vehicle_id: str
+    vehicle_model: str
     image_url: str
     image_paths: list[str]
     camera_id: str
     panel: str
+    material: str
     defect_detected: bool
     defect_type: str
     confidence: float
@@ -36,6 +38,8 @@ class QCState(TypedDict, total=False):
     inference_ms: float
     inference_status: str
     severity: str
+    measurements: dict[str, float | str | bool]
+    evidence_tags: list[str]
     decision: str
     reason: str
     assessment_route: Literal["PASS", "CONFIRMED", "VERIFY", "HITL"]
@@ -45,6 +49,8 @@ class QCState(TypedDict, total=False):
     human_decision: dict[str, Any] | None
     recommendation_code: str
     recommendation: str
+    policy_decision: dict[str, Any]
+    ai_analysis: dict[str, Any]
     final_status: str
     error: str | None
     retry_count: int

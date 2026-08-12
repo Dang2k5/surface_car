@@ -50,6 +50,12 @@ test("overview introduces the project and inspection uses a focused two-column l
   assert.match(theme, /\.decision-card \{ grid-column: 1\/-1/);
 });
 
+test("completed conditional LangGraph routes show 100 percent progress", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /run\?\.status === 'COMPLETED'[\s\S]*?\? 100/);
+  assert.doesNotMatch(page, /completedNodes \/ 7/);
+});
+
 test("Gemini and frontend-authored model outputs are absent", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(page, /Gemini|agent\/explain|graphScenario|setScenario/);
@@ -79,9 +85,10 @@ test("history can clear persisted Agent traces", async () => {
 });
 
 test("repeated defect alerts notify QC and expose a DOCX report", async () => {
-  const [page, css] = await Promise.all([
+  const [page, css, workstation] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/workstation.css", import.meta.url), "utf8"),
   ]);
   assert.match(page, /Cảnh báo lặp lỗi/);
   assert.match(page, /api\/quality-alerts/);
@@ -89,8 +96,30 @@ test("repeated defect alerts notify QC and expose a DOCX report", async () => {
   assert.match(page, /QualityAlertsPage/);
   assert.match(page, /CHECK KHÂU TRƯỚC/);
   assert.match(page, /affected_vehicle_ids/);
+  assert.match(page, /TỔNG HỢP LỊCH SỬ KIỂM TRA/);
+  assert.match(page, /AGENT PHÂN TÍCH XU HƯỚNG/);
+  assert.match(page, /TỔNG QUAN CÁC LẦN KIỂM TRA/);
+  assert.doesNotMatch(page, /CÁC LẦN KIỂM TRA TẠO CẢNH BÁO/);
   assert.match(css, /\.trend-alert/);
   assert.match(css, /\.report-download/);
+  assert.match(workstation, /\.trend-analysis/);
+  assert.doesNotMatch(workstation, /\.occurrence-table/);
+});
+
+test("operational action and policy evidence dossier have distinct roles", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/workstation.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /HÀNH ĐỘNG VẬN HÀNH/);
+  assert.match(page, /HỒ SƠ POLICY & AUDIT/);
+  assert.match(page, /NGỮ CẢNH TRA CỨU/);
+  assert.match(page, /CẢNH BÁO TÀI LIỆU/);
+  assert.match(page, /Xem điều kiện policy và trích dẫn/);
+  assert.match(page, /TRÍCH DẪN TÀI LIỆU/);
+  assert.doesNotMatch(page, /KẾT LUẬN AGENT ĐỒNG NHẤT/);
+  assert.doesNotMatch(page, /COPILOT PHÂN TÍCH/);
+  assert.match(css, /\.decision-rationale/);
 });
 
 test("dashboard shows the latest uploaded run per vehicle", async () => {
@@ -108,9 +137,9 @@ test("decision panel uses Vietnamese-safe typography and detailed QC guidance", 
   ]);
   assert.match(layout, /globals\.css\?inline/);
   assert.doesNotMatch(layout, /next\/font|Noto_Sans/);
-  assert.match(page, /PHƯƠNG PHÁP KIỂM SOÁT/);
+  assert.match(page, /CHECKLIST ĐÃ PHÊ DUYỆT/);
   assert.match(page, /ĐIỀU KIỆN RELEASE/);
-  assert.match(page, /CƠ SỞ QC POLICY/);
+  assert.match(page, /HỒ SƠ POLICY & AUDIT/);
   assert.match(css, /\.decision-method/);
   assert.match(css, /\.safety-gates/);
   assert.match(css, /"Segoe UI","Noto Sans"/);
@@ -129,4 +158,61 @@ test("runtime status is placed above the LangGraph runtime divider", async () =>
   assert.match(css, /\.sidebar \.notice\{/);
   assert.match(css, /\.sidebar footer\{[^}]*border-top:/);
   assert.doesNotMatch(css, /\.notice\{position:fixed/);
+});
+
+test("all primary views use the shared wide responsive interface system", async () => {
+  const [page, layout, theme] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /content content-\$\{view\}/);
+  assert.match(layout, /interface-system\.css\?inline/);
+  assert.match(theme, /\.content-overview/);
+  assert.match(theme, /\.content-queue/);
+  assert.match(theme, /\.content-history/);
+  assert.match(theme, /\.content-alerts/);
+  assert.match(theme, /max-width: 2200px/);
+  assert.match(theme, /@media \(max-width: 760px\)/);
+});
+
+test("inspection swaps the in-panel live trace for the final QC output", async () => {
+  const [page, theme] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /<details className="decision-rationale policy-disclosure">/);
+  assert.match(page, /className="decision-live-trace"/);
+  assert.match(page, /running \? \(/);
+  assert.doesNotMatch(page, /className="trace-card card trace-disclosure"/);
+  assert.match(page, /Xem hồ sơ/);
+  assert.doesNotMatch(page, /<section className="decision-rationale">/);
+  assert.match(theme, /\.content-inspect \.camera-card \{[\s\S]*?grid-column: 1;/);
+  assert.match(theme, /\.content-inspect \.decision-card \{[\s\S]*?grid-column: 2;[\s\S]*?grid-row: 1/);
+  assert.match(theme, /\.content-inspect \.decision-live-trace/);
+});
+
+test("HITL checkpoint is a prominent and accessible QC action", async () => {
+  const [page, theme] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /CHECKPOINT KIỂM DUYỆT/);
+  assert.match(page, /className="hitl-actions"/);
+  assert.match(page, /placeholder=\{t\(/);
+  assert.match(theme, /\.content-inspect \.decision-card \.hitl-box/);
+  assert.match(theme, /min-height: 104px/);
+  assert.match(theme, /min-height: 64px/);
+});
+
+test("operational explanation is never line-clamped", async () => {
+  const theme = await readFile(
+    new URL("../app/interface-system.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    theme,
+    /\.content-inspect \.decision-card \.outcome p \{[\s\S]*?-webkit-line-clamp: unset;/,
+  );
+  assert.match(theme, /overflow-wrap: anywhere/);
 });

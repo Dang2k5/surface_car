@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field, model_validator
 class LangGraphInspectionCreate(BaseModel):
     inspection_id: str | None = None
     vehicle_id: str = Field(min_length=1, max_length=32)
+    vehicle_model: str = Field(default="unknown_model", min_length=1, max_length=100)
     image_url: str | None = None
     image_paths: list[str] = Field(default_factory=list)
     camera_id: str = Field(default="cam-fns-01", min_length=1, max_length=100)
     panel: str = Field(default="unknown_panel", min_length=1, max_length=100)
+    material: str = Field(default="unknown_material", min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def validate_image_input(self) -> LangGraphInspectionCreate:

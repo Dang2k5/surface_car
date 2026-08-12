@@ -13,6 +13,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.graph.builder import build_qc_graph
 from agent.services.detector import MockDetector
+from agent.services.policy import PolicyCatalog
+from agent.services.reasoning import DeterministicReasoningService, GroqReasoningService
 from agent.services.repository import SQLiteQCRepository
 from agent.services.verifier import MockVerifier, ModelVerifier
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
@@ -20,6 +22,7 @@ from agent.services.yolo_detector import LocalYoloSegmentationDetector
 from .config import ModelSettings
 from .database import DEFAULT_DATABASE_URL, SQLiteDatabase
 from .langgraph_api import router as langgraph_router
+from .policy_api import router as policy_router
 from .quality_alerts_api import router as quality_alerts_router
 
 load_dotenv()
@@ -65,6 +68,18 @@ async def lifespan(app: FastAPI):
     app.state.qc_checkpointer = InMemorySaver()
     app.state.qc_repository = SQLiteQCRepository(app.state.database)
     app.state.model_settings = ModelSettings.from_env()
+    app.state.qc_policy_catalog = PolicyCatalog()
+    deterministic_reasoning = DeterministicReasoningService()
+    if app.state.model_settings.reasoning_provider == "groq" and app.state.model_settings.groq_api_key:
+        app.state.qc_reasoning = GroqReasoningService(
+            api_key=app.state.model_settings.groq_api_key,
+            model=app.state.model_settings.groq_model,
+            fallback=deterministic_reasoning,
+        )
+    else:
+        if app.state.model_settings.reasoning_provider == "groq":
+            logger.warning("QC_REASONING_PROVIDER=groq but GROQ_API_KEY is missing; using deterministic reasoning")
+        app.state.qc_reasoning = deterministic_reasoning
     if app.state.model_settings.detector_provider == "local_yolo":
         app.state.qc_detector = LocalYoloSegmentationDetector(
             app.state.model_settings.model_path,
@@ -86,6 +101,8 @@ async def lifespan(app: FastAPI):
     app.state.qc_langgraph = build_qc_graph(
         detector=app.state.qc_detector,
         verifier=app.state.qc_verifier,
+        reasoning=app.state.qc_reasoning,
+        policy_catalog=app.state.qc_policy_catalog,
         repository=app.state.qc_repository,
         checkpointer=app.state.qc_checkpointer,
     )
@@ -108,6 +125,7 @@ app.add_middleware(
 )
 app.include_router(langgraph_router)
 app.include_router(quality_alerts_router)
+app.include_router(policy_router)
 
 upload_image_directory = Path(__file__).resolve().parents[2] / "data" / "uploads"
 upload_image_directory.mkdir(parents=True, exist_ok=True)
@@ -117,4 +135,5 @@ app.mount("/assets/uploads", StaticFiles(directory=upload_image_directory), name
 @app.get("/health")
 def health() -> dict[str, str]:
     provider = getattr(getattr(app.state, "model_settings", None), "detector_provider", "starting")
-    return {"status": "ok", "service": "backend", "mode": provider}
+    reasoning = type(getattr(app.state, "qc_reasoning", None)).__name__
+    return {"status": "ok", "service": "backend", "mode": provider, "reasoning": reasoning}

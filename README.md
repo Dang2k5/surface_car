@@ -25,6 +25,11 @@ Baseline MVP đã có:
   cảnh báo QC kiểm tra công đoạn phía trước, từ 5 xe là mức nghiêm trọng.
 - Màn hình `Cảnh báo lặp lỗi` cho phép tải báo cáo Word gồm evidence, danh sách
   xe liên quan và checklist xác minh khâu trước.
+- Policy catalog có revision, evidence bắt buộc và nguồn ISO/AIAG công khai;
+  catalog mặc định là `APPROVED` trong phạm vi `DEMO_BASELINE_ONLY`, không phải
+  quyền release sản xuất.
+- Groq reasoning là copilot tùy chọn: chỉ giải thích policy output bất biến và
+  tự fallback về deterministic reasoning khi API lỗi hoặc thiếu key.
 - LangGraph chạy thật với state, conditional routing, verify loop và HITL.
 - Giao diện phát lại execution trace theo đúng thứ tự node sau khi model hoàn tất.
 - Rule-based policy tạo phương pháp xử lý cụ thể và lý do có thể audit.
@@ -178,6 +183,8 @@ Swagger: `http://127.0.0.1:8000/docs`
 | POST   | `/inspections/from-image`          | Upload JPEG/PNG, chạy best.pt và LangGraph |
 | GET    | `/api/quality-alerts`              | Phân tích xu hướng lỗi lặp từ SQLite audit |
 | GET    | `/api/quality-alerts/report.docx`  | Tải báo cáo cảnh báo và kế hoạch kiểm tra |
+| GET    | `/api/policies`                    | Catalog policy, revision và nguồn tham chiếu |
+| GET    | `/api/policies/{policy_id}`        | Chi tiết một policy và nguồn kiểm soát    |
 | GET    | `/inspections/{thread_id}/state`  | Đọc checkpoint/state hiện tại             |
 | POST   | `/inspections/{thread_id}/resume` | Resume HITL                               |
 | GET    | `/agent/runs`                     | Danh sách graph run đã lưu                |
@@ -268,6 +275,9 @@ MODEL_IMAGE_SIZE=1280
 AUTO_PASS_ENABLED=false
 CONFIRMED_THRESHOLD=0.70
 VERIFY_THRESHOLD=0.40
+QC_REASONING_PROVIDER=deterministic
+GROQ_MODEL=openai/gpt-oss-20b
+# GROQ_API_KEY=gsk_...
 ENABLE_LANGSMITH_TRACING=false
 LANGSMITH_TRACING=false
 LANGCHAIN_TRACING_V2=false
@@ -348,6 +358,16 @@ lần và truyền checkpointer vào graph builder. Repository có thể impleme
 Baseline không cần LLM. Nếu sau này cần giải thích phức tạp, implement một
 `ReasoningService` riêng và chỉ dùng cho phần diễn giải. Không giao quyền release,
 safety routing hoặc tạo tự do phương pháp sửa chữa cho LLM.
+
+### Groq reasoning copilot
+
+1. Tạo project và API key tại `https://console.groq.com/keys`.
+2. Lưu key trong root `.env`; không đưa key vào frontend hoặc Git.
+3. Đặt `QC_REASONING_PROVIDER=groq` rồi khởi động lại backend.
+4. Kiểm tra `/health`: trường `reasoning` phải là `GroqReasoningService`.
+
+Groq không có quyền đổi action code, final status, test-drive gate hoặc citation
+do policy engine trả về. Chi tiết governance: `docs/POLICY_GOVERNANCE.md`.
 
 ## 14. Cấu trúc repository
 

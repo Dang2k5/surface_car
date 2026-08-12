@@ -67,10 +67,12 @@ def _initial_state(
         "thread_id": thread_id,
         "inspection_id": payload.inspection_id or str(uuid4()),
         "vehicle_id": payload.vehicle_id,
+        "vehicle_model": payload.vehicle_model,
         "image_url": payload.image_url or "",
         "image_paths": payload.image_paths,
         "camera_id": payload.camera_id,
         "panel": payload.panel,
+        "material": payload.material,
         "verify_count": 0,
         "retry_count": 0,
         "max_retries": 2,
@@ -211,6 +213,8 @@ def clear_agent_runs(request: Request) -> dict[str, Any]:
     request.app.state.qc_langgraph = build_qc_graph(
         detector=request.app.state.qc_detector,
         verifier=request.app.state.qc_verifier,
+        reasoning=request.app.state.qc_reasoning,
+        policy_catalog=request.app.state.qc_policy_catalog,
         repository=request.app.state.qc_repository,
         checkpointer=request.app.state.qc_checkpointer,
     )
@@ -246,8 +250,10 @@ def run_uploaded_image_inspection(
     request: Request,
     file: UploadFile = File(...),
     vehicle_id: str = Form(...),
+    vehicle_model: str = Form("unknown_model"),
     camera_id: str = Form("cam-fns-01"),
     panel: str = Form("unknown_panel"),
+    material: str = Form("unknown_material"),
 ) -> LangGraphRunResponse:
     """Persist a validated image locally and run the configured model-backed graph."""
     allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
@@ -277,10 +283,12 @@ def run_uploaded_image_inspection(
     payload = LangGraphInspectionCreate(
         inspection_id=inspection_id,
         vehicle_id=vehicle_id,
+        vehicle_model=vehicle_model,
         image_url=f"/assets/uploads/{relative_path.as_posix()}",
         image_paths=[str(destination)],
         camera_id=camera_id,
         panel=panel,
+        material=material,
     )
     initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
     initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()

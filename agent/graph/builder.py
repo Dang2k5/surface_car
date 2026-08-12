@@ -10,6 +10,7 @@ from agent.graph.nodes import QCNodes
 from agent.graph.routes import route_assessment
 from agent.graph.state import QCState
 from agent.services.detector import DetectorService, MockDetector
+from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import DeterministicReasoningService, ReasoningService
 from agent.services.repository import MockQCRepository, QCRepository
 from agent.services.verifier import MockVerifier, VerifierService
@@ -20,6 +21,7 @@ def build_qc_graph(
     detector: DetectorService | None = None,
     verifier: VerifierService | None = None,
     reasoning: ReasoningService | None = None,
+    policy_catalog: PolicyCatalog | None = None,
     repository: QCRepository | None = None,
     checkpointer: Any | None = None,
 ):
@@ -28,6 +30,7 @@ def build_qc_graph(
         detector=detector or MockDetector(),
         verifier=verifier or MockVerifier(),
         reasoning=reasoning or DeterministicReasoningService(),
+        policy_catalog=policy_catalog or PolicyCatalog(),
         repository=repository or MockQCRepository(),
     )
     builder = StateGraph(QCState)

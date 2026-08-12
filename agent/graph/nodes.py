@@ -6,6 +6,7 @@ from langgraph.types import interrupt
 
 from agent.graph.state import QCState, TraceEvent
 from agent.services.detector import DetectorService
+from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import ReasoningService
 from agent.services.repository import QCRepository
 from agent.services.verifier import VerifierService
@@ -21,11 +22,13 @@ class QCNodes:
         detector: DetectorService,
         verifier: VerifierService,
         reasoning: ReasoningService,
+        policy_catalog: PolicyCatalog,
         repository: QCRepository,
     ) -> None:
         self.detector = detector
         self.verifier = verifier
         self.reasoning = reasoning
+        self.policy_catalog = policy_catalog
         self.repository = repository
 
     def prepare_input(self, state: QCState) -> dict[str, Any]:
@@ -115,12 +118,20 @@ class QCNodes:
             route = "HITL"
             decision = "HUMAN_REVIEW_REQUIRED"
             reason = "Confidence is below the safe automation threshold."
+        policy = self.policy_catalog.evaluate(state)
+        review = policy.document_review
         return {
             "assessment_route": route,
             "decision": decision,
             "reason": reason,
             "human_required": route == "HITL",
-            "execution_trace": _trace("assess_result", f"Route={route}. {reason}"),
+            "policy_decision": policy.model_dump(mode="json"),
+            "execution_trace": _trace(
+                "assess_result",
+                f"Route={route}. Policy lookup matched {review.matched_document_count} controlled "
+                f"document(s), found {len(review.missing_data)} missing evidence item(s), and "
+                f"raised {len(review.warnings)} document-control warning(s).",
+            ),
         }
 
     def verify_defect(self, state: QCState) -> dict[str, Any]:
@@ -161,51 +172,31 @@ class QCNodes:
         }
 
     def generate_recommendation(self, state: QCState) -> dict[str, Any]:
+        policy = self.policy_catalog.evaluate(state)
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()
         override = (state.get("human_decision") or {}).get("recommendation")
-        if human_action == "REJECT":
-            recommendation_code = "MANUAL_VISUAL_REINSPECTION"
-            final_status = "HOLD_FOR_QC"
-        elif human_action == "OVERRIDE" and override:
-            recommendation_code = str(override)
-            final_status = "HUMAN_OVERRIDE_APPLIED"
-        elif state.get("defect_type") == "scratch":
-            recommendation_code = "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT"
-            final_status = "HOLD_FOR_QC"
-        elif state.get("defect_type") == "glass_shatter":
-            recommendation_code = "ISOLATE_FOR_GLASS_REPAIR"
-            final_status = "HOLD_FOR_REWORK"
-        elif state.get("defect_type") == "lamp_broken":
-            recommendation_code = "ISOLATE_FOR_LIGHTING_REPAIR"
-            final_status = "HOLD_FOR_REWORK"
-        elif state.get("defect_type") == "tire_flat":
-            recommendation_code = "IMMOBILIZE_FOR_TIRE_SERVICE"
-            final_status = "HOLD_FOR_REWORK"
-        else:
-            recommendation_code = "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT"
-            final_status = "HOLD_FOR_REWORK"
-        recommendation_labels = {
-            "MANUAL_VISUAL_REINSPECTION": "Keep the vehicle on hold and perform a new manual visual inspection",
-            "SURFACE_POLISH_AND_REINSPECT": "Polish the affected surface and perform a documented reinspection",
-            "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT": "Hold for controlled surface assessment and documented reinspection",
-            "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT": "Hold the vehicle and transfer it to Body Repair for technical assessment",
-            "ISOLATE_FOR_GLASS_REPAIR": "Hold the vehicle and transfer it for glass damage assessment",
-            "ISOLATE_FOR_LIGHTING_REPAIR": "Hold the vehicle and transfer it for lighting system repair",
-            "IMMOBILIZE_FOR_TIRE_SERVICE": "Immobilize the vehicle and transfer it for tire service",
-        }
-        recommendation = recommendation_labels.get(
-            recommendation_code,
-            recommendation_code.replace("_", " ").strip().title(),
-        )
-        reason = self.reasoning.explain(state, recommendation_code)
+        if human_action == "OVERRIDE" and override:
+            policy = policy.model_copy(
+                update={
+                    "action_code": str(override),
+                    "action_label": str(override).replace("_", " ").strip().title(),
+                    "final_status": "HUMAN_OVERRIDE_APPLIED",
+                    "production_eligible": False,
+                }
+            )
+        analysis = self.reasoning.analyze(state, policy)
         return {
-            "recommendation_code": recommendation_code,
-            "recommendation": recommendation,
-            "final_status": final_status,
-            "reason": reason,
+            "recommendation_code": policy.action_code,
+            "recommendation": policy.action_label,
+            "final_status": policy.final_status,
+            "reason": analysis.summary_en,
+            "human_required": policy.human_required,
+            "policy_decision": policy.model_dump(mode="json"),
+            "ai_analysis": analysis.model_dump(mode="json"),
             "execution_trace": _trace(
                 "generate_recommendation",
-                f"Selected action code {recommendation_code} using deterministic QC rules.",
+                f"Policy {policy.policy_id}@{policy.policy_revision} selected "
+                f"{policy.action_code}; reasoning={analysis.provider}.",
             ),
         }
 

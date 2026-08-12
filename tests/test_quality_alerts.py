@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from io import BytesIO
+from zipfile import ZipFile
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -38,6 +41,9 @@ async def test_repeated_defect_alert_threshold_and_docx_download(tmp_path, monke
             assert response.status_code == 200
             summary = response.json()
             assert summary["analyzed_inspections"] == 3
+            assert summary["defect_breakdown"][0]["defect_type"] == "dent"
+            assert summary["defect_breakdown"][0]["occurrence_count"] == 3
+            assert len(summary["findings"]) == 3
             assert len(summary["alerts"]) == 1
             alert = summary["alerts"][0]
             assert alert["severity"] == "WARNING"
@@ -45,7 +51,17 @@ async def test_repeated_defect_alert_threshold_and_docx_download(tmp_path, monke
             assert alert["panel"] == "front_door_outer"
             assert alert["camera_id"] == "cam-upstream-01"
             assert alert["affected_vehicle_count"] == 3
+            assert len(alert["occurrences"]) == 3
+            assert {item["inspection_id"] for item in alert["occurrences"]}
+            assert {item["vehicle_id"] for item in alert["occurrences"]} == {
+                "TREND-CAR-001",
+                "TREND-CAR-002",
+                "TREND-CAR-003",
+            }
             assert "công đoạn phía trước" in alert["message_vi"]
+            assert alert["policy_decision"]["policy_id"] == "FNS-TREND-001"
+            assert alert["policy_decision"]["production_eligible"] is False
+            assert alert["ai_analysis"]["provider"] == "deterministic"
 
             report = await client.get("/api/quality-alerts/report.docx")
             assert report.status_code == 200
@@ -55,6 +71,11 @@ async def test_repeated_defect_alert_threshold_and_docx_download(tmp_path, monke
             assert "attachment" in report.headers["content-disposition"]
             assert report.content.startswith(b"PK")
             assert len(report.content) > 10_000
+            with ZipFile(BytesIO(report.content)) as archive:
+                report_xml = archive.read("word/document.xml").decode("utf-8")
+            assert "Defect summary from inspection history" in report_xml
+            assert "Inspection-level findings" in report_xml
+            assert "TREND-CAR-003" in report_xml
 
 
 @pytest.mark.asyncio

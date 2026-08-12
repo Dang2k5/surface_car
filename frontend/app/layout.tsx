@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import globalStyles from "./globals.css?inline";
 import workstationStyles from "./workstation.css?inline";
+import interfaceStyles from "./interface-system.css?inline";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -30,6 +31,7 @@ export default function RootLayout({
       <head>
         <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
         <style dangerouslySetInnerHTML={{ __html: workstationStyles }} />
+        <style dangerouslySetInnerHTML={{ __html: interfaceStyles }} />
       </head>
       <body>
         {children}

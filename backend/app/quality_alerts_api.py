@@ -15,7 +15,11 @@ router = APIRouter(prefix="/api/quality-alerts", tags=["Quality trend alerts"])
 
 
 def _summary(request: Request, window_hours: int, minimum_occurrences: int) -> QualityAlertSummary:
-    service = RepetitionAlertService(request.app.state.qc_repository)
+    service = RepetitionAlertService(
+        request.app.state.qc_repository,
+        request.app.state.qc_policy_catalog,
+        request.app.state.qc_reasoning,
+    )
     return service.analyze(
         window_hours=window_hours,
         minimum_occurrences=minimum_occurrences,

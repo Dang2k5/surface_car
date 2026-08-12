@@ -21,10 +21,12 @@ def run_scenario(scenario: str):
             "thread_id": thread_id,
             "inspection_id": str(uuid4()),
             "vehicle_id": f"TEST-{scenario}",
+            "vehicle_model": "SUV_EV_2026",
             "image_url": IMAGE_URL,
             "image_paths": [],
             "camera_id": "cam-test",
             "panel": "door_panel",
+            "material": "ordinary_steel",
             "mock_scenario": scenario,
             "execution_trace": [],
         },
@@ -71,6 +73,9 @@ def test_high_confidence_defect_generates_recommendation():
     assert result["recommendation_code"] == "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT"
     assert result["recommendation"] == "Hold the vehicle and transfer it to Body Repair for technical assessment"
     assert "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT" not in result["reason"]
+    assert result["policy_decision"]["policy_id"] == "FNS-GEOMETRY-001"
+    assert result["policy_decision"]["production_eligible"] is False
+    assert result["ai_analysis"]["provider"] == "deterministic"
     assert repository.get(thread_id)["final_status"] == "HOLD_FOR_REWORK"
 
 
@@ -80,6 +85,7 @@ def test_medium_confidence_verifies_once_then_confirms():
     assert result["verify_result"] == "CONFIRMED"
     assert result["recommendation_code"] == "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT"
     assert result["recommendation"] == "Hold for controlled surface assessment and documented reinspection"
+    assert result["policy_decision"]["policy_id"] == "FNS-SURFACE-001"
     trace_nodes = [event["node"] for event in result["execution_trace"]]
     assert trace_nodes.count("verify_defect") == 1
     assert trace_nodes.count("assess_result") == 2
@@ -89,6 +95,13 @@ def test_uncertain_verification_interrupts_and_resumes_hitl():
     graph, repository, thread_id, config, result = run_scenario("verify_uncertain")
     assert result["verify_count"] == 2
     assert result["human_required"] is True
+    assert result["policy_decision"]["document_review"]["query"] == {
+        "vehicle_model": "SUV_EV_2026",
+        "panel": "door_panel",
+        "material": "ordinary_steel",
+        "defect_type": "dent",
+    }
+    assert result["policy_decision"]["document_review"]["approved_checklist"]
     assert result["__interrupt__"][0].value["type"] == "visual_qc_review"
     assert repository.get(thread_id) is None
 
