@@ -8,7 +8,7 @@ from langgraph.types import Command
 from agent.graph.builder import build_qc_graph
 from agent.services.repository import MockQCRepository
 
-IMAGE_URL = "/assets/train/21_PNG.rf.cc6bbeaaba838656af9d4945bddc1129.jpg"
+IMAGE_URL = "/test-fixtures/inspection.jpg"
 
 
 def run_scenario(scenario: str):
@@ -42,6 +42,28 @@ def test_no_defect_routes_to_pass_and_save():
     assert repository.get(thread_id)["final_status"] == "PASS"
 
 
+def test_pilot_no_detection_routes_to_hitl_instead_of_auto_pass():
+    repository = MockQCRepository()
+    graph = build_qc_graph(repository=repository, checkpointer=InMemorySaver())
+    thread_id = str(uuid4())
+    result = graph.invoke(
+        {
+            "thread_id": thread_id,
+            "inspection_id": str(uuid4()),
+            "vehicle_id": "TEST-PILOT-NO-DETECTION",
+            "image_url": IMAGE_URL,
+            "camera_id": "cam-test",
+            "panel": "door_panel",
+            "mock_scenario": "no_defect",
+            "auto_pass_enabled": False,
+            "execution_trace": [],
+        },
+        config={"configurable": {"thread_id": thread_id}},
+    )
+    assert result["decision"] == "NO_DETECTION_REVIEW_REQUIRED"
+    assert result["__interrupt__"][0].value["type"] == "visual_qc_review"
+
+
 def test_high_confidence_defect_generates_recommendation():
     _, repository, thread_id, _, result = run_scenario("high_confidence")
     assert result["decision"] == "DEFECT_CONFIRMED"
@@ -56,8 +78,8 @@ def test_medium_confidence_verifies_once_then_confirms():
     _, _, _, _, result = run_scenario("medium_confirmed")
     assert result["verify_count"] == 1
     assert result["verify_result"] == "CONFIRMED"
-    assert result["recommendation_code"] == "SURFACE_POLISH_AND_REINSPECT"
-    assert result["recommendation"] == "Polish the affected surface and perform a documented reinspection"
+    assert result["recommendation_code"] == "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT"
+    assert result["recommendation"] == "Hold for controlled surface assessment and documented reinspection"
     trace_nodes = [event["node"] for event in result["execution_trace"]]
     assert trace_nodes.count("verify_defect") == 1
     assert trace_nodes.count("assess_result") == 2

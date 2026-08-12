@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
@@ -54,8 +57,13 @@ def _snapshot_interrupt(snapshot: Any) -> dict[str, Any] | None:
     return None
 
 
-def _initial_state(payload: LangGraphInspectionCreate, thread_id: str) -> QCState:
-    return {
+def _initial_state(
+    payload: LangGraphInspectionCreate,
+    thread_id: str,
+    settings: Any,
+) -> QCState:
+    is_mock = settings.detector_provider == "mock"
+    state: QCState = {
         "thread_id": thread_id,
         "inspection_id": payload.inspection_id or str(uuid4()),
         "vehicle_id": payload.vehicle_id,
@@ -63,13 +71,28 @@ def _initial_state(payload: LangGraphInspectionCreate, thread_id: str) -> QCStat
         "image_paths": payload.image_paths,
         "camera_id": payload.camera_id,
         "panel": payload.panel,
-        "mock_scenario": payload.mock_scenario,
-        "mock_detection": payload.mock_detection or {},
         "verify_count": 0,
         "retry_count": 0,
         "max_retries": 2,
+        "auto_pass_enabled": True if is_mock else settings.auto_pass_enabled,
+        "confirmed_threshold": 0.85 if is_mock else settings.confirmed_threshold,
+        "verify_threshold": 0.50 if is_mock else settings.verify_threshold,
         "execution_trace": [],
     }
+    if is_mock:
+        marker = (payload.image_url or "").lower()
+        scenarios = (
+            "no_defect",
+            "high_confidence",
+            "medium_confirmed",
+            "verify_uncertain",
+            "low_confidence",
+        )
+        state["mock_scenario"] = next(
+            (scenario for scenario in scenarios if scenario in marker),
+            "high_confidence",
+        )
+    return state
 
 
 def _save_waiting_state(request: Request, state: dict[str, Any]) -> None:
@@ -84,7 +107,7 @@ def run_langgraph_inspection(
 ) -> LangGraphRunResponse:
     graph = request.app.state.qc_langgraph
     thread_id = str(uuid4())
-    initial_state = _initial_state(payload, thread_id)
+    initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
     result = graph.invoke(initial_state, config=_config(thread_id))
     response = _graph_response(graph, thread_id, result)
     if response.status == "INTERRUPTED":
@@ -98,7 +121,7 @@ def stream_langgraph_inspection(request: Request, payload: LangGraphInspectionCr
     """Stream one NDJSON event per executed LangGraph node, followed by final state."""
     graph = request.app.state.qc_langgraph
     thread_id = str(uuid4())
-    initial_state = _initial_state(payload, thread_id)
+    initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
 
     def generate():
         try:
@@ -186,6 +209,8 @@ def clear_agent_runs(request: Request) -> dict[str, Any]:
     deleted = request.app.state.qc_repository.clear()
     request.app.state.qc_checkpointer = InMemorySaver()
     request.app.state.qc_langgraph = build_qc_graph(
+        detector=request.app.state.qc_detector,
+        verifier=request.app.state.qc_verifier,
         repository=request.app.state.qc_repository,
         checkpointer=request.app.state.qc_checkpointer,
     )
@@ -209,3 +234,59 @@ def get_agent_graph(request: Request) -> AgentGraphResponse:
         ],
         checkpointer=type(request.app.state.qc_checkpointer).__name__,
     )
+
+
+@router.post("/inspections/from-image", response_model=LangGraphRunResponse, status_code=201)
+@router.post(
+    "/api/langgraph/inspections/from-image",
+    response_model=LangGraphRunResponse,
+    status_code=201,
+)
+def run_uploaded_image_inspection(
+    request: Request,
+    file: UploadFile = File(...),
+    vehicle_id: str = Form(...),
+    camera_id: str = Form("cam-fns-01"),
+    panel: str = Form("unknown_panel"),
+) -> LangGraphRunResponse:
+    """Persist a validated image locally and run the configured model-backed graph."""
+    allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=415, detail="Only JPEG and PNG images are accepted")
+    data = file.file.read(15 * 1024 * 1024 + 1)
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty")
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image exceeds the 15 MB limit")
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            image.verify()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid image") from error
+
+    thread_id = str(uuid4())
+    inspection_id = str(uuid4())
+    suffix = allowed_types[file.content_type]
+    relative_path = Path(inspection_id) / f"original{suffix}"
+    upload_root = Path(__file__).resolve().parents[2] / "data" / "uploads"
+    destination = upload_root / relative_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(data)
+    payload = LangGraphInspectionCreate(
+        inspection_id=inspection_id,
+        vehicle_id=vehicle_id,
+        image_url=f"/assets/uploads/{relative_path.as_posix()}",
+        image_paths=[str(destination)],
+        camera_id=camera_id,
+        panel=panel,
+    )
+    initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
+    initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()
+    graph = request.app.state.qc_langgraph
+    result = graph.invoke(initial_state, config=_config(thread_id))
+    response = _graph_response(graph, thread_id, result)
+    if response.status == "INTERRUPTED":
+        _save_waiting_state(request, response.state)
+    return response

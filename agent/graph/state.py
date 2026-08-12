@@ -25,6 +25,16 @@ class QCState(TypedDict, total=False):
     confidence: float
     bbox: dict[str, float] | None
     segmentation_result: dict[str, Any] | None
+    detections: list[dict[str, Any]]
+    raw_class_name: str | None
+    image_width: int
+    image_height: int
+    image_sha256: str | None
+    model_name: str
+    model_version: str
+    model_task: str
+    inference_ms: float
+    inference_status: str
     severity: str
     decision: str
     reason: str
@@ -39,6 +49,8 @@ class QCState(TypedDict, total=False):
     error: str | None
     retry_count: int
     max_retries: int
+    auto_pass_enabled: bool
+    confirmed_threshold: float
+    verify_threshold: float
     mock_scenario: str
-    mock_detection: dict[str, Any]
     execution_trace: Annotated[list[TraceEvent], operator.add]

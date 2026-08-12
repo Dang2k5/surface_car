@@ -3,7 +3,7 @@
 ## 0. Trạng thái baseline hiện tại (cập nhật mới nhất)
 
 Baseline MVP hiện tại đã tích hợp FastAPI + SQLite + LangGraph, nhưng vẫn giữ
-detector/verifier và policy ở dạng mock deterministic trước khi đưa model CV thật
+detector/verifier đã dùng model local `best.pt`; test doubles deterministic chỉ còn trong automated tests
 vào. Output nghiệp vụ không dùng Plan A/Plan B; Agent trả phương pháp cụ thể,
 reason và trạng thái routing. LangGraph chạy theo các node:
 
@@ -68,7 +68,7 @@ MVP phải demo được một luồng hoàn chỉnh từ ảnh đầu vào đ�
 Phạm vi MVP ưu tiên:
 
 - Hai loại lỗi chính: `scratch` và `dent`.
-- Dữ liệu ảnh và kết quả CV có thể là mock.
+- Dữ liệu ảnh production phải do QC upload; kết quả CV do model trả về.
 - Có các trạng thái `PASS`, `PLAN_A`, `PLAN_B`, `HITL_REQUIRED`.
 - Có rule engine đánh giá lỗi.
 - Có LangGraph điều phối `detect → classify → decide → HITL`.
@@ -164,7 +164,7 @@ Không được tự động cho test drive khi thiếu dữ liệu quan trọng
 
 Các node dự kiến:
 
-- `detect_node`: gọi CV service hoặc mock detector.
+- `detect_node`: gọi `LocalYoloSegmentationDetector` trong runtime production.
 - `classify_node`: phân loại lỗi và tra cứu domain data.
 - `validate_node`: kiểm tra độ tin cậy và tính đầy đủ của dữ liệu.
 - `decide_node`: áp dụng decision rules.
@@ -247,13 +247,13 @@ API hiện có:
 
 ```text
 GET  /health
-POST /api/mock/seed
-POST /api/inspections
-GET  /api/inspections
-GET  /api/inspections/{inspection_id}
+POST /inspections/from-image
+GET  /agent/runs
+DELETE /agent/runs
+GET  /api/quality-alerts
 ```
 
-Baseline đang dùng SQLite local, mock detector/verifier, LangGraph và frontend
+Baseline đang dùng SQLite local, `best.pt`, ModelVerifier, LangGraph và frontend
 workstation. Chưa tích hợp model CV thật, PostgreSQL checkpointer hoặc MinIO.
 
 ## 12. Checkpoints phát triển

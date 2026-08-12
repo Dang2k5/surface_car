@@ -38,6 +38,7 @@ data/
 # Logs
 logs/
 *.log
+runs/
 
 # Test coverage
 htmlcov/

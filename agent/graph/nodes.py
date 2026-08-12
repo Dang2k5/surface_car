@@ -45,22 +45,56 @@ class QCNodes:
         }
 
     def detect_defect(self, state: QCState) -> dict[str, Any]:
-        detection = self.detector.detect(state)
+        try:
+            detection = self.detector.detect(state)
+        except Exception as error:
+            return {
+                "defect_detected": False,
+                "defect_type": "unknown",
+                "confidence": 0.0,
+                "bbox": None,
+                "segmentation_result": None,
+                "detections": [],
+                "inference_status": "ERROR",
+                "error": str(error),
+                "execution_trace": _trace(
+                    "detect_defect",
+                    f"Model inference failed safely: {error}",
+                    "FAILED",
+                ),
+            }
         detected = bool(detection.get("defect_detected"))
+        model_name = str(detection.get("model_name") or type(self.detector).__name__)
         return {
             **detection,
             "execution_trace": _trace(
                 "detect_defect",
-                f"Mock detector returned defect_detected={detected}, "
-                f"confidence={float(detection.get('confidence', 0.0)):.2f}.",
+                f"{model_name} returned defect_detected={detected}, "
+                f"confidence={float(detection.get('confidence', 0.0)):.2f}, "
+                f"detections={len(detection.get('detections', []))}.",
             ),
         }
 
     def assess_result(self, state: QCState) -> dict[str, Any]:
-        if not state.get("defect_detected", False):
+        confidence = float(state.get("confidence", 0.0))
+        confirmed_threshold = float(state.get("confirmed_threshold", 0.85))
+        verify_threshold = float(state.get("verify_threshold", 0.50))
+        if state.get("inference_status") == "ERROR":
+            route = "HITL"
+            decision = "MODEL_ERROR_REVIEW_REQUIRED"
+            reason = "Model inference failed; fail-safe QC review is required."
+        elif not state.get("defect_detected", False) and not state.get("auto_pass_enabled", True):
+            route = "HITL"
+            decision = "NO_DETECTION_REVIEW_REQUIRED"
+            reason = "Pilot mode blocks automatic PASS when the model returns no detection."
+        elif not state.get("defect_detected", False):
             route = "PASS"
             decision = "PASS"
             reason = "No body-panel defect was detected."
+        elif state.get("defect_type") == "unknown":
+            route = "HITL"
+            decision = "UNKNOWN_CLASS_REVIEW_REQUIRED"
+            reason = "The model returned a class that is not mapped to the QC taxonomy."
         elif state.get("verify_result") == "CONFIRMED":
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
@@ -69,11 +103,11 @@ class QCNodes:
             route = "HITL"
             decision = "HUMAN_REVIEW_REQUIRED"
             reason = "Verification remained uncertain after the maximum two passes."
-        elif state.get("confidence", 0.0) >= 0.85:
+        elif confidence >= confirmed_threshold:
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
             reason = "Detector confidence meets the automatic-confirmation threshold."
-        elif state.get("confidence", 0.0) >= 0.50:
+        elif confidence >= verify_threshold:
             route = "VERIFY"
             decision = "VERIFY_REQUIRED"
             reason = "The result is ambiguous and requires a second-pass verification."
@@ -135,16 +169,29 @@ class QCNodes:
         elif human_action == "OVERRIDE" and override:
             recommendation_code = str(override)
             final_status = "HUMAN_OVERRIDE_APPLIED"
-        elif state.get("defect_type") == "scratch" and state.get("severity") in {"C", "D"}:
-            recommendation_code = "SURFACE_POLISH_AND_REINSPECT"
-            final_status = "CONTROLLED_REPAIR"
+        elif state.get("defect_type") == "scratch":
+            recommendation_code = "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT"
+            final_status = "HOLD_FOR_QC"
+        elif state.get("defect_type") == "glass_shatter":
+            recommendation_code = "ISOLATE_FOR_GLASS_REPAIR"
+            final_status = "HOLD_FOR_REWORK"
+        elif state.get("defect_type") == "lamp_broken":
+            recommendation_code = "ISOLATE_FOR_LIGHTING_REPAIR"
+            final_status = "HOLD_FOR_REWORK"
+        elif state.get("defect_type") == "tire_flat":
+            recommendation_code = "IMMOBILIZE_FOR_TIRE_SERVICE"
+            final_status = "HOLD_FOR_REWORK"
         else:
             recommendation_code = "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT"
             final_status = "HOLD_FOR_REWORK"
         recommendation_labels = {
             "MANUAL_VISUAL_REINSPECTION": "Keep the vehicle on hold and perform a new manual visual inspection",
             "SURFACE_POLISH_AND_REINSPECT": "Polish the affected surface and perform a documented reinspection",
+            "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT": "Hold for controlled surface assessment and documented reinspection",
             "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT": "Hold the vehicle and transfer it to Body Repair for technical assessment",
+            "ISOLATE_FOR_GLASS_REPAIR": "Hold the vehicle and transfer it for glass damage assessment",
+            "ISOLATE_FOR_LIGHTING_REPAIR": "Hold the vehicle and transfer it for lighting system repair",
+            "IMMOBILIZE_FOR_TIRE_SERVICE": "Immobilize the vehicle and transfer it for tire service",
         }
         recommendation = recommendation_labels.get(
             recommendation_code,

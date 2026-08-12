@@ -1,62 +1,57 @@
 # Visual QC Agent — FNS Baseline MVP
 
-Visual QC Agent là hệ thống demo kiểm tra chất lượng bề mặt thân vỏ xe tại trạm
+Visual QC Agent là hệ thống pilot kiểm tra chất lượng bề mặt thân vỏ xe tại trạm
 FNS. Phiên bản hiện tại tập trung vào một baseline có thể chạy end-to-end:
 
 ```text
-Ảnh kiểm tra → CV mock → LangGraph → policy QC → verify/HITL → SQLite → UI
+Ảnh upload → best.pt segmentation → LangGraph → verify/HITL → SQLite → UI
 ```
 
 Backend dùng FastAPI, Agent được điều phối bằng LangGraph, dữ liệu kết quả được
 lưu trong SQLite và frontend là dashboard Next.js/React song ngữ Việt–Anh.
 
-> Đây là bản demo kỹ thuật. Các annotation, confidence, GD&T, severity, giới hạn
-> đo và phương pháp xử lý hiện là dữ liệu mô phỏng, chưa phải tiêu chuẩn được nhà
-> máy phê duyệt và không được dùng để quyết định release xe sản xuất.
+> Đây là bản pilot kỹ thuật. Kết quả CV đến từ `best.pt`; policy xử lý vẫn chưa
+> phải tiêu chuẩn được nhà máy phê duyệt và không được dùng để tự động release xe
+> sản xuất.
 
 ## 1. Trạng thái hiện tại
 
 Baseline MVP đã có:
 
-- 8 case có ảnh thật trong `data/train` để mô phỏng các nhánh LangGraph.
-- Payload detection theo cấu trúc YOLO: class, confidence, `xyxy` bbox và metadata.
+- Model segmentation `data/best.pt` chạy inference thật với 6 class: crack, dent,
+  glass shatter, lamp broken, scratch và tire flat.
+- Giao diện chạy upload-only: QC tải JPEG/PNG, backend chạy model và hiển thị kết quả.
+- Agent theo dõi lỗi lặp theo loại lỗi + panel + camera; từ 3 xe trong 24 giờ sẽ
+  cảnh báo QC kiểm tra công đoạn phía trước, từ 5 xe là mức nghiêm trọng.
+- Màn hình `Cảnh báo lặp lỗi` cho phép tải báo cáo Word gồm evidence, danh sách
+  xe liên quan và checklist xác minh khâu trước.
 - LangGraph chạy thật với state, conditional routing, verify loop và HITL.
-- Stream tiến trình từng node về giao diện bằng NDJSON.
+- Giao diện phát lại execution trace theo đúng thứ tự node sau khi model hoàn tất.
 - Rule-based policy tạo phương pháp xử lý cụ thể và lý do có thể audit.
-- SQLite lưu inspection, detection, classification, decision, HITL và graph run.
-- Giao diện Việt–Anh để chạy case, theo dõi node, xử lý HITL và xem lịch sử.
-- API xóa lịch sử Agent mà không xóa ảnh nguồn hoặc định nghĩa case.
+- SQLite lưu state cuối của LangGraph theo mỗi xe/thread.
+- Giao diện Việt–Anh để upload evidence, theo dõi node, xử lý HITL và xem lịch sử.
+- API xóa lịch sử Agent nhưng không xóa evidence đã upload.
 
 Chưa có trong baseline:
 
-- YOLO/segmentation model thật.
 - LLM hoặc Gemini/OpenAI API.
 - GD&T, work instruction và policy production đã được nhà máy phê duyệt.
 - PostgreSQL checkpointer, MinIO/S3 và Phoenix monitoring.
 
-## 2. Mock hoạt động như thế nào?
+## 2. Model pilot hoạt động như thế nào?
 
-Mỗi ảnh demo được gắn một annotation mô phỏng trong
-`backend/app/simulation_cases.py`, gồm:
-
-- loại lỗi;
-- confidence;
-- bounding box;
-- panel/camera;
-- severity;
-- profile xác minh dự kiến.
-
-Frontend gửi `image_url` cùng `mock_detection` vào API. `MockDetector` trả payload
-có contract giống adapter YOLO, sau đó LangGraph xử lý payload đó như một kết quả
-CV thật. Phần orchestration, loop, checkpoint, HITL, policy và persistence đều chạy
-thật; chỉ detection/verifier là mock.
+Frontend chỉ gửi ảnh, Vehicle ID, camera và panel. Backend lưu evidence tại
+`data/uploads`, chạy `best.pt`, chuẩn hóa boxes/masks của Ultralytics vào `QCState`,
+sau đó LangGraph điều phối verify, HITL và recommendation. Trong pilot,
+`AUTO_PASS_ENABLED=false`: model không phát hiện lỗi vẫn phải chuyển QC để tránh
+false-negative dẫn đến tự động release.
 
 ## 3. Kiến trúc
 
 ```text
 frontend/
   Next.js/React workstation
-       │ HTTP + NDJSON stream
+       │ multipart upload + HTTP
        ▼
 backend/
   FastAPI routes + validation
@@ -64,8 +59,8 @@ backend/
        ▼
 agent/
   LangGraph state machine
-  ├── DetectorService  → MockDetector hiện tại / YOLO adapter tương lai
-  ├── VerifierService  → mock second pass / camera-model second pass tương lai
+  ├── DetectorService  → LocalYoloSegmentationDetector(best.pt)
+  ├── VerifierService  → model second pass
   ├── ReasoningService → deterministic formatter, không gọi LLM
   └── QCRepository     → SQLite hiện tại / PostgreSQL tương lai
        │
@@ -165,12 +160,6 @@ Database mặc định: `data/visual_qc.db`.
 
 | Table              | Nội dung                                             |
 | ------------------ | ---------------------------------------------------- |
-| `inspections`      | Vehicle, station, ảnh nguồn và trạng thái inspection |
-| `defects`          | Class CV, confidence, camera, bbox và model metadata |
-| `classifications`  | Panel, material, GD&T mock, measurement và severity  |
-| `decisions`        | Recommendation, route, policy refs và method steps   |
-| `hitl_reviews`     | Reviewer, action, lý do và quyết định cuối           |
-| `workflow_runs`    | Audit JSON của baseline workflow tương thích API cũ  |
 | `agent_graph_runs` | State cuối của LangGraph theo `thread_id`            |
 
 `InMemorySaver` giữ checkpoint đang chạy hoặc đang chờ HITL. SQLite giữ kết quả
@@ -186,26 +175,16 @@ Swagger: `http://127.0.0.1:8000/docs`
 | ------ | --------------------------------- | ----------------------------------------- |
 | POST   | `/inspections`                    | Bắt đầu graph thread                      |
 | POST   | `/inspections/stream`             | Chạy inspection và stream từng node       |
+| POST   | `/inspections/from-image`          | Upload JPEG/PNG, chạy best.pt và LangGraph |
+| GET    | `/api/quality-alerts`              | Phân tích xu hướng lỗi lặp từ SQLite audit |
+| GET    | `/api/quality-alerts/report.docx`  | Tải báo cáo cảnh báo và kế hoạch kiểm tra |
 | GET    | `/inspections/{thread_id}/state`  | Đọc checkpoint/state hiện tại             |
 | POST   | `/inspections/{thread_id}/resume` | Resume HITL                               |
 | GET    | `/agent/runs`                     | Danh sách graph run đã lưu                |
-| DELETE | `/agent/runs`                     | Xóa trace/history, giữ nguyên ảnh và case |
+| DELETE | `/agent/runs`                     | Xóa trace/history, giữ nguyên ảnh upload  |
 | GET    | `/agent/graph`                    | Trả Mermaid từ graph thật                 |
 
 Các alias `/api/langgraph/...` và `/api/agent/...` cũng được hỗ trợ.
-
-### Baseline/mock API
-
-| Method | Endpoint                                 | Mục đích                            |
-| ------ | ---------------------------------------- | ----------------------------------- |
-| POST   | `/api/mock/seed?reset=true`              | Reset và seed 8 case có ảnh         |
-| GET    | `/api/simulations/cases`                 | Lấy catalog case demo               |
-| POST   | `/api/simulations/{case_id}/run`         | Chạy case mô phỏng                  |
-| GET    | `/api/mock/yolo-detections`              | Xem payload YOLO mock               |
-| GET    | `/api/inspections`                       | Inspection có ảnh và Agent decision |
-| GET    | `/api/inspections/{id}/classifications`  | Classification của inspection       |
-| GET    | `/api/inspections/{id}/decisions`        | Decision của inspection             |
-| GET    | `/api/inspections/{id}/workflows/latest` | Workflow gần nhất                   |
 
 ## 7. Yêu cầu môi trường
 
@@ -281,6 +260,17 @@ Root `.env`:
 
 ```dotenv
 DATABASE_URL=sqlite:///./data/visual_qc.db
+DETECTOR_PROVIDER=local_yolo
+MODEL_PATH=./data/best.pt
+MODEL_DEVICE=cpu
+MODEL_CONFIDENCE=0.25
+MODEL_IMAGE_SIZE=1280
+AUTO_PASS_ENABLED=false
+CONFIRMED_THRESHOLD=0.70
+VERIFY_THRESHOLD=0.40
+ENABLE_LANGSMITH_TRACING=false
+LANGSMITH_TRACING=false
+LANGCHAIN_TRACING_V2=false
 ```
 
 `frontend/.env.local`:
@@ -291,21 +281,15 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 
 ## 10. Chuẩn bị và chạy demo
 
-Seed lại dữ liệu sạch:
-
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/api/mock/seed?reset=true"
-```
-
 Kịch bản demo đề xuất:
 
-1. Mở **Kiểm tra bằng Agent** và chọn một trong 8 ảnh.
-2. Nhấn **Bắt đầu kiểm tra bằng Agent**.
+1. Mở **Kiểm tra bằng Agent** và tải một ảnh JPEG/PNG từ máy.
+2. Điền Vehicle ID, Camera ID, panel và nhấn **Bắt đầu kiểm tra bằng Agent**.
 3. Theo dõi `prepare_input → detect_defect → assess_result` xuất hiện từng bước.
-4. Dùng case confidence cao để chứng minh nhánh recommendation tự động.
-5. Dùng case confidence trung bình để chứng minh verify loop.
-6. Dùng case mơ hồ để graph dừng tại HITL, sau đó QC approve/reject.
-7. Mở **Lịch sử** để xem state đã lưu hoặc xóa trace demo cũ.
+4. Kiểm tra class, confidence, bbox, segmentation mask, model version và inference time.
+5. Kết quả confidence trung bình sẽ chạy model second pass.
+6. Không detection hoặc confidence thấp sẽ dừng tại HITL để QC approve/reject.
+7. Mở **Lịch sử** để xem state đã lưu hoặc xóa trace cũ.
 8. Mở `/agent/graph` để đối chiếu UI trace với LangGraph thật.
 
 Trong Windows PowerShell, `curl` là alias của `Invoke-WebRequest`; nên dùng
@@ -339,21 +323,19 @@ docker compose up --build
 Container phục vụ backend tại `http://127.0.0.1:8000`. Frontend vẫn chạy riêng
 bằng `npm run dev`.
 
-## 13. Thay mock bằng thành phần thật
+## 13. Mở rộng thành phần production
 
 ### YOLO/segmentation
 
-1. Implement `DetectorService.detect(state)` trong adapter mới.
-2. Map output model sang `defect_detected`, `defect_type`, confidence, bbox hoặc
-   segmentation result trong `QCState`.
-3. Inject adapter vào `build_qc_graph`.
-4. Giữ nguyên API, node routing, frontend và repository.
+`LocalYoloSegmentationDetector` hiện chạy `best.pt`. Khi model của team sẵn sàng,
+thay đường dẫn `MODEL_PATH`; giữ nguyên contract `defect_detected`, `defect_type`,
+confidence, bbox và segmentation result trong `QCState`.
 
 ### Verifier
 
-Thay `MockVerifier` bằng second pass sử dụng crop độ phân giải cao, camera thứ hai
-hoặc model ensemble đã được phê duyệt. Adapter phải giữ contract
-`verify_count/verify_result`.
+`ModelVerifier` hiện chạy second pass bằng cùng model. Production có thể chuyển
+sang crop độ phân giải cao, camera thứ hai hoặc model ensemble đã được phê duyệt,
+nhưng phải giữ contract `verify_count/verify_result`.
 
 ### PostgreSQL checkpoint/database
 
@@ -371,10 +353,11 @@ safety routing hoặc tạo tự do phương pháp sửa chữa cho LLM.
 
 ```text
 agent/                 QCState, LangGraph nodes/routes/builder và service adapters
-backend/               FastAPI, SQLite schema, policy và API
+backend/               FastAPI, SQLite repository, quality alerts và API
 frontend/              Next.js/React dashboard song ngữ
-data/train/            8 ảnh dùng làm evidence demo
-docs/                  policy mô phỏng và tài liệu kỹ thuật bổ sung
+data/uploads/          evidence do QC tải lên (không commit)
+data/best.pt           model segmentation local (không commit)
+docs/                  tài liệu kỹ thuật bổ sung
 scripts/               công cụ export graph
 tests/                 backend và LangGraph tests
 AGENT_FLOW.md           sơ đồ và giải thích workflow
@@ -393,6 +376,5 @@ docker-compose.yml      chạy backend bằng Docker
 - UI không kết nối backend: kiểm tra `/health`, CORS và giá trị
   `NEXT_PUBLIC_API_BASE_URL`.
 - Lịch sử bị cộng dồn: dùng nút xóa lịch sử hoặc gọi `DELETE /agent/runs`.
-- Muốn reset toàn bộ case demo: gọi `POST /api/mock/seed?reset=true`.
-
-Tài liệu ranh giới dữ liệu mô phỏng: `docs/SIMULATION_POLICY.md`.
+- LangSmith trả về `403 Forbidden`: giữ `ENABLE_LANGSMITH_TRACING=false` khi chạy local.
+  Chỉ bật lại sau khi cấu hình `LANGSMITH_API_KEY` và `LANGSMITH_PROJECT` hợp lệ.

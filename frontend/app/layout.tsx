@@ -1,8 +1,7 @@
-/// <reference path="./vite-css.d.ts" />
-
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import globalStyles from "./globals.css?inline";
+import workstationStyles from "./workstation.css?inline";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -11,7 +10,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(`${protocol}://${host}`),
     title: "Visual QC Agent | FNS Workstation",
-    description: "Mock QC workstation for FNS vehicle inspection workflows.",
+    description: "Model-backed QC workstation for FNS vehicle inspection workflows.",
     openGraph: {
       title: "Visual QC Agent",
       description: "FNS quality-control workstation with explainable AI workflow.",
@@ -30,6 +29,7 @@ export default function RootLayout({
     <html lang="vi">
       <head>
         <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
+        <style dangerouslySetInnerHTML={{ __html: workstationStyles }} />
       </head>
       <body>
         {children}

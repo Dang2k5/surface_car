@@ -1,11 +1,29 @@
 from __future__ import annotations
 
+import base64
 import json
+import os
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.app.main import app
+from backend.app.main import app, configure_optional_langsmith_tracing
+
+ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+def test_langsmith_tracing_is_offline_by_default(monkeypatch):
+    monkeypatch.setenv("ENABLE_LANGSMITH_TRACING", "false")
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+
+    configure_optional_langsmith_tracing()
+
+    assert os.environ["LANGSMITH_TRACING"] == "false"
+    assert os.environ["LANGCHAIN_TRACING_V2"] == "false"
 
 
 @pytest.mark.asyncio
@@ -23,18 +41,17 @@ async def test_langgraph_api_completes_and_exposes_mermaid(tmp_path, monkeypatch
                 "/inspections",
                 json={
                     "vehicle_id": "CAR-LG-001",
-                    "image_url": "/assets/train/mock.jpg",
+                    "image_url": "/test-fixtures/medium_confirmed.jpg",
                     "camera_id": "cam-fns-01",
                     "panel": "door_panel",
-                    "mock_scenario": "medium_confirmed",
                 },
             )
             assert response.status_code == 201
             body = response.json()
             assert body["status"] == "COMPLETED"
             assert body["state"]["verify_count"] == 1
-            assert body["state"]["recommendation_code"] == "SURFACE_POLISH_AND_REINSPECT"
-            assert body["state"]["recommendation"] == "Polish the affected surface and perform a documented reinspection"
+            assert body["state"]["recommendation_code"] == "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT"
+            assert body["state"]["recommendation"] == "Hold for controlled surface assessment and documented reinspection"
 
 
 @pytest.mark.asyncio
@@ -47,8 +64,7 @@ async def test_langgraph_api_interrupts_and_resumes_same_thread(tmp_path, monkey
                 "/inspections",
                 json={
                     "vehicle_id": "CAR-LG-HITL",
-                    "image_url": "/assets/train/mock.jpg",
-                    "mock_scenario": "verify_uncertain",
+                    "image_url": "/test-fixtures/verify_uncertain.jpg",
                 },
             )
             body = created.json()
@@ -85,8 +101,7 @@ async def test_langgraph_stream_emits_real_node_updates_and_saves_run(tmp_path, 
                 "/inspections/stream",
                 json={
                     "vehicle_id": "CAR-LG-STREAM",
-                    "image_url": "/assets/train/mock.jpg",
-                    "mock_scenario": "verify_uncertain",
+                    "image_url": "/test-fixtures/verify_uncertain.jpg",
                 },
             )
             assert response.status_code == 200
@@ -100,7 +115,7 @@ async def test_langgraph_stream_emits_real_node_updates_and_saves_run(tmp_path, 
 
             runs = await client.get("/agent/runs")
             assert runs.status_code == 200
-            saved = next(item for item in runs.json() if item["vehicle_id"] == "CAR-LG-STREAM")
+            saved = next(item for item in runs.json() if item["state"]["vehicle_id"] == "CAR-LG-STREAM")
             assert saved["status"] == "INTERRUPTED"
             assert saved["state"]["final_status"] == "WAITING_FOR_HITL"
 
@@ -113,34 +128,6 @@ async def test_langgraph_stream_emits_real_node_updates_and_saves_run(tmp_path, 
 
 
 @pytest.mark.asyncio
-async def test_case_detection_override_reaches_graph_state(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    transport = ASGITransport(app=app)
-    async with app.router.lifespan_context(app):
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/inspections",
-                json={
-                    "vehicle_id": "CAR-CASE-PROFILE",
-                    "image_url": "/assets/train/860.jpg",
-                    "panel": "front_door_outer",
-                    "mock_scenario": "high_confidence",
-                    "mock_detection": {
-                        "defect_detected": True,
-                        "defect_type": "dent",
-                        "confidence": 0.92,
-                        "bbox": {"x1": 365, "y1": 200, "x2": 610, "y2": 485},
-                        "severity": "P",
-                    },
-                },
-            )
-            state = response.json()["state"]
-            assert state["panel"] == "front_door_outer"
-            assert state["confidence"] == 0.92
-            assert state["bbox"]["x1"] == 365
-
-
-@pytest.mark.asyncio
 async def test_repeated_vehicle_keeps_only_latest_agent_record(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     transport = ASGITransport(app=app)
@@ -148,8 +135,7 @@ async def test_repeated_vehicle_keeps_only_latest_agent_record(tmp_path, monkeyp
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             payload = {
                 "vehicle_id": "CAR-REPEATED",
-                "image_url": "/assets/train/mock.jpg",
-                "mock_scenario": "high_confidence",
+                "image_url": "/test-fixtures/inspection.jpg",
             }
             first = await client.post("/inspections", json=payload)
             second = await client.post("/inspections", json=payload)
@@ -158,3 +144,49 @@ async def test_repeated_vehicle_keeps_only_latest_agent_record(tmp_path, monkeyp
             matching = [run for run in runs if run["state"]["vehicle_id"] == "CAR-REPEATED"]
             assert len(matching) == 1
             assert matching[0]["thread_id"] == second.json()["thread_id"]
+
+
+@pytest.mark.asyncio
+async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/inspections/from-image",
+                data={
+                    "vehicle_id": "CAR-WEB-UPLOAD",
+                    "camera_id": "cam-web",
+                    "panel": "front_door_outer",
+                },
+                files={"file": ("evidence.png", ONE_PIXEL_PNG, "image/png")},
+            )
+            assert response.status_code == 201
+            state = response.json()["state"]
+            saved_path = Path(state["image_paths"][0])
+            try:
+                assert state["vehicle_id"] == "CAR-WEB-UPLOAD"
+                assert state["image_url"].startswith("/assets/uploads/")
+                assert len(state["image_sha256"]) == 64
+                assert state["decision"] == "DEFECT_CONFIRMED"
+                assert saved_path.is_file()
+            finally:
+                saved_path.unlink(missing_ok=True)
+                saved_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_public_api_does_not_expose_legacy_mock_catalog(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/openapi.json")
+            assert response.status_code == 200
+            document = response.json()
+            paths = document["paths"]
+            schemas = document["components"]["schemas"]
+
+            assert not any("mock" in path or "evidence/cases" in path for path in paths)
+            assert "mock_scenario" not in str(schemas)
+            assert "mock_detection" not in str(schemas)

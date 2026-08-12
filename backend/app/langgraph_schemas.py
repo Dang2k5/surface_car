@@ -12,14 +12,6 @@ class LangGraphInspectionCreate(BaseModel):
     image_paths: list[str] = Field(default_factory=list)
     camera_id: str = Field(default="cam-fns-01", min_length=1, max_length=100)
     panel: str = Field(default="unknown_panel", min_length=1, max_length=100)
-    mock_scenario: Literal[
-        "no_defect",
-        "high_confidence",
-        "medium_confirmed",
-        "verify_uncertain",
-        "low_confidence",
-    ] = "high_confidence"
-    mock_detection: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_image_input(self) -> LangGraphInspectionCreate:

@@ -51,8 +51,5 @@ class MockDetector:
     }
 
     def detect(self, state: QCState) -> dict[str, Any]:
-        case_detection = state.get("mock_detection")
-        if case_detection:
-            return dict(case_detection)
         scenario = state.get("mock_scenario", "high_confidence")
         return dict(self._SCENARIOS.get(scenario, self._SCENARIOS["high_confidence"]))
