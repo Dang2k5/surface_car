@@ -13,13 +13,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.graph.builder import build_qc_graph
 from agent.services.detector import MockDetector
+from agent.services.audit_export import JsonAuditExporter
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import DeterministicReasoningService, GroqReasoningService
 from agent.services.repository import SQLiteQCRepository
 from agent.services.verifier import MockVerifier, ModelVerifier
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
-from .config import ModelSettings
+from .config import AuditExportSettings, ModelSettings
 from .database import DEFAULT_DATABASE_URL, SQLiteDatabase
 from .langgraph_api import router as langgraph_router
 from .policy_api import router as policy_router
@@ -66,7 +67,15 @@ def get_database_url() -> str:
 async def lifespan(app: FastAPI):
     app.state.database = SQLiteDatabase(get_database_url())
     app.state.qc_checkpointer = InMemorySaver()
-    app.state.qc_repository = SQLiteQCRepository(app.state.database)
+    app.state.audit_export_settings = AuditExportSettings.from_env()
+    app.state.qc_audit_exporter = JsonAuditExporter(
+        app.state.audit_export_settings.directory,
+        enabled=app.state.audit_export_settings.enabled,
+    )
+    app.state.qc_repository = SQLiteQCRepository(
+        app.state.database,
+        audit_exporter=app.state.qc_audit_exporter,
+    )
     app.state.model_settings = ModelSettings.from_env()
     app.state.qc_policy_catalog = PolicyCatalog()
     deterministic_reasoning = DeterministicReasoningService()

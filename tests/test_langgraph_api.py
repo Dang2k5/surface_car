@@ -147,6 +147,86 @@ async def test_repeated_vehicle_keeps_only_latest_agent_record(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_agent_audit_exports_json_and_jsonl_without_local_image_paths(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = await client.post(
+                "/inspections",
+                json={
+                    "vehicle_id": "CAR-EXPORT-001",
+                    "image_paths": [r"C:\\private-workstation\\evidence.jpg"],
+                    "camera_id": "cam-export",
+                    "panel": "door_panel",
+                },
+            )
+            assert created.status_code == 201
+            thread_id = created.json()["thread_id"]
+
+            automatic_file = tmp_path / "audit-exports" / f"visual-qc-inspection-{thread_id}.json"
+            assert automatic_file.is_file()
+            automatic_audit = json.loads(automatic_file.read_text(encoding="utf-8"))
+            assert automatic_audit["identity"]["thread_id"] == thread_id
+            assert automatic_audit["identity"]["status"] == "HOLD_FOR_REWORK"
+            assert "image_paths" not in automatic_file.read_text(encoding="utf-8")
+
+            single = await client.get(f"/agent/runs/{thread_id}/export.json")
+            assert single.status_code == 200
+            assert "attachment" in single.headers["content-disposition"]
+            audit = single.json()
+            assert audit["schema"] == "visual-qc-agent-audit/v1"
+            assert audit["identity"]["thread_id"] == thread_id
+            assert audit["workflow"]["execution_trace"]
+            assert audit["policy"]
+            assert audit["reasoning"]
+            assert "image_paths" not in single.text
+            assert "private-workstation" not in single.text
+
+            collection = await client.get("/agent/runs/export.jsonl")
+            assert collection.status_code == 200
+            assert "attachment" in collection.headers["content-disposition"]
+            records = [json.loads(line) for line in collection.text.splitlines()]
+            assert len(records) == 1
+            assert records[0]["identity"]["thread_id"] == thread_id
+
+            missing = await client.get("/agent/runs/not-found/export.json")
+            assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_hitl_resume_updates_the_same_automatic_audit_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = await client.post(
+                "/inspections",
+                json={
+                    "vehicle_id": "CAR-AUTO-EXPORT-HITL",
+                    "image_url": "/test-fixtures/verify_uncertain.jpg",
+                },
+            )
+            thread_id = created.json()["thread_id"]
+            automatic_file = tmp_path / "audit-exports" / f"visual-qc-inspection-{thread_id}.json"
+            waiting = json.loads(automatic_file.read_text(encoding="utf-8"))
+            assert waiting["identity"]["status"] == "WAITING_FOR_HITL"
+
+            resumed = await client.post(
+                f"/inspections/{thread_id}/resume",
+                json={
+                    "action": "APPROVE",
+                    "reviewer": "qc-test",
+                    "reason": "Defect confirmed during controlled QC review.",
+                },
+            )
+            assert resumed.status_code == 200
+            completed = json.loads(automatic_file.read_text(encoding="utf-8"))
+            assert completed["identity"]["status"] == "HOLD_FOR_REWORK"
+            assert completed["workflow"]["human_decision"]["action"] == "APPROVE"
+
+
+@pytest.mark.asyncio
 async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     transport = ASGITransport(app=app)

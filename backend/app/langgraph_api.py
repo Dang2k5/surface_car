@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from langgraph.types import Command
 
 from agent.graph.builder import build_qc_graph
 from agent.graph.state import QCState
+from agent.services.audit_export import build_audit_export
 
 from .langgraph_schemas import (
     AgentGraphResponse,
@@ -23,6 +25,14 @@ from .langgraph_schemas import (
 )
 
 router = APIRouter(tags=["LangGraph Visual QC"])
+
+
+def _attachment(content: bytes, *, filename: str, media_type: str) -> StreamingResponse:
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _config(thread_id: str) -> dict[str, dict[str, str]]:
@@ -202,6 +212,35 @@ def list_agent_runs(request: Request) -> list[LangGraphRunResponse]:
         )
         for state in request.app.state.qc_repository.list()
     ]
+
+
+@router.get("/agent/runs/export.jsonl")
+@router.get("/api/agent/runs/export.jsonl")
+def export_agent_runs(request: Request) -> StreamingResponse:
+    """Download all persisted run audits as one portable JSONL file."""
+    records = [build_audit_export(state) for state in request.app.state.qc_repository.list()]
+    payload = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return _attachment(
+        payload.encode("utf-8"),
+        filename=f"visual-qc-audit-{stamp}.jsonl",
+        media_type="application/x-ndjson; charset=utf-8",
+    )
+
+
+@router.get("/agent/runs/{thread_id}/export.json")
+@router.get("/api/agent/runs/{thread_id}/export.json")
+def export_agent_run(request: Request, thread_id: str) -> StreamingResponse:
+    """Download one inspection with CV, LangGraph, policy, HITL and reasoning evidence."""
+    state = request.app.state.qc_repository.get(thread_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Persisted Agent run not found")
+    payload = json.dumps(build_audit_export(state), ensure_ascii=False, indent=2).encode("utf-8")
+    return _attachment(
+        payload,
+        filename=f"visual-qc-inspection-{thread_id}.json",
+        media_type="application/json; charset=utf-8",
+    )
 
 
 @router.delete("/agent/runs")

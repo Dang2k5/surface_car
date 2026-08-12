@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from agent.graph.state import QCState
+from agent.services.audit_export import JsonAuditExporter
 
 
 class QCRepository(Protocol):
@@ -51,8 +52,9 @@ class MockQCRepository:
 class SQLiteQCRepository:
     """Persistence adapter for final graph results; checkpoints remain separate."""
 
-    def __init__(self, database: Any) -> None:
+    def __init__(self, database: Any, audit_exporter: JsonAuditExporter | None = None) -> None:
         self.database = database
+        self.audit_exporter = audit_exporter
 
     def save(self, state: QCState) -> None:
         # The workstation presents the latest disposition per vehicle.
@@ -82,6 +84,8 @@ class SQLiteQCRepository:
                     datetime.now(UTC).isoformat(),
                 ),
             )
+        if self.audit_exporter is not None:
+            self.audit_exporter.export(dict(state))
 
     def get(self, thread_id: str) -> dict[str, Any] | None:
         row = self.database.connection.execute(

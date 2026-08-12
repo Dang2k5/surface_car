@@ -188,6 +188,12 @@ Swagger: `http://127.0.0.1:8000/docs`
 | GET    | `/inspections/{thread_id}/state`  | Đọc checkpoint/state hiện tại             |
 | POST   | `/inspections/{thread_id}/resume` | Resume HITL                               |
 | GET    | `/agent/runs`                     | Danh sách graph run đã lưu                |
+| GET    | `/agent/runs/{thread_id}/export.json` | Tải audit JSON của một inspection     |
+| GET    | `/agent/runs/export.jsonl`         | Tải toàn bộ audit dưới dạng JSONL         |
+
+Mỗi lần repository lưu một inspection, backend đồng thời tạo hoặc cập nhật file
+`data/exports/visual-qc-inspection-{thread_id}.json`. Có thể đổi thư mục bằng
+`AUDIT_EXPORT_DIR` hoặc tắt bằng `AUDIT_AUTO_EXPORT_ENABLED=false`.
 | DELETE | `/agent/runs`                     | Xóa trace/history, giữ nguyên ảnh upload  |
 | GET    | `/agent/graph`                    | Trả Mermaid từ graph thật                 |
 

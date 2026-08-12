@@ -45,3 +45,18 @@ class ModelSettings:
             groq_api_key=os.getenv("GROQ_API_KEY") or None,
             groq_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip(),
         )
+
+
+@dataclass(frozen=True)
+class AuditExportSettings:
+    enabled: bool
+    directory: Path
+
+    @classmethod
+    def from_env(cls) -> AuditExportSettings:
+        configured_path = Path(os.getenv("AUDIT_EXPORT_DIR", "./data/exports"))
+        directory = configured_path if configured_path.is_absolute() else PROJECT_ROOT / configured_path
+        return cls(
+            enabled=_env_bool("AUDIT_AUTO_EXPORT_ENABLED", True),
+            directory=directory.resolve(),
+        )
