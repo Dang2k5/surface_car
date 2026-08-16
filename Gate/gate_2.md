@@ -1,6 +1,10 @@
 [] MVP Demo — video 3 phút show user flow end-to-end
     https://
-[] Architecture diagram — sơ đồ components, data flow
+[x] Architecture diagram — sơ đồ components, data flow
 [] Repo có >= 10 PR merged
-[] README.md — setup instructions, env vars, sample queries, ...
-[] Eval envidences — ít nhất 5 test case manual với output thực tế
+[x] README.md — setup instructions, env vars, sample queries, ...
+[x] Eval envidences — ít nhất 5 test case manual với output thực tế
+
+
+-- Triển khai tiếp theo:
+    Tạo videos showcase end-to-end
