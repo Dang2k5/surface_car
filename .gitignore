@@ -37,6 +37,7 @@ data/exports/*
 !data/exports/*.json
 *.db
 *.sqlite3
+train-*.zip
 
 # Logs
 logs/
