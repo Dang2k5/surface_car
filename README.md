@@ -324,16 +324,30 @@ MODEL_PATH=./data/best.pt
 MODEL_DEVICE=cpu
 MODEL_CONFIDENCE=0.25
 MODEL_IMAGE_SIZE=1280
+FIXED_CAMERA_CALIBRATION_ENABLED=true
+CALIBRATION_MM_PER_PIXEL_X=0.8
+CALIBRATION_MM_PER_PIXEL_Y=0.8
+CALIBRATION_PROFILE_ID=FNS_FRONT_PILOT_1280
 AUTO_PASS_ENABLED=true
 CONFIRMED_THRESHOLD=0.70
 VERIFY_THRESHOLD=0.40
 QC_REASONING_PROVIDER=deterministic
 GROQ_MODEL=openai/gpt-oss-20b
 # GROQ_API_KEY=gsk_...
+AUDIT_AUTO_EXPORT_ENABLED=true
+AUDIT_EXPORT_DIR=./data/exports
+APP_ENV=development
+APP_HOST=127.0.0.1
+APP_PORT=8000
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ENABLE_LANGSMITH_TRACING=false
 LANGSMITH_TRACING=false
 LANGCHAIN_TRACING_V2=false
 ```
+
+Danh sách đầy đủ, phạm vi sử dụng và cấu hình local/cloud được mô tả tại
+[`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md). `.env` thật chỉ tồn tại ở máy chạy
+backend và không được commit. Frontend không được nhận database URL hoặc API key.
 
 `frontend/.env.local`:
 
