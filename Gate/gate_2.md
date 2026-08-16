@@ -6,6 +6,7 @@
 [x] Eval envidences — ít nhất 5 test case manual với output thực tế
 
 -- Triển khai tiếp theo:
+    Dataset tự gen theo mẫu mô phỏng
     Tạo videos showcase end-to-end
     Giao diện hiển thị AI - hướng 1/ một màn hình chia ra các bộ phận
                           - hướng 2/ 3D view
