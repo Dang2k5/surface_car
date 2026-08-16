@@ -12,8 +12,7 @@ class LangGraphInspectionCreate(BaseModel):
     image_url: str | None = None
     image_paths: list[str] = Field(default_factory=list)
     camera_id: str = Field(default="cam-fns-01", min_length=1, max_length=100)
-    panel: str = Field(default="unknown_panel", min_length=1, max_length=100)
-    material: str = Field(default="unknown_material", min_length=1, max_length=100)
+    zone_name: str = Field(default="unknown_zone", min_length=1, max_length=120)
 
     @model_validator(mode="after")
     def validate_image_input(self) -> LangGraphInspectionCreate:
@@ -27,6 +26,12 @@ class LangGraphResumeRequest(BaseModel):
     reviewer: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=1, max_length=1000)
     recommendation: str | None = Field(default=None, max_length=200)
+    defect_code: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{2,31}$")
+    severity: str | None = Field(default=None, max_length=30)
+    location: str | None = Field(default=None, max_length=200)
+    length_mm: float | None = Field(default=None, ge=0, le=10000)
+    disposition: Literal["PASS", "HOLD", "REWORK", "REINSPECT"] | None = None
+    notes: str = Field(default="", max_length=4000)
 
     @model_validator(mode="after")
     def validate_override(self) -> LangGraphResumeRequest:

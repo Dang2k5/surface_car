@@ -21,7 +21,9 @@ class InspectionFinding(BaseModel):
     vehicle_id: str
     inspected_at: str
     defect_type: str
-    panel: str
+    classified_defect_code: str
+    defect_family: str
+    zone_name: str
     camera_id: str
     confidence: float
     severity: str
@@ -36,7 +38,7 @@ class DefectAggregate(BaseModel):
     defect_type: str
     occurrence_count: int
     affected_vehicle_count: int
-    panels: list[str]
+    zones: list[str]
     camera_ids: list[str]
     average_confidence: float
     maximum_confidence: float
@@ -49,16 +51,24 @@ class QualityAlert(BaseModel):
     severity: str
     status: str = "OPEN"
     defect_type: str
-    panel: str
+    zone_name: str
     camera_id: str
     occurrence_count: int
     affected_vehicle_count: int
     affected_vehicle_ids: list[str]
+    related_defect_codes: list[str]
+    similar_code_warning: bool
     average_confidence: float
     maximum_confidence: float
     first_seen: str
     last_seen: str
     window_hours: int
+    window_size: int
+    consecutive_count: int
+    trigger_type: str
+    predicted_root_cause: str
+    upstream_target_shop: str
+    actionable_routing_command: str
     message_en: str
     message_vi: str
     recommendation_en: str
@@ -73,7 +83,9 @@ class QualityAlert(BaseModel):
 class QualityAlertSummary(BaseModel):
     generated_at: str
     window_hours: int
+    window_size: int
     minimum_occurrences: int
+    in_window_threshold: int
     analyzed_inspections: int
     defect_breakdown: list[DefectAggregate]
     findings: list[InspectionFinding]
@@ -88,24 +100,38 @@ class RepetitionAlertService:
         self.policy_catalog = policy_catalog
         self.reasoning = reasoning
 
-    def analyze(self, *, window_hours: int = 24, minimum_occurrences: int = 3) -> QualityAlertSummary:
+    def analyze(
+        self,
+        *,
+        window_hours: int = 24,
+        window_size: int = 10,
+        minimum_occurrences: int = 3,
+        in_window_threshold: int = 4,
+    ) -> QualityAlertSummary:
         now = datetime.now(UTC)
         cutoff = now - timedelta(hours=window_hours)
-        records = []
+        candidates = []
         for state in self.repository.list_with_metadata():
             persisted_at = _parse_timestamp(state.get("_persisted_at"))
             if persisted_at < cutoff or not state.get("defect_detected"):
                 continue
-            if not state.get("defect_type") or state.get("decision") == "PASS":
+            if state.get("defect_type") not in {"scratch", "dent"}:
                 continue
-            records.append(state)
+            if state.get("decision") == "PASS":
+                continue
+            candidates.append(state)
 
-        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+        candidates.sort(
+            key=lambda item: _parse_timestamp(item.get("_persisted_at")),
+            reverse=True,
+        )
+        records = candidates[:window_size]
+
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for state in records:
             key = (
                 str(state.get("defect_type", "unknown")),
-                str(state.get("panel", "unknown_panel")),
-                str(state.get("camera_id", "unknown_camera")),
+                _zone_name(state),
             )
             grouped[key].append(state)
 
@@ -117,56 +143,85 @@ class RepetitionAlertService:
         defect_breakdown = _build_defect_breakdown(records)
 
         alerts: list[QualityAlert] = []
-        for (defect_type, panel, camera_id), items in grouped.items():
+        for (defect_type, zone_name), items in grouped.items():
             vehicle_ids = sorted({str(item.get("vehicle_id", "UNKNOWN")) for item in items})
-            if len(vehicle_ids) < minimum_occurrences:
+            consecutive_count = _leading_consecutive_count(records, defect_type, zone_name)
+            triggered_by_consecutive = consecutive_count >= minimum_occurrences
+            triggered_by_window = len(vehicle_ids) >= in_window_threshold
+            if not triggered_by_consecutive and not triggered_by_window:
                 continue
+            camera_ids = sorted({str(item.get("camera_id") or "unknown_camera") for item in items})
+            camera_id = camera_ids[0] if len(camera_ids) == 1 else "MULTI_CAMERA"
             confidences = [float(item.get("confidence") or 0) for item in items]
+            related_codes = sorted(
+                {str(item.get("classified_defect_code")) for item in items if item.get("classified_defect_code")}
+            )
+            similar_code_warning = len(related_codes) > 1
             timestamps = sorted(_parse_timestamp(item.get("_persisted_at")) for item in items)
-            severity = "CRITICAL" if len(vehicle_ids) >= max(5, minimum_occurrences + 2) else "WARNING"
-            key_text = f"{defect_type}|{panel}|{camera_id}|{window_hours}"
+            severity = "CRITICAL" if triggered_by_consecutive else "WARNING"
+            trigger_type = "CONSECUTIVE" if triggered_by_consecutive else "WINDOW_FREQUENCY"
+            root_cause, target_shop = _predicted_root_cause(defect_type)
+            routing_command = "ROUTE_AFFECTED_BATCH_TO_OFFLINE_INSPECTION_BUFFER"
+            key_text = f"{defect_type}|{zone_name}|{window_size}"
             alert_id = hashlib.sha256(key_text.encode("utf-8")).hexdigest()[:16]
             trend_state = {
                 "defect_type": defect_type,
                 "confidence": round(sum(confidences) / len(confidences), 4),
-                "panel": panel,
+                "zone_name": zone_name,
                 "camera_id": camera_id,
                 "severity": severity,
                 "evidence_tags": [
                     "affected_vehicle_list",
                     "time_window",
-                    "camera_and_panel_group",
+                    "camera_and_zone_group",
                 ],
                 "trend_context": {
                     "affected_vehicle_count": len(vehicle_ids),
                     "affected_vehicle_ids": vehicle_ids,
                     "window_hours": window_hours,
+                    "window_size": window_size,
+                    "consecutive_count": consecutive_count,
+                    "trigger_type": trigger_type,
                 },
             }
             policy = self.policy_catalog.evaluate_named("FNS-TREND-001", trend_state)
-            analysis = self.reasoning.analyze(trend_state, policy)
+            # Dashboard trend aggregation must remain low-latency. LLM reasoning
+            # is reserved for an explicit inspection; trend cards use the same
+            # deterministic policy fallback instead of issuing N sequential API calls.
+            trend_reasoning = getattr(self.reasoning, "fallback", self.reasoning)
+            analysis = trend_reasoning.analyze(trend_state, policy)
             alerts.append(
                 QualityAlert(
                     id=alert_id,
                     severity=severity,
                     defect_type=defect_type,
-                    panel=panel,
+                    zone_name=zone_name,
                     camera_id=camera_id,
                     occurrence_count=len(items),
                     affected_vehicle_count=len(vehicle_ids),
                     affected_vehicle_ids=vehicle_ids,
+                    related_defect_codes=related_codes,
+                    similar_code_warning=similar_code_warning,
                     average_confidence=round(sum(confidences) / len(confidences), 4),
                     maximum_confidence=round(max(confidences), 4),
                     first_seen=timestamps[0].isoformat(),
                     last_seen=timestamps[-1].isoformat(),
                     window_hours=window_hours,
+                    window_size=window_size,
+                    consecutive_count=consecutive_count,
+                    trigger_type=trigger_type,
+                    predicted_root_cause=root_cause,
+                    upstream_target_shop=target_shop,
+                    actionable_routing_command=routing_command,
                     message_en=(
-                        f"Repeated {defect_type} detections were found on {panel} from {camera_id} "
-                        f"across {len(vehicle_ids)} vehicles. The previous process must be checked."
+                        f"Repeated {defect_type} detections were found in {zone_name}: "
+                        f"{consecutive_count} consecutive and {len(vehicle_ids)}/{window_size} recent vehicles. "
+                        f"Related QC codes: {', '.join(related_codes) or 'unclassified'}."
                     ),
                     message_vi=(
-                        f"Phát hiện lỗi {defect_type} lặp lại tại {panel}, camera {camera_id}, "
-                        f"trên {len(vehicle_ids)} xe. QC cần kiểm tra lại công đoạn phía trước."
+                        f"Phát hiện lỗi {defect_type} lặp lại tại {zone_name}: "
+                        f"{consecutive_count} xe liên tiếp và {len(vehicle_ids)}/{window_size} xe gần nhất. "
+                        f"Mã lỗi liên quan: {', '.join(related_codes) or 'chưa phân loại'}."
                     ),
                     recommendation_en=(
                         "Keep affected vehicles controlled, confirm the trend with a named QC reviewer, "
@@ -176,8 +231,8 @@ class RepetitionAlertService:
                         "Kiểm soát các xe liên quan, yêu cầu QC xác nhận xu hướng và thông báo chủ công đoạn "
                         "phía trước trước khi cho phép release."
                     ),
-                    upstream_checks_en=_upstream_checks("en", panel, camera_id),
-                    upstream_checks_vi=_upstream_checks("vi", panel, camera_id),
+                    upstream_checks_en=_upstream_checks("en", zone_name, camera_id),
+                    upstream_checks_vi=_upstream_checks("vi", zone_name, camera_id),
                     occurrences=sorted(
                         (_finding_from_state(item) for item in items),
                         key=lambda item: item.inspected_at,
@@ -191,7 +246,9 @@ class RepetitionAlertService:
         return QualityAlertSummary(
             generated_at=now.isoformat(),
             window_hours=window_hours,
+            window_size=window_size,
             minimum_occurrences=minimum_occurrences,
+            in_window_threshold=in_window_threshold,
             analyzed_inspections=len(records),
             defect_breakdown=defect_breakdown,
             findings=findings,
@@ -206,7 +263,9 @@ def _finding_from_state(state: dict[str, Any]) -> InspectionFinding:
         vehicle_id=str(state.get("vehicle_id") or "UNKNOWN"),
         inspected_at=_parse_timestamp(state.get("_persisted_at")).isoformat(),
         defect_type=str(state.get("defect_type") or "unknown"),
-        panel=str(state.get("panel") or "unknown_panel"),
+        classified_defect_code=str(state.get("classified_defect_code") or ""),
+        defect_family=str(state.get("defect_family") or ""),
+        zone_name=_zone_name(state),
         camera_id=str(state.get("camera_id") or "unknown_camera"),
         confidence=round(float(state.get("confidence") or 0), 4),
         severity=str(state.get("severity") or "UNASSESSED"),
@@ -215,6 +274,35 @@ def _finding_from_state(state: dict[str, Any]) -> InspectionFinding:
         recommendation_code=str(state.get("recommendation_code") or ""),
         recommendation=str(state.get("recommendation") or ""),
         image_url=str(state.get("image_url") or ""),
+    )
+
+
+def _zone_name(state: dict[str, Any]) -> str:
+    return str(state.get("zone_name") or "unknown_zone")
+
+
+def _leading_consecutive_count(
+    records: list[dict[str, Any]],
+    defect_type: str,
+    zone_name: str,
+) -> int:
+    count = 0
+    for state in records:
+        if str(state.get("defect_type")) != defect_type or _zone_name(state) != zone_name:
+            break
+        count += 1
+    return count
+
+
+def _predicted_root_cause(defect_type: str) -> tuple[str, str]:
+    if defect_type == "dent":
+        return (
+            "Possible stamping-die debris, fixture contact, or robot-gripper interference; QC verification required.",
+            "Stamping / Body Shop",
+        )
+    return (
+        "Possible conveyor guide, handling fixture, or contact-surface abrasion; QC verification required.",
+        "Body / Paint Handling Process",
     )
 
 
@@ -232,7 +320,7 @@ def _build_defect_breakdown(records: list[dict[str, Any]]) -> list[DefectAggrega
                 defect_type=defect_type,
                 occurrence_count=len(items),
                 affected_vehicle_count=len({str(item.get("vehicle_id") or "UNKNOWN") for item in items}),
-                panels=sorted({str(item.get("panel") or "unknown_panel") for item in items}),
+                zones=sorted({_zone_name(item) for item in items}),
                 camera_ids=sorted({str(item.get("camera_id") or "unknown_camera") for item in items}),
                 average_confidence=round(sum(confidences) / len(confidences), 4),
                 maximum_confidence=round(max(confidences), 4),
@@ -251,19 +339,19 @@ def _parse_timestamp(value: Any) -> datetime:
         return datetime.now(UTC)
 
 
-def _upstream_checks(language: str, panel: str, camera_id: str) -> list[str]:
+def _upstream_checks(language: str, zone_name: str, camera_id: str) -> list[str]:
     if language == "vi":
         return [
             f"Xác nhận camera {camera_id}: tiêu cự, ánh sáng, vị trí gá và độ sạch của lens.",
-            f"Kiểm tra đồ gá, dụng cụ tiếp xúc và thao tác có thể ảnh hưởng tới {panel}.",
-            "Đối chiếu thời điểm lỗi với ca sản xuất, lô vật liệu và lịch sử bảo trì thiết bị.",
+            f"Kiểm tra đồ gá, dụng cụ tiếp xúc và thao tác có thể ảnh hưởng tới {zone_name}.",
+            "Đối chiếu thời điểm lỗi với ca sản xuất và lịch sử bảo trì thiết bị.",
             "Cách ly mẫu liên quan và thực hiện kiểm tra xác nhận dưới ánh sáng kiểm soát.",
             "Ghi nhận người phụ trách, hành động khắc phục và tiêu chí release sau kiểm tra lại.",
         ]
     return [
         f"Verify {camera_id}: focus, lighting, fixture position, and lens cleanliness.",
-        f"Inspect fixtures, contact tools, and handling operations that may affect {panel}.",
-        "Correlate occurrence times with shift, material lot, and equipment maintenance history.",
+        f"Inspect fixtures, contact tools, and handling operations that may affect {zone_name}.",
+        "Correlate occurrence times with shift and equipment maintenance history.",
         "Contain affected samples and perform confirmation inspection under controlled lighting.",
         "Record the owner, corrective action, and release criteria after reinspection.",
     ]
@@ -360,7 +448,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
         _set_table_geometry(defect_table, [1500, 1000, 1000, 4000, 1860])
         for cell, value in zip(
             defect_table.rows[0].cells,
-            ("Defect", "Events", "Vehicles", "Panels / cameras", "Confidence"),
+            ("Defect", "Events", "Vehicles", "Zones / cameras", "Confidence"),
         ):
             cell.text = value
             _shade_cell(cell, "DCEAF1")
@@ -371,7 +459,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
                 item.defect_type,
                 str(item.occurrence_count),
                 str(item.affected_vehicle_count),
-                f"{', '.join(item.panels)}\n{', '.join(item.camera_ids)}",
+                f"{', '.join(item.zones)}\n{', '.join(item.camera_ids)}",
                 f"Avg {item.average_confidence:.1%}\nMax {item.maximum_confidence:.1%}",
             )
             for cell, value in zip(row.cells, values):
@@ -399,7 +487,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
                 _format_dt(finding.inspected_at),
                 finding.inspection_id,
                 finding.vehicle_id,
-                f"{finding.defect_type}\n{finding.panel} / {finding.camera_id}",
+                f"{finding.defect_type}\n{finding.zone_name} / {finding.camera_id}",
                 f"{finding.confidence:.1%}",
                 finding.severity,
                 f"{finding.decision}\n{finding.final_status}\n{finding.recommendation_code}",
@@ -413,7 +501,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
         document.add_paragraph("No inspection-level finding is available for this report.")
 
     for index, alert in enumerate(summary.alerts, start=1):
-        document.add_heading(f"Alert {index}: {alert.defect_type.upper()} - {alert.panel}", level=2)
+        document.add_heading(f"Alert {index}: {alert.defect_type.upper()} - {alert.zone_name}", level=2)
         alert_table = document.add_table(rows=5, cols=2)
         _set_table_geometry(alert_table, [2160, 7200])
         rows = [

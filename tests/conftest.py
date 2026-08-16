@@ -12,3 +12,7 @@ def use_fast_mock_detector_for_automated_tests(monkeypatch, tmp_path):
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
     monkeypatch.setenv("AUDIT_AUTO_EXPORT_ENABLED", "true")
     monkeypatch.setenv("AUDIT_EXPORT_DIR", str(tmp_path / "audit-exports"))
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        f"sqlite:///{(tmp_path / 'visual-qc-test.db').as_posix()}",
+    )

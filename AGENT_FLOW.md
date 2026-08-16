@@ -38,7 +38,11 @@ flowchart TD
 4. `best.pt` trả class, confidence, bbox và segmentation polygon.
 5. `assess_result` route theo threshold. Verify tối đa hai lần để tránh loop vô hạn.
 6. Kết quả không rõ dừng tại `human_review` bằng `interrupt()`.
-7. Kết quả cuối được lưu vào `agent_graph_runs`; UI hiển thị node trace và evidence.
+7. Kết quả cuối được lưu vào `agent_graph_runs`; UI hiển thị node trace, ảnh
+   evidence, mã lỗi, số đo pilot và hành động cuối.
+8. Case bị `interrupt()` xuất hiện trong Hàng đợi QC dưới dạng thẻ kiểm duyệt có
+   ảnh và lý do cần người xử lý. Sau `Command(resume=...)`, bản ghi hoàn tất được
+   chuyển sang Lịch sử.
 
 ## Ranh giới mock
 
@@ -50,8 +54,10 @@ giao diện production.
 ## Quality trend alert
 
 Agent đọc bản ghi mới nhất của mỗi xe trong 24 giờ và nhóm theo
-`defect_type + panel + camera_id`:
+`defect_type + zone_name + camera_id`:
 
 - từ 3 xe: `WARNING`, yêu cầu QC kiểm tra công đoạn phía trước;
 - từ 5 xe: `CRITICAL`;
+- UI hiển thị mã lỗi liên quan và tối đa bốn ảnh không trùng của các lần phát hiện;
+- cảnh báo chỉ giữ tín hiệu chính, hành động ngay, kết luận Agent và điều kiện đóng;
 - báo cáo Word tải tại `GET /api/quality-alerts/report.docx`.

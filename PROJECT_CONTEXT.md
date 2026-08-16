@@ -56,8 +56,8 @@ Khi phát hiện lỗi, QC còn phải tự xác định:
 - Lỗi thuộc Severity Rank nào trong PSLAWBCD?
 - Vùng lỗi thuộc GD&T Group 1–5 nào?
 - Tolerance cho phép là bao nhiêu?
-- Chi tiết là thép thường, thép mạ hay thép dập nóng?
-- Xe được buff tại chỗ, chạy thử hay phải HOLD và chuyển Rework?
+- Mã lỗi nào trong catalog phù hợp với label, kích thước và vị trí?
+- Xe được đi tiếp, kiểm tra lại có kiểm soát hay phải giữ để sửa chữa?
 
 Quá trình này có thể mất 3–5 phút và phụ thuộc nhiều vào kinh nghiệm, sự mệt mỏi và khả năng quan sát của nhân viên.
 
@@ -69,7 +69,8 @@ Phạm vi MVP ưu tiên:
 
 - Hai loại lỗi chính: `scratch` và `dent`.
 - Dữ liệu ảnh production phải do QC upload; kết quả CV do model trả về.
-- Có các trạng thái `PASS`, `PLAN_A`, `PLAN_B`, `HITL_REQUIRED`.
+- Có các trạng thái cuối `PASS`, `HOLD_FOR_QC`, `HOLD_FOR_REWORK` và
+  `WAITING_FOR_HITL`; hành động cụ thể nằm trong `recommendation_code`.
 - Có rule engine đánh giá lỗi.
 - Có LangGraph điều phối `detect → classify → decide → HITL`.
 - Có QC xác nhận hoặc override.
@@ -84,56 +85,19 @@ Chưa cần làm ngay trong MVP:
 - Tích hợp đầy đủ weld/adhesive/Stud/Nut/VIN OCR.
 - Tối ưu production GPU.
 
-## 6. Decision Matrix nghiệp vụ
+## 6. Quy tắc quyết định baseline
 
-### Plan A — Buffing và Test Drive
+- Không phát hiện lỗi: `PASS`.
+- `scratch` hoặc `dent` nằm trong taxonomy: Agent ánh xạ mã lỗi từ catalog, đối
+  chiếu kích thước/vị trí với policy và tự sinh hành động vận hành cụ thể.
+- Lỗi cần đánh giá lại: giữ xe tại khu kiểm tra có kiểm soát.
+- Lỗi cần sửa chữa: giữ xe và chuyển đúng bộ phận rework.
+- Chỉ chuyển HITL khi model lỗi, xuất hiện loại lỗi mới chưa có ánh xạ, hoặc QC
+  chủ động override. Confidence thấp một mình không kích hoạt HITL trong chế độ
+  Agent-first hiện tại.
 
-Áp dụng khi lỗi nhẹ, confidence cao, không vi phạm tolerance và không có rủi ro kết cấu.
-
-Ví dụ:
-
-- Scratch nông/dăm bề mặt.
-- Thép thường.
-- GD&T Group 2–5.
-- Severity Rank C/D.
-
-Hành động:
-
-1. Buffing tại chỗ khoảng 3 phút.
-2. QC xác nhận.
-3. Cho phép xe ra sân chạy thử.
-
-### Plan B — Hold và Rework
-
-Áp dụng khi có rủi ro an toàn, lỗi nghiêm trọng, vượt tolerance hoặc thuộc vật liệu không được xử lý theo cách thông thường.
-
-Ví dụ:
-
-- Dent trên thép dập nóng.
-- GD&T Group 1 vượt tolerance 0.7 mm.
-- Severity Rank P/S/A.
-- Lỗi sơn nghiêm trọng trên Class A surface.
-- Lỗi weld, glue, Stud/Nut liên quan đến kết cấu/an toàn.
-
-Hành động:
-
-1. Gắn nhãn `HOLD`.
-2. Cấm test drive.
-3. Điều hướng xe đến Rework Shop phù hợp.
-4. Ghi lại nguyên nhân và evidence.
-
-### HITL — Human In The Loop
-
-Bắt buộc chuyển QC/Supervisor xem xét khi:
-
-- Confidence thấp.
-- Thiếu thông tin material/GD&T/VIN.
-- Actual measurement gần ngưỡng tolerance.
-- Nhiều camera cho kết quả mâu thuẫn.
-- Lỗi nghiêm trọng nhưng dữ liệu chưa đủ.
-- QC muốn override recommendation.
-
-Không được tự động cho test drive khi thiếu dữ liệu quan trọng.
+`Plan A/Plan B` không còn là ngôn ngữ chính trên UI. Hệ thống dùng mô tả hành
+động cụ thể và `recommendation_code` để truy vết.
 
 ## 7. Luồng hệ thống mục tiêu
 
@@ -143,17 +107,14 @@ Không được tự động cho test drive khi thiếu dữ liệu quan trọng
 [Detect]
   loại lỗi, vị trí, confidence, camera
         ↓
-[Classify]
-  panel, material, GD&T, measurement, severity rank
+[Enrich]
+  mã lỗi, kích thước pilot, vị trí tương đối
         ↓
-[Validate]
-  kiểm tra thiếu dữ liệu, confidence, mâu thuẫn
-        ├── không đủ chắc chắn → [HITL Review]
-        └── đủ dữ liệu → [Decide]
-                              ├── PASS
-                              ├── PLAN_A: Buff + Test Drive
-                              ├── PLAN_B: Hold + Rework
-                              └── HITL_REQUIRED
+[Assess]
+  áp dụng threshold và guard vòng verify
+        ├── model lỗi/label mới → [HITL Review]
+        ├── cần verify → [Verify] → [Assess]
+        └── đã xác nhận → [Generate recommendation]
         ↓
 [Execute / Routing]
         ↓
@@ -162,34 +123,42 @@ Không được tự động cho test drive khi thiếu dữ liệu quan trọng
 
 ## 8. LangGraph workflow
 
-Các node dự kiến:
+Các node hiện tại:
 
-- `detect_node`: gọi `LocalYoloSegmentationDetector` trong runtime production.
-- `classify_node`: phân loại lỗi và tra cứu domain data.
-- `validate_node`: kiểm tra độ tin cậy và tính đầy đủ của dữ liệu.
-- `decide_node`: áp dụng decision rules.
-- `hitl_node`: tạm dừng workflow để QC xác nhận/override.
-- `execute_node`: cập nhật trạng thái và routing.
-- `report_node`: lưu kết quả và tạo log/báo cáo.
+- `prepare_input`
+- `detect_defect`
+- `assess_result`
+- `verify_defect`
+- `human_review`
+- `generate_recommendation`
+- `save_result`
 
 State tối thiểu:
 
 ```python
 class QCState(TypedDict, total=False):
     inspection_id: str
-    vin: str
-    image_urls: list[str]
+    vehicle_id: str
+    image_url: str
+    camera_id: str
+    zone_name: str
     detections: list[dict]
-    classifications: list[dict]
-    validation: dict
-    decision: dict
-    hitl_required: bool
-    hitl_result: dict
-    final_action: dict
-    errors: list[str]
+    enriched_defects: list[dict]
+    classified_defect_code: str
+    confidence: float
+    visual_measurements: dict
+    decision: str
+    recommendation_code: str
+    recommendation: str
+    human_required: bool
+    hitl_status: str
+    final_status: str
+    execution_trace: list[dict]
 ```
 
-LLM không được tự bịa ra tolerance, vật liệu hoặc severity. Các giá trị kỹ thuật phải đến từ database/rule engine. LLM có thể dùng để giải thích, chuẩn hóa mô tả hoặc hỗ trợ case mơ hồ.
+LLM không được tự bịa tiêu chí kỹ thuật hoặc mã lỗi. Mã lỗi phải tồn tại trong
+catalog; policy và rule engine là nguồn quyết định. LLM chỉ hỗ trợ phân loại trong
+tập mã cho phép, giải thích và phân tích xu hướng, đồng thời phải có fallback.
 
 ## 9. Kiến trúc kỹ thuật mục tiêu
 
@@ -216,14 +185,13 @@ MinIO/S3 là object storage, không phải relational database. PostgreSQL lưu 
 
 ## 10. Domain entities dự kiến
 
-- `Vehicle`: VIN, model, lot, station.
+- `Vehicle`: vehicle ID, model, lot, station.
 - `Inspection`: một phiên kiểm tra của xe.
 - `CameraImage`: ảnh, camera ID, timestamp, object-storage URL.
 - `Defect`: loại lỗi, vị trí, bbox/mask, confidence.
-- `Classification`: panel, material, GD&T group, tolerance, measurement, rank.
+- `Classification`: mã lỗi, vùng quan sát, measurement và severity.
 - `Decision`: recommendation, action plan, route, reason codes.
 - `HITLReview`: reviewer, decision trước/sau, reason, timestamp.
-- `MaterialRule`: mapping panel/model → material.
 - `GDTRule`: mapping region → group/tolerance.
 - `AuditLog`: mọi thay đổi và event của workflow.
 
@@ -276,7 +244,7 @@ Tạo mock detector với các case scratch, dent, no defect.
 
 ### CP4 — Mock Classify
 
-Mapping defect → panel/material/GD&T/measurement/rank.
+Mapping defect → zone/measurement/rank.
 
 ### CP5 — Decision Engine
 
@@ -295,11 +263,16 @@ bắt buộc nhập lý do.
 ### CP8 — Frontend QC workstation
 
 Đã hoàn thành cho baseline: ảnh, state, node trace, routing outcome, Mermaid và
-HITL resume controls song ngữ.
+HITL resume controls song ngữ. Hàng đợi QC có ảnh, bằng chứng model, mã lỗi,
+kích thước/vị trí và lý do checkpoint. Lịch sử dùng inspection card chi tiết có
+ảnh và quyết định cuối. Cảnh báo lặp lỗi có mã lỗi, gallery bằng chứng tối đa bốn
+ảnh, checklist khâu trước và điều kiện đóng cảnh báo.
 
 ### CP9 — End-to-end demo
 
-Demo scratch nhẹ, dent nghiêm trọng và case confidence thấp.
+Demo scratch, dent, loại lỗi mới cần HITL, lịch sử có ảnh và cảnh báo lặp lỗi từ
+nhiều inspection. Confidence thấp không còn tự động chuyển HITL trong chế độ
+Agent-first nếu label đã nằm trong taxonomy được hỗ trợ.
 
 ### CP10 — CV model thật
 

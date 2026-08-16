@@ -16,7 +16,7 @@ Mô hình Computer Vision tập trung nhận diện chuyên sâu 2 loại khuy�
 ```json
 {
   "inspection_id": "INSP-20260816-001",
-  "vin_code": "VN8921-2026-SUV01",
+  "vehicle_id": "CAR-20260816-001",
   "timestamp": "2026-08-16T12:00:00Z",
   "camera_id": "CAM_FNS_DOOR_LH",
   "vehicle_model": "SUV_EV",
@@ -31,8 +31,9 @@ Mô hình Computer Vision tập trung nhận diện chuyên sâu 2 loại khuy�
         "x_max": 580,
         "y_max": 410
       },
-      "estimated_depth_mm": 1.15,
-      "surface_area_mm2": 38.2,
+      "estimated_depth_mm": null,
+      "surface_area_mm2": null,
+      "physical_measurement_status": "REQUIRES_CALIBRATION_OR_QC_MEASUREMENT",
       "zone_name": "door_front_left_class_a"
     }
   ]
@@ -43,7 +44,7 @@ Mô hình Computer Vision tập trung nhận diện chuyên sâu 2 loại khuy�
 
 ## 2. LangGraph Agent State Schema (`QCState`)
 
-Được định nghĩa tại `src/agents/state.py`. Schema quản lý cả luồng phán quyết xe đơn lẻ lẫn cơ chế phát hiện bất thường lặp lại (Systemic Anomaly):
+Được định nghĩa tại `agent/graph/state.py`. Schema quản lý cả luồng phán quyết xe đơn lẻ lẫn cơ chế phát hiện bất thường lặp lại (Systemic Anomaly):
 
 ```python
 from typing import List, Optional, Literal, Dict, Any
@@ -55,12 +56,13 @@ class DefectItem(BaseModel):
     type: Literal["dent", "scratch"]
     confidence: float
     bbox: List[int]  # [xmin, ymin, xmax, ymax]
+    # Chỉ có giá trị khi camera đã calibration/depth-enabled hoặc QC đo xác nhận.
     estimated_depth_mm: Optional[float] = None
     surface_area_mm2: Optional[float] = None
+    physical_measurement_status: str = "REQUIRES_CALIBRATION_OR_QC_MEASUREMENT"
     zone_name: str
     gdt_group: Optional[Literal["Group 1", "Group 2", "Group 3", "Group 4", "Group 5"]] = None
     gdt_tolerance_allowed_mm: Optional[float] = None
-    material_type: Optional[Literal["Hot Stamped Steel", "Mild Steel", "Galvanized Steel", "Aluminum"]] = None
     severity_rank: Optional[Literal["P", "S", "A", "B", "C", "D"]] = None
     is_exceeding_tolerance: Optional[bool] = None
 
@@ -76,29 +78,47 @@ class SystemicAnomalyAlert(BaseModel):
 
 class QCState(TypedDict):
     inspection_id: str
-    vin_code: str
+    thread_id: str
+    vehicle_id: str
     vehicle_model: str
     image_url: str
-    raw_defects: List[Dict[str, Any]]
+    camera_id: str
+    zone_name: str
+    detections: List[Dict[str, Any]]
     enriched_defects: List[DefectItem]
+    suggested_defect_codes: List[Dict[str, Any]]
+    classified_defect_code: Optional[str]
+    defect_family: Optional[str]
+    defect_code_classification: Dict[str, Any]
+    similar_defect_warning: bool
+    agent_analysis: Dict[str, Any]
     
     # 1. Phán quyết Xe Đơn lẻ (Individual Vehicle Decision)
-    overall_severity_rank: Literal["P", "S", "A", "B", "C", "D", "NONE"]
-    recommended_plan: Literal["PLAN_A_BUFFING", "PLAN_B_HOLD", "CRITICAL_HOLD", "PASS"]
+    severity: Literal["P", "S", "A", "B", "C", "D", "NONE", "UNASSESSED"]
+    recommendation_code: str
+    recommendation: str
     allow_test_drive: bool
-    buffing_duration_minutes: Optional[int]
-    rework_destination: Optional[str]
-    reasoning_summary: str
-    technical_explanations: List[str]
+    decision: str
+    reason: str
+    final_status: str
     
     # 2. Cảnh báo Bất thường Chuỗi & Chống Dừng Line (Systemic Anomaly)
     anomaly_alert: Optional[SystemicAnomalyAlert]
     
     # 3. Human-In-The-Loop
     hitl_status: Literal["PENDING", "CONFIRMED", "OVERRIDDEN"]
-    inspector_override_reason: Optional[str]
-    final_action: Optional[str]
+    human_required: bool
+    human_decision: Optional[Dict[str, Any]]
 ```
+
+### Quy ước tên trường
+
+- `vehicle_id`: mã kỹ thuật bắt buộc để theo dõi một xe/phiên trong hệ thống.
+- `zone_name`: vùng kiểm tra tương đối hoặc khu vực camera quan sát.
+- `detections`: output đã chuẩn hóa trực tiếp từ detector; `enriched_defects`: cùng finding sau khi Agent bổ sung zone và metadata vận hành.
+- `severity` là mức độ tổng thể duy nhất; không tạo thêm alias `overall_severity_rank`.
+- `recommendation_code`: mã hành động chuẩn duy nhất trong `QCState`; `recommendation` là mô tả dễ đọc.
+- `recommended_plan` chỉ tồn tại ở response `/api/v1/inspect` để tương thích client cũ. `final_action` không còn thuộc contract.
 
 ---
 
@@ -117,18 +137,7 @@ class QCState(TypedDict):
   }
   ```
 
-### Tool 2: `lookup_material_properties(zone_name: str, vehicle_model: str)`
-- **Input:** `zone_name`, `vehicle_model`
-- **Output:**
-  ```json
-  {
-    "zone_name": "door_front_left_class_a",
-    "material": "Hot Stamped Steel",
-    "rework_guideline": "CẤM GÕ NẮN NGUỘI TẠI TRẠM (Cold-working prohibited). Yêu cầu chuyển Rework xưởng thân vỏ chuyên dụng."
-  }
-  ```
-
-### Tool 3: `analyze_defect_trend_anomaly(current_defects: list, window_size: int = 10)`
+### Tool 2: `analyze_defect_trend_anomaly(current_defects: list, window_size: int = 10)`
 - **Input:** Danh sách khuyết tật của xe hiện tại + Cửa sổ $N$ xe gần nhất trong ca.
 - **Output:**
   ```json
@@ -153,7 +162,7 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
 
 **Request:** `multipart/form-data`
 - `file`: Ảnh chụp trạm FNS (`image/jpeg` hoặc `image/png`)
-- `vin_code`: `"VN8921-2026-SUV01"`
+- `vehicle_id`: `"CAR-20260816-001"`
 - `station_id`: `"FNS_LINE_HA_01"`
 
 **Response:** `200 OK`
@@ -161,14 +170,14 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
 {
   "success": true,
   "inspection_id": "INSP-20260816-001",
-  "vin_code": "VN8921-2026-SUV01",
+  "vehicle_id": "CAR-20260816-001",
   "result": {
     "status": "FAIL",
     "recommended_plan": "PLAN_B_HOLD",
     "allow_test_drive": false,
     "rework_destination": "Rework Shop (Body & Paint)",
     "overall_rank": "RANK A",
-    "reasoning_summary": "Phát hiện vết móp 1.15mm vượt dung sai GD&T Group 1 (0.7mm) trên vật liệu Thép dập nóng. CẤM CHẠY THỬ để tránh bám bụi đất.",
+    "reasoning_summary": "Phát hiện vết móp tại vùng Class A nhưng chưa có phép đo độ sâu được xác nhận. Giữ xe chờ QC đo và đối chiếu tiêu chí OEM.",
     "defects": [
       {
         "defect_id": "DEF-001",
@@ -176,8 +185,8 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
         "zone_name": "door_front_left_class_a",
         "gdt_group": "Group 1",
         "tolerance_limit_mm": 0.7,
-        "measured_depth_mm": 1.15,
-        "material": "Hot Stamped Steel",
+        "measured_depth_mm": null,
+        "physical_measurement_status": "REQUIRES_CALIBRATION_OR_QC_MEASUREMENT",
         "severity_rank": "A",
         "action": "Plan B - Hold for Rework"
       }
@@ -212,3 +221,36 @@ data: {
   "instruction": "Kiểm tra khuôn dập số 2 tại Xưởng Dập. Kích hoạt làn đệm kiểm tra số 2."
 }
 ```
+
+### 4.3. Quy tắc tương thích
+- `POST /api/v1/inspect` là facade contract; bên trong chạy cùng LangGraph workflow với `/inspections/from-image`.
+- `recommended_plan` phục vụ tương thích client cũ. `concrete_action` được ánh xạ trực tiếp từ `QCState.recommendation_code`, là mã hành động vận hành chuẩn.
+- `estimated_depth_mm` phải là `null` nếu không có depth sensor hoặc phép đo QC. `surface_area_mm2` có thể là ước lượng khi có profile camera cố định, nhưng phải kèm `physical_measurement_status=PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED` và `calibration_profile_id`.
+- SSE dùng sliding window 10 xe từ repository. Baseline dùng Supabase/PostgreSQL; Redis có thể thay adapter mà không đổi contract.
+- Contract baseline không nhận hoặc trả `vin_code`, `panel`, `material`. Dùng
+  `vehicle_id` để định danh vận hành và `zone_name` cho vùng quan sát tương đối.
+
+### 4.4. `GET /api/quality-alerts`
+
+Trả summary dùng cho trang Cảnh báo lặp lỗi. UI sử dụng các trường chính:
+
+- `alerts[].related_defect_codes`: các mã lỗi liên quan;
+- `alerts[].occurrences[].image_url`: ảnh bằng chứng từng inspection;
+- `occurrence_count`, `affected_vehicle_count`, `camera_id`, `last_seen`;
+- `recommendation_vi/en`, `predicted_root_cause`, `upstream_target_shop`;
+- `upstream_checks_vi/en`: checklist hành động, UI chỉ hiển thị ba bước đầu.
+
+Frontend loại `image_url` trùng và hiển thị tối đa bốn ảnh trên mỗi cảnh báo.
+Nếu không có ảnh, UI phải hiện trạng thái rỗng rõ ràng thay vì placeholder giả.
+
+### 4.5. Dữ liệu Hàng đợi QC và Lịch sử
+
+`GET /agent/runs` là nguồn chung cho hai màn hình:
+
+- run `INTERRUPTED` đi vào Hàng đợi QC, kèm `interrupt.reason` để giải thích vì
+  sao cần kiểm duyệt;
+- run `COMPLETED` đi vào Lịch sử, hiển thị `state.image_url`,
+  `classified_defect_code`, `confidence`, `visual_measurements`, `camera_id`,
+  `recommendation` và `final_status`;
+- nhấn bản ghi mở lại inspection state đầy đủ; `DELETE /agent/runs` chỉ xóa
+  trace/state, không xóa file evidence đã upload.

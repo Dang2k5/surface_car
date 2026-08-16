@@ -81,8 +81,7 @@ def _initial_state(
         "image_url": payload.image_url or "",
         "image_paths": payload.image_paths,
         "camera_id": payload.camera_id,
-        "panel": payload.panel,
-        "material": payload.material,
+        "zone_name": payload.zone_name,
         "verify_count": 0,
         "retry_count": 0,
         "max_retries": 2,
@@ -99,6 +98,7 @@ def _initial_state(
             "medium_confirmed",
             "verify_uncertain",
             "low_confidence",
+            "unknown_defect",
         )
         state["mock_scenario"] = next(
             (scenario for scenario in scenarios if scenario in marker),
@@ -180,8 +180,45 @@ def resume_langgraph_inspection(
         raise HTTPException(status_code=404, detail="LangGraph thread not found")
     if not snapshot.next:
         raise HTTPException(status_code=409, detail="LangGraph thread is not waiting for HITL")
+    catalog_item = None
+    if payload.defect_code:
+        catalog_item = request.app.state.database.get_defect_code(payload.defect_code)
+        if catalog_item is None:
+            raise HTTPException(status_code=422, detail="Unknown or inactive defect code")
+        graph.update_state(
+            _config(thread_id),
+            {
+                "classified_defect_code": catalog_item["defect_code"],
+                "defect_type": catalog_item["defect_type"],
+                "defect_family": catalog_item.get("defect_family"),
+                "severity": payload.severity or catalog_item["default_severity"],
+            },
+        )
     result = graph.invoke(Command(resume=payload.model_dump()), config=_config(thread_id))
-    return _graph_response(graph, thread_id, result)
+    response = _graph_response(graph, thread_id, result)
+    if catalog_item:
+        qc_record = request.app.state.database.create_qc_decision(
+            {
+                "thread_id": thread_id,
+                "inspection_id": response.state["inspection_id"],
+                "vehicle_id": response.state["vehicle_id"],
+                "defect_code": catalog_item["defect_code"],
+                "defect_type": catalog_item["defect_type"],
+                "location": payload.location or "unspecified_location",
+                "length_mm": payload.length_mm,
+                "severity": payload.severity or response.state.get("severity", "UNASSESSED"),
+                "action": payload.action,
+                "disposition": payload.disposition or (
+                    "REINSPECT" if payload.action == "REJECT" else "HOLD"
+                ),
+                "reviewer": payload.reviewer,
+                "reason": payload.reason,
+                "notes": payload.notes,
+            }
+        )
+        response.state["qc_decision_record"] = qc_record
+        request.app.state.qc_repository.save(response.state)
+    return response
 
 
 @router.get("/inspections/{thread_id}/state", response_model=LangGraphRunResponse)
@@ -256,6 +293,7 @@ def clear_agent_runs(request: Request) -> dict[str, Any]:
         policy_catalog=request.app.state.qc_policy_catalog,
         repository=request.app.state.qc_repository,
         checkpointer=request.app.state.qc_checkpointer,
+        defect_catalog=request.app.state.qc_defect_catalog,
     )
     return {"deleted": deleted, "status": "CLEARED"}
 
@@ -291,8 +329,7 @@ def run_uploaded_image_inspection(
     vehicle_id: str = Form(...),
     vehicle_model: str = Form("unknown_model"),
     camera_id: str = Form("cam-fns-01"),
-    panel: str = Form("unknown_panel"),
-    material: str = Form("unknown_material"),
+    zone_name: str = Form("unknown_zone"),
 ) -> LangGraphRunResponse:
     """Persist a validated image locally and run the configured model-backed graph."""
     allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
@@ -326,11 +363,100 @@ def run_uploaded_image_inspection(
         image_url=f"/assets/uploads/{relative_path.as_posix()}",
         image_paths=[str(destination)],
         camera_id=camera_id,
-        panel=panel,
-        material=material,
+        zone_name=zone_name,
     )
     initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
     initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()
+    graph = request.app.state.qc_langgraph
+    result = graph.invoke(initial_state, config=_config(thread_id))
+    response = _graph_response(graph, thread_id, result)
+    if response.status == "INTERRUPTED":
+        _save_waiting_state(request, response.state)
+    return response
+
+
+@router.post("/inspections/from-images", response_model=LangGraphRunResponse, status_code=201)
+@router.post(
+    "/api/langgraph/inspections/from-images",
+    response_model=LangGraphRunResponse,
+    status_code=201,
+)
+def run_uploaded_images_inspection(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    camera_ids: list[str] = Form(...),
+    vehicle_id: str = Form(...),
+    vehicle_model: str = Form("unknown_model"),
+    zone_name: str = Form("unknown_zone"),
+) -> LangGraphRunResponse:
+    """Run one vehicle inspection from one to five synchronized camera frames.
+
+    Each frame remains attributable to its camera. The detector aggregates the
+    results before the LangGraph policy decision; it never silently treats two
+    camera observations as the same physical defect without calibration data.
+    """
+    allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
+    max_file_size = 15 * 1024 * 1024
+    if not 1 <= len(files) <= 5:
+        raise HTTPException(status_code=422, detail="Submit between 1 and 5 camera images")
+    if len(files) != len(camera_ids):
+        raise HTTPException(status_code=422, detail="files and camera_ids must have the same count")
+    normalized_camera_ids = [camera_id.strip() for camera_id in camera_ids]
+    if any(not camera_id for camera_id in normalized_camera_ids):
+        raise HTTPException(status_code=422, detail="camera_ids cannot be empty")
+    if len(set(normalized_camera_ids)) != len(normalized_camera_ids):
+        raise HTTPException(status_code=422, detail="camera_ids must be unique per inspection")
+
+    validated: list[tuple[UploadFile, bytes, str]] = []
+    for file in files:
+        suffix = allowed_types.get(file.content_type or "")
+        if suffix is None:
+            raise HTTPException(status_code=415, detail="Only JPEG and PNG images are accepted")
+        data = file.file.read(max_file_size + 1)
+        if not data:
+            raise HTTPException(status_code=400, detail="Uploaded image is empty")
+        if len(data) > max_file_size:
+            raise HTTPException(status_code=413, detail="Each image must not exceed the 15 MB limit")
+        try:
+            from PIL import Image
+
+            with Image.open(BytesIO(data)) as image:
+                image.verify()
+        except Exception as error:
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid image") from error
+        validated.append((file, data, suffix))
+
+    thread_id = str(uuid4())
+    inspection_id = str(uuid4())
+    upload_root = Path(__file__).resolve().parents[2] / "data" / "uploads"
+    camera_evidence: list[dict[str, str]] = []
+    for index, ((_, data, suffix), camera_id) in enumerate(zip(validated, normalized_camera_ids, strict=True), start=1):
+        relative_path = Path(inspection_id) / f"camera-{index}{suffix}"
+        destination = upload_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        camera_evidence.append(
+            {
+                "camera_id": camera_id,
+                "image_url": f"/assets/uploads/{relative_path.as_posix()}",
+                "image_path": str(destination),
+                "image_sha256": hashlib.sha256(data).hexdigest(),
+            }
+        )
+
+    primary = camera_evidence[0]
+    payload = LangGraphInspectionCreate(
+        inspection_id=inspection_id,
+        vehicle_id=vehicle_id,
+        vehicle_model=vehicle_model,
+        image_url=primary["image_url"],
+        image_paths=[item["image_path"] for item in camera_evidence],
+        camera_id=primary["camera_id"],
+        zone_name=zone_name,
+    )
+    initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
+    initial_state["image_sha256"] = primary["image_sha256"]
+    initial_state["camera_evidence"] = camera_evidence
     graph = request.app.state.qc_langgraph
     result = graph.invoke(initial_state, config=_config(thread_id))
     response = _graph_response(graph, thread_id, result)

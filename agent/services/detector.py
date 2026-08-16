@@ -48,8 +48,58 @@ class MockDetector:
             "bbox": {"x1": 225.0, "y1": 430.0, "x2": 615.0, "y2": 615.0},
             "severity": "UNCONFIRMED",
         },
+        "unknown_defect": {
+            "defect_detected": True,
+            "defect_type": "unknown",
+            "confidence": 0.91,
+            "bbox": {"x1": 180.0, "y1": 180.0, "x2": 360.0, "y2": 340.0},
+            "severity": "UNASSESSED",
+        },
     }
 
     def detect(self, state: QCState) -> dict[str, Any]:
         scenario = state.get("mock_scenario", "high_confidence")
-        return dict(self._SCENARIOS.get(scenario, self._SCENARIOS["high_confidence"]))
+        base = dict(self._SCENARIOS.get(scenario, self._SCENARIOS["high_confidence"]))
+        cameras = state.get("camera_evidence") or [{
+            "camera_id": state.get("camera_id", "cam-fns-01"),
+            "image_url": state.get("image_url", ""),
+        }]
+        camera_results: list[dict[str, Any]] = []
+        detections: list[dict[str, Any]] = []
+        for camera in cameras:
+            camera_detection = dict(base)
+            camera_detection["camera_id"] = str(camera["camera_id"])
+            camera_detection["image_url"] = str(camera.get("image_url", ""))
+            camera_detection["detections"] = []
+            if base["defect_detected"]:
+                item = {
+                    "camera_id": str(camera["camera_id"]),
+                    "class_name": base["defect_type"],
+                    "raw_class_name": base["defect_type"],
+                    "confidence": base["confidence"],
+                    "bbox": base["bbox"],
+                    "segmentation": None,
+                }
+                camera_detection["detections"] = [item]
+                detections.append(item)
+            camera_results.append(camera_detection)
+        groups = [
+            {
+                "defect_type": base["defect_type"],
+                "observation_count": len(detections),
+                "camera_ids": [item["camera_id"] for item in detections],
+                "deduplication_status": (
+                    "CANDIDATE_DUPLICATE_REQUIRES_CALIBRATION"
+                    if len(detections) > 1 else "SINGLE_VIEW"
+                ),
+            }
+        ] if detections else []
+        return {
+            **base,
+            "detections": detections,
+            "camera_results": camera_results,
+            "finding_groups": groups,
+            "image_width": 640,
+            "image_height": 640,
+            "inference_status": "SUCCESS",
+        }

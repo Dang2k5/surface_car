@@ -31,7 +31,7 @@ Hai loại khuyết tật ngoại quan phổ biến và gây thiệt hại kinh 
 
 ## 2. Định vị Sản phẩm & Giá trị Đột phá (Core Value Proposition)
 
-> **Visual QC Agent = Thị giác Máy tính Tập trung (High-Precision Vision for Scratch & Dent) + Lập luận Chuẩn Công nghiệp (GD&T & Material Reasoning) + Hệ thống Cảnh báo Bất thường Chuỗi Tránh Dừng Line (Systemic Anomaly & Line Stoppage Prevention)**
+> **Visual QC Agent = Thị giác Máy tính Tập trung (High-Precision Vision for Scratch & Dent) + Lập luận Policy QC + Hệ thống Cảnh báo Bất thường Chuỗi Tránh Dừng Line (Systemic Anomaly & Line Stoppage Prevention)**
 
 ```mermaid
 graph LR
@@ -94,23 +94,43 @@ Khi phát hiện bất thường chuỗi, Agent tự động kích hoạt 3 hàn
 
 ### 6.1. Module 1: High-Precision Vision Engine (Scratch & Dent)
 - **FR-01:** Tiếp nhận hình ảnh trạm FNS, tập trung tối đa mô hình nhận diện khuyết tật vào 2 lớp: `scratch` và `dent`.
-- **FR-02:** Trích xuất chính xác Bounding Box, độ sâu móp ước tính (`estimated_depth_mm`), diện tích tổn thương và vị trí tọa độ vùng thân vỏ (`zone_name`).
+- **FR-02:** Trích xuất Bounding Box/segmentation, kích thước pixel, tỷ lệ diện tích ảnh và vị trí vùng thân vỏ (`zone_name`). Baseline có thể ước lượng chiều rộng, chiều cao và diện tích bằng profile camera cố định; phải gắn trạng thái pilot, profile calibration và không được coi là phép đo QC chính thức. `estimated_depth_mm` chỉ có khi dùng depth sensor hoặc QC đo xác nhận.
 
 ### 6.2. Module 2: Industrial Domain Reasoning & Routing Engine (LangGraph)
 - **FR-03:** Tra cứu quy chuẩn dung sai GD&T (Group 1–5) theo vị trí lỗi.
-- **FR-04:** Tra cứu vật liệu thân vỏ (Thép dập nóng vs Thép thường).
-- **FR-05:** Phân loại Rank nghiêm trọng (PSLAWBCD) và sinh ra phán quyết điều hướng từng xe (`PLAN A` vs `PLAN B`).
+- **FR-04:** Đối chiếu loại lỗi, mã lỗi, kích thước pilot và vùng quan sát với
+  policy đang có hiệu lực. Baseline không dùng thuộc tính vật liệu làm input.
+- **FR-05:** Phân loại Rank nghiêm trọng (PSLAWBCD) và sinh mã hành động vận hành cụ thể trong `recommendation_code`.
 - **FR-06:** Tạo giải trình kỹ thuật (Explainable AI) giải thích nguyên do vì sao xe bị giữ hoặc được phép chạy thử.
 
 ### 6.3. Module 3: Sliding-Window Anomaly & Line Stoppage Prevention Engine
-- **FR-07:** Cập nhật liên tục trạng thái $N$ xe gần nhất vào Redis/Memory State.
+- **FR-07:** Cập nhật liên tục trạng thái $N=10$ xe gần nhất. Baseline MVP dùng PostgreSQL/Supabase làm nguồn dữ liệu bền vững; Redis là adapter tối ưu realtime khi triển khai quy mô line.
 - **FR-08:** Phát hiện mẫu lỗi lặp lại theo không gian và thời gian.
 - **FR-09:** Tự động sinh `SYSTEMIC_ANOMALY_ALERT` kèm dự đoán nguyên nhân thiết bị và kích hoạt kịch bản điều phối làn đệm chống dừng line.
 
 ### 6.4. Module 4: QC Workstation Touch UI & HITL
-- **FR-10:** Hiển thị trực quan thẻ điều hướng cá nhân từng xe (Plan A / Plan B).
-- **FR-11:** Hiển thị Banner Cảnh báo Đỏ khẩn cấp khi phát hiện lỗi chuỗi hệ thống kèm đề xuất can thiệp.
-- **FR-12:** Hỗ trợ kiểm định viên bấm xác nhận (Confirm), ghi đè (Override), hoặc tra cứu hỏi đáp với Agent.
+- **FR-10:** Hiển thị trực quan hành động vận hành, trạng thái cho phép test drive và yêu cầu HITL của từng xe.
+- **FR-11:** Cảnh báo lỗi lặp phải hiển thị mã lỗi, ảnh đại diện của các lần phát
+  hiện, số xe ảnh hưởng, hành động ngay, bộ phận xử lý và điều kiện đóng cảnh báo.
+- **FR-12:** Hàng đợi QC phải hiển thị ảnh evidence, mã lỗi, confidence, kích
+  thước/vị trí và lý do checkpoint trước khi QC mở kiểm duyệt; hỗ trợ xác nhận,
+  từ chối hoặc ghi đè bằng cơ chế resume của LangGraph.
+- **FR-13:** Lịch sử phải hiển thị inspection summary gồm ảnh, mã xe, inspection
+  ID, mã lỗi, confidence, camera, kích thước/vị trí, trạng thái và hành động cuối.
+
+### 6.5. Quyết định triển khai Baseline MVP (2026-08-16)
+- Taxonomy CV chính thức chỉ gồm `scratch` và `dent`.
+- Hành động vận hành cụ thể là nguồn dữ liệu authoritative; `PLAN_A_BUFFING` và `PLAN_B_HOLD` chỉ là mã tương thích cho API/báo cáo.
+- `QCState` dùng `recommendation_code` làm mã quyết định duy nhất; không lưu `recommended_plan` hoặc `final_action` trong state.
+- `QCState` dùng `detections` cho output CV và `severity` cho mức độ tổng thể; không lưu các alias `raw_defects` hoặc `overall_severity_rank`.
+- `vehicle_id` là khóa vận hành bắt buộc; `zone_name` mô tả vùng kiểm tra tương đối.
+- `vin_code`, `panel` và `material` không thuộc state, request API, form UI hoặc
+  bảng quyết định QC của baseline. Dữ liệu cũ được lọc khi đọc và cột legacy được
+  loại qua migration tương thích.
+- Không suy diễn độ sâu hoặc kích thước mm từ một ảnh RGB chưa calibration.
+- Profile demo `FNS_FRONT_PILOT_1280` dùng hệ số `0.8 mm/pixel` cho hai trục, chỉ hợp lệ khi camera, ống kính, khoảng cách, góc chụp và độ phân giải inference được giữ cố định.
+- Cảnh báo chuỗi kích hoạt khi có 3 xe gần nhất liên tiếp cùng `defect_type + zone_name`, hoặc 4/10 xe trong cửa sổ cùng nhóm lỗi.
+- Dự đoán nguyên nhân gốc là giả thuyết cần QC xác minh, không phải kết luận tự động về thiết bị.
 
 ---
 

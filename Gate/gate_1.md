@@ -12,7 +12,7 @@
 - **Nỗi sợ lớn nhất của nhà máy: DỪNG LINE (Line Stoppage):** Khi một lỗi móp/xước lặp lại liên tiếp trên nhiều xe (do khuôn dập dính bavia hoặc tay gắp robot kẹp lệch), việc phát hiện muộn gây dồn ứ xe tại trạm FNS và buộc nhà máy phải **DỪNG DÂY CHUYỀN KHẨN CẤP** — gây tổn thất hàng chục nghìn USD mỗi giờ.
 
 ### 1.2. Giải pháp & Giá trị Đột phá của AI Agent
-1. **Thị giác Máy tính Tập trung (Focused High-Precision CV):** Nhận dạng siêu chính xác 2 lớp lỗi `scratch` và `dent`, đo đạc ước tính độ sâu móp (`estimated_depth_mm`) và vị trí vùng thân vỏ (`zone_name`), loại bỏ báo động giả.
+1. **Thị giác Máy tính Tập trung (Focused High-Precision CV):** Nhận dạng 2 lớp lỗi `scratch` và `dent`, trả bbox/segmentation và vị trí vùng thân vỏ (`zone_name`). Độ sâu mm chỉ được dùng khi có calibration/depth sensor hoặc QC đo xác nhận.
 2. **Hạt nhân Lập luận Công nghiệp (Industrial Domain Engine):** Tự động đối chiếu tọa độ lỗi với bản đồ **GD&T (Group 1–5, Dung sai $0.7\text{mm} - 1.5\text{mm}$)**, loại vật liệu (**Thép thường vs Thép dập nóng**) và thang xếp rank **PSLAWBCD**.
 3. **Phán quyết Điều hướng Tức thì (Actionable Routing < 2s):**
    - 🟢 **Phương án A (Buffing & Test Drive):** Lỗi nhẹ Rank C/D (xước bóng, móp nông vùng Group 2–4) $\rightarrow$ Đánh bóng nhanh 3 phút tại trạm $\rightarrow$ **XUẤT XANH CHO CHẠY THỬ**.
@@ -97,13 +97,13 @@ graph TD
 │ │ 🎯 DEFECT DETECTED: DENT ON DOOR FRONT-LH        │ │ │ 🔴 PLAN B (HOLD)      │ │ │ PLAN A    │ │
 │ │ - Surface Zone: Class A (GD&T Group 1)           │ │ │                       │ │ │ (Buffing) │ │
 │ │ - Tolerance Allowed: 0.7mm | Measured: 1.15mm    │ │ │ 🚫 DO NOT TEST DRIVE  │ │ ├───────────┤ │
-│ │ - Material: Hot Stamped Steel                    │ │ │                       │ │ │ CONFIRM   │ │
+│ │ - Zone: Front door surface                       │ │ │                       │ │ │ CONFIRM   │ │
 │ │ - Severity Rank: RANK A (Structural Dent)        │ │ │ Route: Send to        │ │ │ PLAN B    │ │
 │ └──────────────────────────────────────────────────┘ │ │ Rework Shop (Hot-Form)  │ │ │ (Hold)    │ │
 │ Defect Type: DENT (Confidence: 95%)                  │ └───────────────────────┘ │ ├───────────┤ │
 │ Status: FAIL (Exceeds GD&T Group 1 Tolerance)        │ REASONING LOGIC:          │ │ OVERRIDE  │ │
 │ Consecutive Spike: CAR 3/3 (Anomaly Triggered)       │ - GD&T Group 1 Exceeded   │ │ DECISION  │ │
-│                                                      │ - Hot Stamped Material    │ ├───────────┤ │
+│                                                      │ - Geometry policy applied │ ├───────────┤ │
 │                                                      │   cannot be cold-worked.  │ │ ASK AGENT │ │
 │                                                      │ - Prevent road test dust. │ └───────────┘ │
 ├──────────────────────────────────────────────────────┴───────────────────────────┴───────────────┤
@@ -131,7 +131,7 @@ graph TD
 - **Frontend:** Next.js 14, React, Tailwind CSS, Canvas / SVG Overlay, Server-Sent Events (SSE).
 - **Backend & APIs:** FastAPI (Python 3.11), REST API, Uvicorn, Pydantic v2.
 - **Vision Engine:** PyTorch, YOLOv8, ONNX Runtime (Tối ưu hóa chuyên sâu Xước & Lõm).
-- **Agent Orchestration:** LangGraph (State Graph, GD&T & Material Engine, Sliding Buffer Anomaly Monitor, HITL).
+- **Agent Orchestration:** LangGraph (State Graph, QC Policy Engine, Sliding Buffer Anomaly Monitor, HITL).
 - **Database & Storage:** PostgreSQL (Metadata, CAD Specs), Redis (Realtime Sliding Buffer), MinIO / S3 (Image Archive).
 - **Observability & Logging:** Arize Phoenix (LLM Tracing & Token Tracking).
 

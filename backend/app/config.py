@@ -21,6 +21,10 @@ class ModelSettings:
     model_device: str
     model_confidence: float
     model_image_size: int
+    fixed_camera_calibration_enabled: bool
+    calibration_mm_per_pixel_x: float
+    calibration_mm_per_pixel_y: float
+    calibration_profile_id: str
     auto_pass_enabled: bool
     confirmed_threshold: float
     verify_threshold: float
@@ -38,7 +42,19 @@ class ModelSettings:
             model_device=os.getenv("MODEL_DEVICE", "cpu").strip(),
             model_confidence=float(os.getenv("MODEL_CONFIDENCE", "0.25")),
             model_image_size=int(os.getenv("MODEL_IMAGE_SIZE", "1280")),
-            auto_pass_enabled=_env_bool("AUTO_PASS_ENABLED", False),
+            fixed_camera_calibration_enabled=_env_bool(
+                "FIXED_CAMERA_CALIBRATION_ENABLED", True
+            ),
+            calibration_mm_per_pixel_x=float(
+                os.getenv("CALIBRATION_MM_PER_PIXEL_X", "0.8")
+            ),
+            calibration_mm_per_pixel_y=float(
+                os.getenv("CALIBRATION_MM_PER_PIXEL_Y", "0.8")
+            ),
+            calibration_profile_id=os.getenv(
+                "CALIBRATION_PROFILE_ID", "FNS_FRONT_PILOT_1280"
+            ).strip(),
+            auto_pass_enabled=_env_bool("AUTO_PASS_ENABLED", True),
             confirmed_threshold=float(os.getenv("CONFIRMED_THRESHOLD", "0.70")),
             verify_threshold=float(os.getenv("VERIFY_THRESHOLD", "0.40")),
             reasoning_provider=os.getenv("QC_REASONING_PROVIDER", "deterministic").strip().lower(),

@@ -155,7 +155,10 @@ class PolicyCatalog:
             action_label=ACTION_LABELS.get(action_code, action_code.replace("_", " ").title()),
             final_status=policy["final_status"],
             test_drive_allowed=policy.get("test_drive_allowed"),
-            human_required=bool(policy.get("human_required", True) or missing),
+            # Missing evidence becomes an operational checklist, not a second
+            # approval gate. Known catalogued defects are decided by the Agent;
+            # only an unmapped defect reaches the fail-safe manual policy.
+            human_required=bool(policy.get("human_required", False)),
             required_evidence=required_evidence,
             missing_evidence=missing,
             required_steps=list(policy.get("steps", [])),
@@ -213,8 +216,6 @@ class PolicyCatalog:
         applicability = policy.get("applicability", {})
         for state_key, policy_key, unknown in (
             ("vehicle_model", "vehicle_models", "unknown_model"),
-            ("panel", "panels", "unknown_panel"),
-            ("material", "materials", "unknown_material"),
         ):
             actual = str(state.get(state_key) or unknown)
             allowed = set(str(item) for item in applicability.get(policy_key, ["*"]))
@@ -233,8 +234,6 @@ class PolicyCatalog:
     ) -> PolicyDocumentReview:
         query = {
             "vehicle_model": str(state.get("vehicle_model") or "unknown_model"),
-            "panel": str(state.get("panel") or "unknown_panel"),
-            "material": str(state.get("material") or "unknown_material"),
             "defect_type": str(state.get("defect_type") or "unknown"),
         }
         missing_context = [key for key, value in query.items() if value.startswith("unknown")]
@@ -343,12 +342,8 @@ class PolicyCatalog:
     @staticmethod
     def _provided_evidence(state: QCState) -> set[str]:
         evidence = set(str(item) for item in state.get("evidence_tags", []))
-        if state.get("panel") and state.get("panel") != "unknown_panel":
-            evidence.add("known_panel")
         if state.get("vehicle_model") and state.get("vehicle_model") != "unknown_model":
             evidence.add("known_vehicle_model")
-        if state.get("material") and state.get("material") != "unknown_material":
-            evidence.add("material_identification")
         if state.get("human_decision"):
             evidence.add("qc_reinspection")
         measurements = state.get("measurements") or {}

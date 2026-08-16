@@ -5,6 +5,7 @@ from typing import Any
 from langgraph.types import interrupt
 
 from agent.graph.state import QCState, TraceEvent
+from agent.services.defect_catalog import DefectCatalogService
 from agent.services.detector import DetectorService
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import ReasoningService
@@ -24,17 +25,20 @@ class QCNodes:
         reasoning: ReasoningService,
         policy_catalog: PolicyCatalog,
         repository: QCRepository,
+        defect_catalog: DefectCatalogService,
     ) -> None:
         self.detector = detector
         self.verifier = verifier
         self.reasoning = reasoning
         self.policy_catalog = policy_catalog
         self.repository = repository
+        self.defect_catalog = defect_catalog
 
     def prepare_input(self, state: QCState) -> dict[str, Any]:
+        camera_evidence = state.get("camera_evidence", [])
         image_paths = state.get("image_paths", [])
         image_url = state.get("image_url", "")
-        if not image_url and not image_paths:
+        if not camera_evidence and not image_url and not image_paths:
             raise ValueError("image_url or image_paths is required")
         return {
             "verify_count": 0,
@@ -44,7 +48,10 @@ class QCNodes:
             "retry_count": state.get("retry_count", 0),
             "max_retries": state.get("max_retries", 2),
             "error": None,
-            "execution_trace": _trace("prepare_input", "Input and image evidence validated."),
+            "execution_trace": _trace(
+                "prepare_input",
+                f"Input validated for {len(camera_evidence) or 1} camera view(s).",
+            ),
         }
 
     def detect_defect(self, state: QCState) -> dict[str, Any]:
@@ -68,61 +75,75 @@ class QCNodes:
             }
         detected = bool(detection.get("defect_detected"))
         model_name = str(detection.get("model_name") or type(self.detector).__name__)
+        suggested_codes = self.defect_catalog.match(str(detection.get("defect_type") or "none"))
+        classification = self.reasoning.classify_defect_code(
+            {**state, **detection}, suggested_codes
+        )
+        classified_record = next(
+            (
+                item
+                for item in suggested_codes
+                if item.get("defect_code") == classification.defect_code
+            ),
+            None,
+        )
+        visual = detection.get("visual_measurements") or {}
+        geometry_detail = (
+            f" bbox={float(visual.get('width_px', 0)):.0f}x"
+            f"{float(visual.get('height_px', 0)):.0f}px, "
+            f"image_area={float(visual.get('image_area_ratio', 0)):.1%};"
+            if visual
+            else ""
+        )
         return {
             **detection,
+            "zone_name": str(state.get("zone_name") or "unknown_zone"),
+            "suggested_defect_codes": suggested_codes,
+            "defect_code_classification": classification.model_dump(mode="json"),
+            "classified_defect_code": classification.defect_code,
+            "defect_family": classification.defect_family,
+            "severity": (
+                str(classified_record.get("default_severity") or "UNASSESSED")
+                if classified_record
+                else str(detection.get("severity") or "UNASSESSED")
+            ),
+            "similar_defect_warning": classification.similar_observation_warning,
             "execution_trace": _trace(
                 "detect_defect",
                 f"{model_name} returned defect_detected={detected}, "
                 f"confidence={float(detection.get('confidence', 0.0)):.2f}, "
-                f"detections={len(detection.get('detections', []))}.",
+                f"detections={len(detection.get('detections', []))} across "
+                f"{len(detection.get('camera_results', [])) or 1} camera view(s); "
+                f"catalog_matches={len(suggested_codes)}, selected_code={classification.defect_code}, "
+                f"classifier={classification.provider};{geometry_detail} "
+                "physical_mm=requires_calibration.",
             ),
         }
 
     def assess_result(self, state: QCState) -> dict[str, Any]:
-        confidence = float(state.get("confidence", 0.0))
-        confirmed_threshold = float(state.get("confirmed_threshold", 0.85))
-        verify_threshold = float(state.get("verify_threshold", 0.50))
         if state.get("inference_status") == "ERROR":
             route = "HITL"
             decision = "MODEL_ERROR_REVIEW_REQUIRED"
             reason = "Model inference failed; fail-safe QC review is required."
-        elif not state.get("defect_detected", False) and not state.get("auto_pass_enabled", True):
-            route = "HITL"
-            decision = "NO_DETECTION_REVIEW_REQUIRED"
-            reason = "Pilot mode blocks automatic PASS when the model returns no detection."
         elif not state.get("defect_detected", False):
             route = "PASS"
             decision = "PASS"
-            reason = "No body-panel defect was detected."
-        elif state.get("defect_type") == "unknown":
+            reason = "No supported visual defect was detected."
+        elif state.get("defect_type") == "unknown" or not state.get("classified_defect_code"):
             route = "HITL"
             decision = "UNKNOWN_CLASS_REVIEW_REQUIRED"
-            reason = "The model returned a class that is not mapped to the QC taxonomy."
-        elif state.get("verify_result") == "CONFIRMED":
-            route = "CONFIRMED"
-            decision = "DEFECT_CONFIRMED"
-            reason = "Second-pass verification confirmed the defect."
-        elif state.get("verify_result") == "UNCERTAIN" and state.get("verify_count", 0) >= 2:
-            route = "HITL"
-            decision = "HUMAN_REVIEW_REQUIRED"
-            reason = "Verification remained uncertain after the maximum two passes."
-        elif confidence >= confirmed_threshold:
-            route = "CONFIRMED"
-            decision = "DEFECT_CONFIRMED"
-            reason = "Detector confidence meets the automatic-confirmation threshold."
-        elif confidence >= verify_threshold:
-            route = "VERIFY"
-            decision = "VERIFY_REQUIRED"
-            reason = "The result is ambiguous and requires a second-pass verification."
+            reason = "A new or unmapped defect could not be classified by the Agent catalog."
         else:
-            route = "HITL"
-            decision = "HUMAN_REVIEW_REQUIRED"
-            reason = "Confidence is below the safe automation threshold."
+            route = "CONFIRMED"
+            decision = "DEFECT_CONFIRMED"
+            reason = "The Agent classified the known defect and selected an active QC code."
         policy = self.policy_catalog.evaluate(state)
         review = policy.document_review
         return {
             "assessment_route": route,
             "decision": decision,
+            "hitl_status": "PENDING" if route == "HITL" else "CONFIRMED",
+            "enriched_defects": _enrich_defects(state),
             "reason": reason,
             "human_required": route == "HITL",
             "policy_decision": policy.model_dump(mode="json"),
@@ -163,11 +184,18 @@ class QCNodes:
         if action not in {"APPROVE", "REJECT", "OVERRIDE"}:
             raise ValueError("HITL action must be APPROVE, REJECT, or OVERRIDE")
         decision = "DEFECT_CONFIRMED" if action in {"APPROVE", "OVERRIDE"} else "REINSPECTION_REQUIRED"
+        measurements = dict(state.get("measurements") or {})
+        if response.get("length_mm") is not None:
+            measurements["defect_length_mm"] = float(response["length_mm"])
+        if response.get("location"):
+            measurements["defect_location"] = str(response["location"])
         return {
             "human_required": False,
             "human_decision": response,
             "decision": decision,
+            "hitl_status": "OVERRIDDEN" if action == "OVERRIDE" else "CONFIRMED",
             "reason": str(response.get("reason") or f"Human reviewer selected {action}."),
+            "measurements": measurements,
             "execution_trace": _trace("human_review", f"HITL resumed with action={action}."),
         }
 
@@ -185,14 +213,59 @@ class QCNodes:
                 }
             )
         analysis = self.reasoning.analyze(state, policy)
+        visual = state.get("visual_measurements") or {}
+        classification = state.get("defect_code_classification") or {}
+        warnings = list(analysis.risk_flags)
+        if state.get("similar_defect_warning"):
+            warnings.append("MULTIPLE_SIMILAR_DEFECT_REGIONS")
         return {
             "recommendation_code": policy.action_code,
             "recommendation": policy.action_label,
             "final_status": policy.final_status,
+            "allow_test_drive": bool(policy.test_drive_allowed),
             "reason": analysis.summary_en,
             "human_required": policy.human_required,
             "policy_decision": policy.model_dump(mode="json"),
             "ai_analysis": analysis.model_dump(mode="json"),
+            "agent_analysis": {
+                "reasoning_source": analysis.provider,
+                "reasoning_model": analysis.model,
+                "llm_used": analysis.provider == "groq",
+                "defect": {
+                    "type": state.get("defect_type"),
+                    "code": state.get("classified_defect_code"),
+                    "family": state.get("defect_family"),
+                    "confidence": state.get("confidence"),
+                    "classification_confidence": classification.get("confidence"),
+                    "classification_reason_vi": classification.get("rationale_vi"),
+                },
+                "geometry": {
+                    "length_mm": visual.get("estimated_length_mm"),
+                    "width_mm": visual.get("estimated_width_mm"),
+                    "height_mm": visual.get("estimated_height_mm"),
+                    "surface_area_mm2": visual.get("estimated_mask_area_mm2"),
+                    "width_px": visual.get("width_px"),
+                    "height_px": visual.get("height_px"),
+                    "image_area_ratio": visual.get("image_area_ratio"),
+                    "measurement_status": visual.get("physical_size_status"),
+                    "calibration_profile_id": visual.get("calibration_profile_id"),
+                },
+                "location": {
+                    "zone_name": state.get("zone_name"),
+                    "relative_position": visual.get("relative_position"),
+                    "camera_id": state.get("camera_id"),
+                    "bbox": state.get("bbox"),
+                },
+                "plan": {
+                    "code": policy.action_code,
+                    "label": policy.action_label,
+                    "final_status": policy.final_status,
+                    "allow_test_drive": bool(policy.test_drive_allowed),
+                    "required_steps": policy.required_steps,
+                },
+                "warnings": warnings,
+                "missing_evidence": policy.missing_evidence,
+            },
             "execution_trace": _trace(
                 "generate_recommendation",
                 f"Policy {policy.policy_id}@{policy.policy_revision} selected "
@@ -207,6 +280,8 @@ class QCNodes:
                 "recommendation_code": "RELEASE_TO_NEXT_QUALITY_GATE",
                 "recommendation": "Release the vehicle to the next quality gate",
                 "final_status": "PASS",
+                "allow_test_drive": True,
+                "hitl_status": "CONFIRMED",
                 "reason": state.get("reason", "No defect detected."),
             }
         completed_state: QCState = {
@@ -225,3 +300,33 @@ class QCNodes:
                 "Final state persisted through the repository adapter.",
             ),
         }
+
+
+def _enrich_defects(state: QCState) -> list[dict[str, Any]]:
+    """Add context and preserve the detector's explicit calibration provenance."""
+    zone_name = str(state.get("zone_name") or "unknown_zone")
+    return [
+        {
+            **item,
+            "zone_name": zone_name,
+            "estimated_depth_mm": None,
+            "estimated_width_mm": item.get("visual_measurements", {}).get(
+                "estimated_width_mm"
+            ),
+            "estimated_height_mm": item.get("visual_measurements", {}).get(
+                "estimated_height_mm"
+            ),
+            "surface_area_mm2": item.get("visual_measurements", {}).get(
+                "estimated_mask_area_mm2"
+            ),
+            "physical_measurement_status": item.get("visual_measurements", {}).get(
+                "physical_size_status",
+                "REQUIRES_CALIBRATION_OR_QC_MEASUREMENT",
+            ),
+            "calibration_profile_id": item.get("visual_measurements", {}).get(
+                "calibration_profile_id"
+            ),
+            "severity_rank": state.get("severity") or "UNASSESSED",
+        }
+        for item in state.get("detections", [])
+    ]

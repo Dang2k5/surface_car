@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from agent.graph.nodes import QCNodes
 from agent.graph.routes import route_assessment
 from agent.graph.state import QCState
+from agent.services.defect_catalog import DefectCatalogService, StaticDefectCatalog
 from agent.services.detector import DetectorService, MockDetector
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import DeterministicReasoningService, ReasoningService
@@ -24,6 +25,7 @@ def build_qc_graph(
     policy_catalog: PolicyCatalog | None = None,
     repository: QCRepository | None = None,
     checkpointer: Any | None = None,
+    defect_catalog: DefectCatalogService | None = None,
 ):
     """Compile the Visual QC graph with swappable services and persistence."""
     nodes = QCNodes(
@@ -32,6 +34,7 @@ def build_qc_graph(
         reasoning=reasoning or DeterministicReasoningService(),
         policy_catalog=policy_catalog or PolicyCatalog(),
         repository=repository or MockQCRepository(),
+        defect_catalog=defect_catalog or StaticDefectCatalog(),
     )
     builder = StateGraph(QCState)
     builder.add_node("prepare_input", nodes.prepare_input)

@@ -16,11 +16,25 @@ async def _run_repeated_dent(client: AsyncClient, vehicle_id: str) -> None:
             "vehicle_id": vehicle_id,
             "image_url": "/test-fixtures/repeated-dent.jpg",
             "camera_id": "cam-upstream-01",
-            "panel": "front_door_outer",
+            "zone_name": "front_door_outer",
         },
     )
     assert response.status_code == 201
     assert response.json()["state"]["defect_type"] == "dent"
+
+
+async def _run_confirmed_scratch(client: AsyncClient, vehicle_id: str) -> None:
+    response = await client.post(
+        "/inspections",
+        json={
+            "vehicle_id": vehicle_id,
+            "image_url": "/test-fixtures/medium_confirmed.jpg",
+            "camera_id": "cam-upstream-01",
+            "zone_name": "front_door_outer",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["state"]["defect_type"] == "scratch"
 
 
 @pytest.mark.asyncio
@@ -46,11 +60,17 @@ async def test_repeated_defect_alert_threshold_and_docx_download(tmp_path, monke
             assert len(summary["findings"]) == 3
             assert len(summary["alerts"]) == 1
             alert = summary["alerts"][0]
-            assert alert["severity"] == "WARNING"
+            assert alert["severity"] == "CRITICAL"
             assert alert["defect_type"] == "dent"
-            assert alert["panel"] == "front_door_outer"
+            assert alert["zone_name"] == "front_door_outer"
             assert alert["camera_id"] == "cam-upstream-01"
             assert alert["affected_vehicle_count"] == 3
+            assert alert["window_size"] == 10
+            assert alert["consecutive_count"] == 3
+            assert alert["trigger_type"] == "CONSECUTIVE"
+            assert alert["actionable_routing_command"] == (
+                "ROUTE_AFFECTED_BATCH_TO_OFFLINE_INSPECTION_BUFFER"
+            )
             assert len(alert["occurrences"]) == 3
             assert {item["inspection_id"] for item in alert["occurrences"]}
             assert {item["vehicle_id"] for item in alert["occurrences"]} == {
@@ -58,7 +78,7 @@ async def test_repeated_defect_alert_threshold_and_docx_download(tmp_path, monke
                 "TREND-CAR-002",
                 "TREND-CAR-003",
             }
-            assert "công đoạn phía trước" in alert["message_vi"]
+            assert "3 xe liên tiếp" in alert["message_vi"]
             assert alert["policy_decision"]["policy_id"] == "FNS-TREND-001"
             assert alert["policy_decision"]["production_eligible"] is False
             assert alert["ai_analysis"]["provider"] == "deterministic"
@@ -89,3 +109,26 @@ async def test_five_vehicles_raise_critical_alert(tmp_path, monkeypatch):
             alert = (await client.get("/api/quality-alerts")).json()["alerts"][0]
             assert alert["severity"] == "CRITICAL"
             assert alert["affected_vehicle_count"] == 5
+
+
+@pytest.mark.asyncio
+async def test_four_matches_in_ten_trigger_warning_without_three_consecutive(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await _run_repeated_dent(client, "WINDOW-DENT-001")
+            await _run_repeated_dent(client, "WINDOW-DENT-002")
+            await _run_confirmed_scratch(client, "WINDOW-SCRATCH-001")
+            await _run_repeated_dent(client, "WINDOW-DENT-003")
+            await _run_repeated_dent(client, "WINDOW-DENT-004")
+
+            alerts = (await client.get("/api/quality-alerts")).json()["alerts"]
+            dent_alert = next(item for item in alerts if item["defect_type"] == "dent")
+            assert dent_alert["severity"] == "WARNING"
+            assert dent_alert["consecutive_count"] == 2
+            assert dent_alert["affected_vehicle_count"] == 4
+            assert dent_alert["trigger_type"] == "WINDOW_FREQUENCY"

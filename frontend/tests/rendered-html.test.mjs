@@ -33,10 +33,10 @@ test("inspection source is upload-only and uses real model output", async () => 
   assert.match(page, /human_review/);
   assert.doesNotMatch(page, /\/api\/evidence\/cases|\/assets\/train|selectedCase|mock_detection/);
   assert.match(page, /best\.pt/);
-  assert.match(page, /form\.append\('panel', uploadedEvidence\.panel\)/);
+  assert.match(page, /form\.append\('zone_name', uploadedEvidence\.zoneName\)/);
 });
 
-test("overview introduces the project and inspection uses a focused two-column layout", async () => {
+test("overview introduces the project and inspection uses a focused vertical layout", async () => {
   const [page, theme] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/workstation.css", import.meta.url), "utf8"),
@@ -60,7 +60,7 @@ test("Gemini and frontend-authored model outputs are absent", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(page, /Gemini|agent\/explain|graphScenario|setScenario/);
   assert.doesNotMatch(page, /mock_detection|The mock profile is attached to the image/);
-  assert.match(page, /class, confidence, bounding box, and mask come from the model/);
+  assert.match(page, /primary video is converted to one inspection frame before best\.pt inference/i);
 });
 
 test("web uploads are sent to best.pt and model evidence is rendered", async () => {
@@ -70,40 +70,72 @@ test("web uploads are sent to best.pt and model evidence is rendered", async () 
   ]);
   assert.match(page, /new FormData\(\)/);
   assert.match(page, /\/inspections\/from-image/);
-  assert.match(page, /accept="image\/jpeg,image\/png"/);
+  assert.match(page, /accept="image\/jpeg,image\/png,video\/mp4,video\/webm"/);
   assert.match(page, /segmentation-mask/);
   assert.match(page, /model_version/);
   assert.match(css, /\.upload-panel/);
   assert.match(css, /\.segmentation-mask/);
 });
 
+test("inspection focuses on one primary camera beside the Agent decision", async () => {
+  const [page, theme, workstation] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/workstation.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /CAM-FNS-FRONT/);
+  assert.doesNotMatch(page, /SUPPORTING_CAMERAS|CAM-FNS-LEFT|CAM-FNS-RIGHT|CAM-FNS-REAR/);
+  assert.match(page, /modelFrameFromFile/);
+  assert.doesNotMatch(page, /className="evidence-console"/);
+  assert.doesNotMatch(page, /className="camera-assessment"/);
+  assert.match(page, /className="multiview-wall"/);
+  assert.match(theme, /\.content-inspect \.multiview-wall/);
+  assert.match(theme, /aspect-ratio: 16 \/ 10/);
+  assert.match(theme, /grid-template-columns: minmax\(0, 2fr\) minmax\(320px, 1fr\)/);
+  assert.doesNotMatch(theme, /\.content-inspect \.camera-assessment/);
+  assert.doesNotMatch(theme, /\.content-inspect \.support-camera-label/);
+  assert.doesNotMatch(theme, /\.support-camera\.camera-top/);
+  assert.match(workstation, /\.shell \{ grid-template-columns: 224px minmax\(0, 1fr\); \}/);
+});
+
 test("history can clear persisted Agent traces", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
+  ]);
   assert.match(page, /method: ['"]DELETE['"]/);
   assert.match(page, /Clear history/);
   assert.match(page, /window\.confirm/);
+  assert.match(page, /variant="history"/);
+  assert.match(page, /history-thumb/);
+  assert.match(page, /KÍCH THƯỚC \/ VỊ TRÍ/);
+  assert.match(page, /classified_defect_code/);
+  assert.match(css, /\.history-record/);
 });
 
-test("repeated defect alerts notify QC and expose a DOCX report", async () => {
-  const [page, css, workstation] = await Promise.all([
+test("repeated defect alerts show a concise QC workflow and expose a DOCX report", async () => {
+  const [page, css] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-    readFile(new URL("../app/workstation.css", import.meta.url), "utf8"),
   ]);
   assert.match(page, /Cảnh báo lặp lỗi/);
   assert.match(page, /api\/quality-alerts/);
   assert.match(page, /api\/quality-alerts\/report\.docx/);
   assert.match(page, /QualityAlertsPage/);
-  assert.match(page, /CHECK KHÂU TRƯỚC/);
+  assert.match(page, /CẦN XỬ LÝ/);
   assert.match(page, /affected_vehicle_ids/);
-  assert.match(page, /TỔNG HỢP LỊCH SỬ KIỂM TRA/);
-  assert.match(page, /AGENT PHÂN TÍCH XU HƯỚNG/);
-  assert.match(page, /TỔNG QUAN CÁC LẦN KIỂM TRA/);
+  assert.match(page, /HÀNH ĐỘNG NGAY/);
+  assert.match(page, /KẾT LUẬN CỦA AGENT/);
+  assert.match(page, /BẰNG CHỨNG TRỰC QUAN/);
+  assert.match(page, /related_defect_codes/);
+  assert.match(page, /alert-image-strip/);
+  assert.match(page, /Đóng cảnh báo khi:/);
+  assert.doesNotMatch(page, /TỔNG HỢP LỊCH SỬ KIỂM TRA/);
+  assert.doesNotMatch(page, /PHÂN BỐ ĐIỀU PHỐI/);
+  assert.doesNotMatch(page, /actionable_routing_command\}/);
   assert.doesNotMatch(page, /CÁC LẦN KIỂM TRA TẠO CẢNH BÁO/);
   assert.match(css, /\.trend-alert/);
   assert.match(css, /\.report-download/);
-  assert.match(workstation, /\.trend-analysis/);
-  assert.doesNotMatch(workstation, /\.occurrence-table/);
 });
 
 test("operational action and policy evidence dossier have distinct roles", async () => {
@@ -129,7 +161,7 @@ test("dashboard shows the latest uploaded run per vehicle", async () => {
   assert.match(page, /latest result per vehicle/);
 });
 
-test("decision panel uses Vietnamese-safe typography and detailed QC guidance", async () => {
+test("decision panel uses Vietnamese-safe typography and focused Agent guidance", async () => {
   const [page, layout, css] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -137,11 +169,16 @@ test("decision panel uses Vietnamese-safe typography and detailed QC guidance", 
   ]);
   assert.match(layout, /globals\.css\?inline/);
   assert.doesNotMatch(layout, /next\/font|Noto_Sans/);
-  assert.match(page, /CHECKLIST ĐÃ PHÊ DUYỆT/);
-  assert.match(page, /ĐIỀU KIỆN RELEASE/);
+  assert.match(page, /2 · Phân loại/);
+  assert.match(page, /3 · Policy áp dụng/);
+  assert.match(page, /4 · Agent quyết định/);
+  assert.match(page, /AGENT REASONING/);
+  assert.match(page, /Ảnh hưởng cao/);
+  assert.match(page, /Ảnh hưởng đáng chú ý/);
+  assert.match(page, /Ảnh hưởng nhẹ/);
+  assert.match(page, /Quyền test drive/);
   assert.match(page, /HỒ SƠ POLICY & AUDIT/);
-  assert.match(css, /\.decision-method/);
-  assert.match(css, /\.safety-gates/);
+  assert.match(css, /\.decision-facts/);
   assert.match(css, /"Segoe UI","Noto Sans"/);
 });
 
@@ -198,11 +235,15 @@ test("HITL checkpoint is a prominent and accessible QC action", async () => {
     readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
   ]);
   assert.match(page, /CHECKPOINT KIỂM DUYỆT/);
+  assert.match(page, /queue-record/);
+  assert.match(page, /LÝ DO CẦN QC/);
+  assert.match(page, /Mở kiểm duyệt/);
   assert.match(page, /className="hitl-actions"/);
   assert.match(page, /placeholder=\{t\(/);
   assert.match(theme, /\.content-inspect \.decision-card \.hitl-box/);
   assert.match(theme, /min-height: 104px/);
   assert.match(theme, /min-height: 64px/);
+  assert.match(theme, /\.queue-record/);
 });
 
 test("operational explanation is never line-clamped", async () => {
@@ -215,4 +256,19 @@ test("operational explanation is never line-clamped", async () => {
     /\.content-inspect \.decision-card \.outcome p \{[\s\S]*?-webkit-line-clamp: unset;/,
   );
   assert.match(theme, /overflow-wrap: anywhere/);
+});
+
+test("QC defect registry exposes CV mapping, location, length and saved decisions", async () => {
+  const [page, theme] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/interface-system.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /id: 'catalog'/);
+  assert.match(page, /className="defect-registry-page"/);
+  assert.match(page, /cv_label/);
+  assert.match(page, /length_mm/);
+  assert.match(page, /DEFECT LOCATION/);
+  assert.match(page, /CHIỀU DÀI LỖI \(MM\)/);
+  assert.match(theme, /\.defect-registry-page/);
+  assert.match(theme, /\.registry-table/);
 });

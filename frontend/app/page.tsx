@@ -1,9 +1,10 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from 'react';
 
 type Lang = 'vi' | 'en';
-type View = 'overview' | 'inspect' | 'queue' | 'alerts' | 'history';
+type View = 'overview' | 'inspect' | 'queue' | 'catalog' | 'alerts' | 'history';
 type TraceEvent = { node: string; status: string; detail: string };
 type LiveEvent = TraceEvent & {
   id: number;
@@ -41,19 +42,35 @@ type QCState = {
   vehicle_model: string;
   image_url: string;
   camera_id: string;
-  panel: string;
-  material: string;
+  zone_name: string;
   defect_detected?: boolean;
   defect_type?: string;
   confidence?: number;
   bbox?: { x1: number; y1: number; x2: number; y2: number } | null;
   segmentation_result?: { format: string; points: number[][] } | null;
+  visual_measurements?: {
+    width_px: number;
+    height_px: number;
+    bbox_area_px: number;
+    image_area_ratio: number;
+    center_x_ratio: number;
+    center_y_ratio: number;
+    relative_position: string;
+    physical_size_status: string;
+    estimated_width_mm?: number;
+    estimated_height_mm?: number;
+    estimated_length_mm?: number;
+    estimated_bbox_area_mm2?: number;
+    estimated_mask_area_mm2?: number | null;
+    calibration_profile_id?: string;
+  };
   detections?: Array<{
     class_name: string;
     raw_class_name: string;
     confidence: number;
     bbox: { x1: number; y1: number; x2: number; y2: number };
   }>;
+  enriched_defects?: Array<Record<string, unknown>>;
   image_width?: number;
   image_height?: number;
   model_name?: string;
@@ -68,6 +85,17 @@ type QCState = {
   verify_result?: string;
   human_required?: boolean;
   human_decision?: { action: string; reviewer: string; reason: string };
+  qc_decision_record?: QCDecisionRecord;
+  suggested_defect_codes?: DefectCode[];
+  classified_defect_code?: string | null;
+  defect_family?: string | null;
+  similar_defect_warning?: boolean;
+  defect_code_classification?: {
+    confidence: number;
+    rationale_vi: string;
+    provider: string;
+    candidate_codes: string[];
+  };
   recommendation_code?: string;
   recommendation?: string;
   policy_decision?: {
@@ -95,6 +123,8 @@ type QCState = {
     fallback_reason?: string | null;
   };
   final_status?: string;
+  allow_test_drive?: boolean;
+  hitl_status?: 'PENDING' | 'CONFIRMED' | 'OVERRIDDEN';
   execution_trace?: TraceEvent[];
 };
 type GraphRun = {
@@ -104,14 +134,75 @@ type GraphRun = {
   interrupt?: { reason?: string; allowed_actions?: string[] };
 };
 type GraphSpec = { nodes: string[]; checkpointer: string; mermaid: string };
+type AgentStatus = {
+  langgraph: string;
+  checkpointer: string;
+  reasoning: {
+    mode: string;
+    provider: string;
+    requested_provider: string;
+    api_key_configured: boolean;
+    llm_accessed: boolean;
+    last_call_status: string;
+    last_success_at?: string | null;
+    last_error?: string | null;
+  };
+  agent_analysis?: Record<string, unknown>;
+};
 type UploadedEvidence = {
   file: File;
   previewUrl: string;
   vehicleId: string;
   vehicleModel: string;
   cameraId: string;
-  panel: string;
-  material: string;
+  zoneName: string;
+};
+type DefectCode = {
+  defect_code: string;
+  defect_type: string;
+  cv_label: string;
+  defect_family: string;
+  display_name: string;
+  description: string;
+  classification_rule: string;
+  default_severity: string;
+  measurement_required: number;
+  active: number;
+};
+type DefectCodeInput = {
+  defect_code: string;
+  defect_type: string;
+  cv_label: string;
+  defect_family: string;
+  display_name: string;
+  description: string;
+  classification_rule: string;
+  default_severity: string;
+  measurement_required: boolean;
+  active: boolean;
+};
+type QCDecisionRecord = {
+  decision_id: string;
+  inspection_id: string;
+  vehicle_id: string;
+  defect_code: string;
+  defect_type: string;
+  location: string;
+  length_mm: number | null;
+  severity: string;
+  action: string;
+  disposition: string;
+  reviewer: string;
+  created_at: string;
+};
+type QCFormState = {
+  defectCode: string;
+  severity: string;
+  disposition: 'PASS' | 'HOLD' | 'REWORK' | 'REINSPECT';
+  reviewer: string;
+  location: string;
+  lengthMm: string;
+  notes: string;
 };
 type InspectionFinding = {
   inspection_id: string;
@@ -119,7 +210,9 @@ type InspectionFinding = {
   vehicle_id: string;
   inspected_at: string;
   defect_type: string;
-  panel: string;
+  classified_defect_code: string;
+  defect_family: string;
+  zone_name: string;
   camera_id: string;
   confidence: number;
   severity: string;
@@ -133,7 +226,7 @@ type DefectAggregate = {
   defect_type: string;
   occurrence_count: number;
   affected_vehicle_count: number;
-  panels: string[];
+  zones: string[];
   camera_ids: string[];
   average_confidence: number;
   maximum_confidence: number;
@@ -145,16 +238,24 @@ type QualityAlert = {
   severity: 'WARNING' | 'CRITICAL';
   status: string;
   defect_type: string;
-  panel: string;
+  zone_name: string;
   camera_id: string;
   occurrence_count: number;
   affected_vehicle_count: number;
   affected_vehicle_ids: string[];
+  related_defect_codes: string[];
+  similar_code_warning: boolean;
   average_confidence: number;
   maximum_confidence: number;
   first_seen: string;
   last_seen: string;
   window_hours: number;
+  window_size: number;
+  consecutive_count: number;
+  trigger_type: string;
+  predicted_root_cause: string;
+  upstream_target_shop: string;
+  actionable_routing_command: string;
   message_en: string;
   message_vi: string;
   recommendation_en: string;
@@ -168,7 +269,9 @@ type QualityAlert = {
 type QualityAlertSummary = {
   generated_at: string;
   window_hours: number;
+  window_size: number;
   minimum_occurrences: number;
+  in_window_threshold: number;
   analyzed_inspections: number;
   defect_breakdown: DefectAggregate[];
   findings: InspectionFinding[];
@@ -176,6 +279,48 @@ type QualityAlertSummary = {
 };
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+const apiFetch = (path: string, timeoutMs = 8000) =>
+  fetch(`${API}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+async function modelFrameFromFile(file: File): Promise<File> {
+  if (!file.type.startsWith('video/')) return file;
+  const source = URL.createObjectURL(file);
+  try {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.preload = 'auto';
+    video.src = source;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error('Cannot read the primary camera video.'));
+    });
+    const targetTime = Number.isFinite(video.duration) && video.duration > 0
+      ? video.duration / 2
+      : 0;
+    if (targetTime > 0) {
+      await new Promise<void>((resolve, reject) => {
+        video.onseeked = () => resolve();
+        video.onerror = () => reject(new Error('Cannot extract a frame from the video.'));
+        video.currentTime = targetTime;
+      });
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')?.drawImage(video, 0, 0);
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (value) => value ? resolve(value) : reject(new Error('Cannot encode the inspection frame.')),
+        'image/jpeg',
+        0.92,
+      ),
+    );
+    return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}-inspection-frame.jpg`, {
+      type: 'image/jpeg',
+    });
+  } finally {
+    URL.revokeObjectURL(source);
+  }
+}
 const NAV: {
   id: View;
   icon: string;
@@ -207,6 +352,14 @@ const NAV: {
     vi: 'Hàng đợi QC',
     hintEn: 'Human decisions',
     hintVi: 'Quyết định QC',
+  },
+  {
+    id: 'catalog',
+    icon: '◇',
+    en: 'Defect registry',
+    vi: 'Sổ mã lỗi QC',
+    hintEn: 'Codes and measurements',
+    hintVi: 'Mã lỗi và số đo',
   },
   {
     id: 'alerts',
@@ -287,7 +440,7 @@ const policyStepLabel = (value: string, lang: Lang) => {
     QC_SIGN_OFF: ['Record QC sign-off', 'QC xác nhận và ký duyệt'],
     APPLY_HOLD: ['Apply vehicle hold', 'Áp dụng trạng thái giữ xe'],
     TRANSFER_TO_BODY_REPAIR_ASSESSMENT: ['Transfer to Body Repair assessment', 'Chuyển đánh giá Body Repair'],
-    MEASURE_PANEL_GEOMETRY: ['Measure panel geometry', 'Đo hình học panel'],
+    MEASURE_PANEL_GEOMETRY: ['Measure defect geometry', 'Đo hình học vùng lỗi'],
     COMPARE_WITH_APPROVED_DRAWING: ['Compare with approved drawing', 'Đối chiếu bản vẽ đã phê duyệt'],
     QC_REINSPECTION: ['Perform QC reinspection', 'QC kiểm tra lại'],
   };
@@ -296,7 +449,7 @@ const policyStepLabel = (value: string, lang: Lang) => {
 const policyWarningLabel = (code: string, fallback: string, lang: Lang) => {
   if (lang === 'en') return fallback;
   const labels: Record<string, string> = {
-    POLICY_QUERY_CONTEXT_INCOMPLETE: 'Thiếu model xe, panel hoặc vật liệu để tìm đúng tài liệu.',
+    POLICY_QUERY_CONTEXT_INCOMPLETE: 'Thiếu model xe hoặc loại lỗi để tìm đúng tài liệu.',
     DOCUMENT_NOT_APPROVED_FOR_PLANT_USE: 'Tài liệu chỉ dùng tham chiếu, chưa được nhà máy phê duyệt để quyết định release.',
     EFFECTIVE_DATE_UNCONFIRMED: 'Chưa xác nhận ngày hiệu lực trong danh mục tài liệu kiểm soát.',
     DOCUMENT_EXPIRED: 'Tài liệu đã hết hiệu lực; không được dùng để đưa ra quyết định.',
@@ -332,7 +485,6 @@ const defectLabel = (state: QCState, lang: Lang) => {
   const labels: Record<string, readonly [string, string]> = {
     dent: ['Dent', 'Vết móp'],
     scratch: ['Scratch', 'Vết xước'],
-    paint_defect: ['Paint defect', 'Lỗi sơn'],
     crack: ['Crack', 'Vết nứt'],
     glass_shatter: ['Glass damage', 'Kính vỡ'],
     lamp_broken: ['Broken lamp', 'Đèn hư hỏng'],
@@ -352,14 +504,6 @@ const finalRouteLabel = (run: GraphRun, lang: Lang) => {
   return local(labels[run.state.final_status || ''], lang, pretty(run.state.final_status));
 };
 
-const verificationLabel = (state: QCState, lang: Lang) => {
-  if (!state.verify_count) return lang === 'vi' ? 'Không yêu cầu xác minh' : 'Verification not required';
-  const result = state.verify_result === 'CONFIRMED'
-    ? (lang === 'vi' ? 'Đã xác nhận' : 'Confirmed')
-    : (lang === 'vi' ? 'Chưa rõ' : 'Uncertain');
-  return `${state.verify_count}/2 · ${result}`;
-};
-
 function decisionGuide(run: GraphRun, lang: Lang) {
   const code = run.state.recommendation_code || '';
   if (run.status === 'INTERRUPTED' || code === 'MANUAL_VISUAL_REINSPECTION') {
@@ -368,8 +512,8 @@ function decisionGuide(run: GraphRun, lang: Lang) {
       releaseGate: lang === 'vi' ? 'QC xác nhận trực tiếp và resume workflow' : 'QC confirmation and workflow resume',
       policy: lang === 'vi' ? 'Kết quả dưới ngưỡng an toàn hoặc vẫn mơ hồ sau xác minh.' : 'Result is below the safety threshold or remains uncertain after verification.',
       steps: lang === 'vi'
-        ? ['Giữ xe tại trạm QC và khóa luồng release.', 'Chụp lại dưới ánh sáng kiểm soát hoặc camera bổ sung.', 'QC xác nhận loại lỗi, mức độ và vùng panel.', 'Resume đúng thread để Agent hoàn tất điều phối.']
-        : ['Hold the vehicle at QC and block release.', 'Recapture under controlled light or a secondary camera.', 'Confirm defect type, severity, and panel.', 'Resume the same thread to complete routing.'],
+        ? ['Giữ xe tại trạm QC và khóa luồng release.', 'Chụp lại dưới ánh sáng kiểm soát hoặc camera bổ sung.', 'QC xác nhận loại lỗi, mức độ và vùng quan sát.', 'Resume đúng thread để Agent hoàn tất điều phối.']
+        : ['Hold the vehicle at QC and block release.', 'Recapture under controlled light or a secondary camera.', 'Confirm defect type, severity, and inspection zone.', 'Resume the same thread to complete routing.'],
     };
   }
   if (
@@ -389,10 +533,10 @@ function decisionGuide(run: GraphRun, lang: Lang) {
     return {
       testDrive: lang === 'vi' ? 'CẤM TEST DRIVE' : 'DO NOT TEST DRIVE',
       releaseGate: lang === 'vi' ? 'Body Repair đánh giá, sửa chữa và QC kiểm tra lại' : 'Body Repair assessment, repair, and QC reinspection',
-      policy: lang === 'vi' ? 'Vết móp được xác nhận ở confidence cao; xe phải được cô lập để đánh giá hình học panel.' : 'High-confidence dent requires isolation and panel geometry assessment.',
+      policy: lang === 'vi' ? 'Vết móp được xác nhận ở confidence cao; xe phải được cô lập để đánh giá hình học vùng lỗi.' : 'High-confidence dent requires isolation and defect geometry assessment.',
       steps: lang === 'vi'
-        ? ['Gắn trạng thái HOLD và khóa test drive.', 'Chuyển xe tới khu đánh giá Body Repair.', 'Đo hình học panel và đánh giá khả năng sửa chữa.', 'Thực hiện repair theo hướng dẫn đã phê duyệt.', 'QC kiểm tra lại và ghi nhận trước khi release.']
-        : ['Apply HOLD and block test drive.', 'Transfer to Body Repair assessment.', 'Measure panel geometry and repairability.', 'Repair under an approved instruction.', 'QC reinspects and records acceptance before release.'],
+        ? ['Gắn trạng thái HOLD và khóa test drive.', 'Chuyển xe tới khu đánh giá Body Repair.', 'Đo hình học vùng lỗi và đánh giá khả năng sửa chữa.', 'Thực hiện repair theo hướng dẫn đã phê duyệt.', 'QC kiểm tra lại và ghi nhận trước khi release.']
+        : ['Apply HOLD and block test drive.', 'Transfer to Body Repair assessment.', 'Measure defect geometry and repairability.', 'Repair under an approved instruction.', 'QC reinspects and records acceptance before release.'],
     };
   }
   if (
@@ -424,10 +568,23 @@ export default function Home() {
   const [view, setView] = useState<View>('overview');
   const [runs, setRuns] = useState<GraphRun[]>([]);
   const [graph, setGraph] = useState<GraphSpec | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [backendOnline, setBackendOnline] = useState(false);
   const [activeRun, setActiveRun] = useState<GraphRun | null>(null);
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence | null>(null);
+  const [defectCodes, setDefectCodes] = useState<DefectCode[]>([]);
+  const [qcDecisions, setQcDecisions] = useState<QCDecisionRecord[]>([]);
+  const [qcForm, setQcForm] = useState<QCFormState>({
+    defectCode: '',
+    severity: 'UNASSESSED',
+    disposition: 'HOLD',
+    reviewer: 'qc-inspector-01',
+    location: '',
+    lengthMm: '',
+    notes: '',
+  });
   const [alertSummary, setAlertSummary] = useState<QualityAlertSummary | null>(null);
   const [notice, setNotice] = useState('Đang kết nối workstation…');
   const [humanReason, setHumanReason] = useState(
@@ -451,23 +608,40 @@ export default function Home() {
 
   const load = useCallback(async () => {
     try {
-      const [graphResponse, runResponse, alertResponse] = await Promise.all([
-        fetch(`${API}/agent/graph`),
-        fetch(`${API}/agent/runs`),
-        fetch(`${API}/api/quality-alerts`),
+      const [graphResponse, agentStatusResponse] = await Promise.all([
+        apiFetch('/agent/graph'),
+        apiFetch('/agent/status'),
       ]);
-      if (!graphResponse.ok || !runResponse.ok || !alertResponse.ok)
+      if (!graphResponse.ok || !agentStatusResponse.ok)
         throw new Error('Backend unavailable');
       setGraph((await graphResponse.json()) as GraphSpec);
-      setRuns((await runResponse.json()) as GraphRun[]);
-      setAlertSummary((await alertResponse.json()) as QualityAlertSummary);
+      setAgentStatus((await agentStatusResponse.json()) as AgentStatus);
+      setBackendOnline(true);
       setNotice(
         t(
-          'Workstation connected. Upload an inspection image to start.',
-          'Đã kết nối workstation. Hãy tải ảnh kiểm tra để bắt đầu.',
+          'Workstation connected. Connect the primary camera to start.',
+          'Đã kết nối workstation. Hãy kết nối camera chính để bắt đầu.',
         ),
       );
+      const secondary = await Promise.allSettled([
+        apiFetch('/agent/runs'),
+        apiFetch('/api/quality-alerts'),
+        apiFetch('/api/qc/defect-codes'),
+        apiFetch('/api/qc/decisions'),
+      ]);
+      const responseAt = (index: number) => secondary[index].status === 'fulfilled'
+        ? secondary[index].value
+        : null;
+      const runResponse = responseAt(0);
+      const alertResponse = responseAt(1);
+      const defectCodeResponse = responseAt(2);
+      const qcDecisionResponse = responseAt(3);
+      if (runResponse?.ok) setRuns((await runResponse.json()) as GraphRun[]);
+      if (alertResponse?.ok) setAlertSummary((await alertResponse.json()) as QualityAlertSummary);
+      if (defectCodeResponse?.ok) setDefectCodes((await defectCodeResponse.json()) as DefectCode[]);
+      if (qcDecisionResponse?.ok) setQcDecisions((await qcDecisionResponse.json()) as QCDecisionRecord[]);
     } catch {
+      setBackendOnline(false);
       setNotice(
         t(
           'Cannot reach FastAPI on port 8000.',
@@ -510,9 +684,8 @@ export default function Home() {
       previewUrl: URL.createObjectURL(file),
       vehicleId: `UPLOAD-${Date.now().toString().slice(-6)}`,
       vehicleModel: 'unknown_model',
-      cameraId: 'cam-web-upload',
-      panel: 'unknown_panel',
-      material: 'unknown_material',
+      cameraId: 'CAM-FNS-FRONT',
+      zoneName: 'unknown_zone',
     });
     setActiveRun(null);
     setLiveEvents([]);
@@ -551,6 +724,20 @@ export default function Home() {
     }
   }
 
+  async function createDefectCode(payload: DefectCodeInput) {
+    const response = await fetch(`${API}/api/qc/defect-codes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `Request failed (${response.status})`);
+    }
+    const created = (await response.json()) as DefectCode;
+    setDefectCodes((current) => [created, ...current.filter((item) => item.defect_code !== created.defect_code)]);
+  }
+
   async function revealNode(
     node: string,
     detail: string,
@@ -582,18 +769,18 @@ export default function Home() {
     setLiveEvents([]);
     setNotice(
       t(
-        'Agent is processing the selected image…',
-        'Agent đang xử lý ảnh đã chọn…',
+        'Agent is extracting and processing the primary camera frame…',
+        'Agent đang cắt và xử lý frame từ camera chính…',
       ),
     );
     try {
       const form = new FormData();
-      form.append('file', uploadedEvidence.file);
+      const modelFile = await modelFrameFromFile(uploadedEvidence.file);
+      form.append('file', modelFile);
       form.append('vehicle_id', uploadedEvidence.vehicleId);
       form.append('vehicle_model', uploadedEvidence.vehicleModel);
       form.append('camera_id', uploadedEvidence.cameraId);
-      form.append('panel', uploadedEvidence.panel);
-      form.append('material', uploadedEvidence.material);
+      form.append('zone_name', uploadedEvidence.zoneName);
       const response = await fetch(`${API}/inspections/from-image`, {
         method: 'POST',
         body: form,
@@ -607,6 +794,16 @@ export default function Home() {
         await revealNode(trace.node, trace.detail);
       }
       if (result.status === 'INTERRUPTED') {
+        const suggestedCode = defectCodes.find(
+          (item) => item.defect_code === result.state.classified_defect_code,
+        ) || defectCodes.find((item) => item.defect_type === result.state.defect_type);
+        if (suggestedCode) {
+          setQcForm((current) => ({
+            ...current,
+            defectCode: suggestedCode.defect_code,
+            severity: result.state.severity || suggestedCode.default_severity,
+          }));
+        }
         await revealNode(
           'human_review',
           result.state.reason || t('QC input required.', 'Cần QC xác nhận.'),
@@ -615,6 +812,8 @@ export default function Home() {
       }
       setActiveRun(result);
       mergeRun(result);
+      const statusResponse = await fetch(`${API}/agent/status`);
+      if (statusResponse.ok) setAgentStatus((await statusResponse.json()) as AgentStatus);
       await refreshAlerts();
       setNotice(
         result.status === 'INTERRUPTED'
@@ -651,8 +850,14 @@ export default function Home() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action,
-            reviewer: 'qc-inspector-01',
+            reviewer: qcForm.reviewer,
             reason: humanReason,
+            defect_code: qcForm.defectCode || undefined,
+            severity: qcForm.severity,
+            disposition: action === 'REJECT' ? 'REINSPECT' : qcForm.disposition,
+            location: qcForm.location,
+            length_mm: qcForm.lengthMm ? Number(qcForm.lengthMm) : undefined,
+            notes: qcForm.notes,
           }),
         },
       );
@@ -677,6 +882,14 @@ export default function Home() {
       for (const trace of newTrace) await revealNode(trace.node, trace.detail);
       setActiveRun(result);
       mergeRun(result);
+      if (result.state.qc_decision_record) {
+        setQcDecisions((current) => [
+          result.state.qc_decision_record as QCDecisionRecord,
+          ...current.filter(
+            (item) => item.decision_id !== result.state.qc_decision_record?.decision_id,
+          ),
+        ]);
+      }
       await refreshAlerts();
       setNotice(
         t(
@@ -692,6 +905,8 @@ export default function Home() {
   }
 
   function openRun(run: GraphRun) {
+    if (uploadedEvidence) URL.revokeObjectURL(uploadedEvidence.previewUrl);
+    setUploadedEvidence(null);
     setActiveRun(run);
     const events: LiveEvent[] = (run.state.execution_trace || []).map(
       (trace, index) => ({ ...trace, id: index, phase: 'completed' }),
@@ -760,6 +975,13 @@ export default function Home() {
               <small>{graph?.checkpointer || 'Connecting…'}</small>
             </div>
           </footer>
+          <div className={`agent-access-status ${agentStatus?.reasoning.llm_accessed ? 'connected' : 'fallback'}`}>
+            <i />
+            <div>
+              <b>{agentStatus?.reasoning.llm_accessed ? 'GROQ LLM CONNECTED' : agentStatus?.reasoning.requested_provider === 'groq' ? 'GROQ NOT ACCESSED' : 'RULE-BASED AGENT'}</b>
+              <small>{agentStatus?.reasoning.last_call_status || 'CONNECTING'}</small>
+            </div>
+          </div>
         </div>
       </aside>
       <section className="workspace">
@@ -769,9 +991,9 @@ export default function Home() {
             <h1>{pageTitle ? t(pageTitle.en, pageTitle.vi) : 'Visual QC'}</h1>
           </div>
           <div className="top-actions">
-            <span className="backend-state">
+            <span className={`backend-state ${backendOnline ? '' : 'offline'}`}>
               <i />
-              API ONLINE
+              {backendOnline ? 'API ONLINE' : 'API OFFLINE'}
             </span>
             <div className="lang-switch">
               <button
@@ -831,6 +1053,9 @@ export default function Home() {
               onResume={resumeInspection}
               humanReason={humanReason}
               setHumanReason={setHumanReason}
+              defectCodes={defectCodes}
+              qcForm={qcForm}
+              setQcForm={setQcForm}
               uploadedEvidence={uploadedEvidence}
               onUpload={chooseUpload}
               onUpdateUpload={(value) => setUploadedEvidence((current) => current ? { ...current, ...value } : current)}
@@ -858,6 +1083,14 @@ export default function Home() {
           {view === 'alerts' && (
             <QualityAlertsPage summary={alertSummary} t={t} lang={lang} />
           )}
+          {view === 'catalog' && (
+            <DefectRegistry
+              codes={defectCodes}
+              decisions={qcDecisions}
+              onCreate={createDefectCode}
+              t={t}
+            />
+          )}
           {view === 'history' && (
             <RunList
               title={t(
@@ -875,6 +1108,7 @@ export default function Home() {
               )}
               onOpen={openRun}
               onClear={clearHistory}
+              variant="history"
               t={t}
               lang={lang}
             />
@@ -914,8 +1148,8 @@ function Overview({
             'Visual QC Agent cho kiểm tra thân vỏ xe minh bạch và có kiểm soát.',
           )}</h2>
           <p>{t(
-            'A baseline MVP connecting local computer vision, deterministic QC policy, LangGraph orchestration, human review, and a complete SQLite audit trail at the FNS station.',
-            'Baseline MVP kết nối Computer Vision chạy local, QC policy xác định, điều phối LangGraph, kiểm duyệt của con người và dấu vết SQLite đầy đủ tại trạm FNS.',
+            'An Agent-first baseline connecting local computer vision, controlled QC policy, LangGraph orchestration, exception-only human review, and a complete audit trail at the FNS station.',
+            'Baseline Agent-first kết nối Computer Vision chạy local, policy QC kiểm soát, điều phối LangGraph, QC chỉ xử lý ngoại lệ và lưu đầy đủ dấu vết tại trạm FNS.',
           )}</p>
           <div className="hero-badges">
             <span><i /> best.pt · segmentation</span>
@@ -936,7 +1170,7 @@ function Overview({
             <i />
             <div><span>03</span><p><small>AGENT</small><b>{t('Policy orchestration', 'Điều phối policy')}</b></p></div>
             <i />
-            <div><span>04</span><p><small>CONTROL</small><b>{t('QC release or hold', 'QC cho đi hoặc giữ xe')}</b></p></div>
+            <div><span>04</span><p><small>CONTROL</small><b>{t('Agent release or hold', 'Agent cho đi hoặc giữ xe')}</b></p></div>
           </div>
           <footer><span>MODEL</span><b>best.pt</b><span>STORE</span><b>SQLite</b></footer>
         </aside>
@@ -950,8 +1184,8 @@ function Overview({
           </h2>
           <p>
             {t(
-              'The local segmentation model analyzes each image before LangGraph performs verification and accountable QC review.',
-              'Model segmentation local phân tích từng ảnh trước khi LangGraph xác minh và chuyển QC chịu trách nhiệm.',
+              'The local segmentation model provides evidence; LangGraph lets the Agent classify the code, apply policy, and route the vehicle automatically.',
+              'Model segmentation cung cấp bằng chứng; LangGraph giúp Agent tự phân mã, áp dụng policy và điều phối xe.',
             )}
           </p>
           <button onClick={onStart}>
@@ -975,12 +1209,12 @@ function Overview({
           <header><div><small>{t('PROJECT PURPOSE', 'MỤC TIÊU DỰ ÁN')}</small><h3>{t('A safer and faster FNS quality gate', 'Cổng chất lượng FNS an toàn và nhanh hơn')}</h3></div></header>
           <div className="project-copy">
             <p>{t(
-              'The system helps QC operators detect visible body defects, apply a consistent decision workflow, and stop ambiguous or unsafe cases for human confirmation.',
-              'Hệ thống hỗ trợ nhân viên QC phát hiện lỗi ngoại quan thân vỏ, áp dụng quy trình quyết định nhất quán và dừng các trường hợp mơ hồ hoặc không an toàn để con người xác nhận.',
+              'The Agent detects and classifies known body defects, applies a consistent controlled policy, and sends only new or unmapped exceptions to QC.',
+              'Agent phát hiện và phân loại lỗi thân vỏ đã biết, áp dụng policy kiểm soát nhất quán và chỉ chuyển lỗi mới hoặc chưa ánh xạ cho QC.',
             )}</p>
             <div>
               <span><b>01</b>{t('Detect dents and scratches', 'Phát hiện móp và xước')}</span>
-              <span><b>02</b>{t('Verify uncertain output', 'Xác minh kết quả chưa rõ')}</span>
+              <span><b>02</b>{t('Classify the controlled QC code', 'Tự phân loại mã lỗi QC')}</span>
               <span><b>03</b>{t('Route cases by QC policy', 'Điều phối theo QC policy')}</span>
               <span><b>04</b>{t('Preserve an audit trail', 'Lưu toàn bộ dấu vết audit')}</span>
             </div>
@@ -1068,6 +1302,9 @@ function InspectionStudio({
   onResume,
   humanReason,
   setHumanReason,
+  defectCodes,
+  qcForm,
+  setQcForm,
   uploadedEvidence,
   onUpload,
   onUpdateUpload,
@@ -1081,6 +1318,9 @@ function InspectionStudio({
   onResume: (action: 'APPROVE' | 'REJECT') => void;
   humanReason: string;
   setHumanReason: (value: string) => void;
+  defectCodes: DefectCode[];
+  qcForm: QCFormState;
+  setQcForm: (value: QCFormState | ((current: QCFormState) => QCFormState)) => void;
   uploadedEvidence: UploadedEvidence | null;
   onUpload: (file: File | null) => void;
   onUpdateUpload: (value: Partial<UploadedEvidence>) => void;
@@ -1093,8 +1333,19 @@ function InspectionStudio({
   const maskPolygon = run?.state.segmentation_result?.points
     ?.map(([x, y]) => `${(x / imageWidth) * 100}% ${(y / imageHeight) * 100}%`)
     .join(', ');
-  const guide = run ? decisionGuide(run, lang) : null;
+  const guide = Boolean(run);
   const policy = run?.state.policy_decision;
+  const suggestedCode = run?.state.classified_defect_code || run?.state.suggested_defect_codes?.[0]?.defect_code;
+  const selectedDefectCode = defectCodes.find(
+    (item) => item.defect_code === qcForm.defectCode,
+  );
+  const qcRecordComplete = Boolean(
+    qcForm.defectCode &&
+    qcForm.reviewer.trim() &&
+    qcForm.location.trim() &&
+    humanReason.trim().length >= 3 &&
+    (!selectedDefectCode?.measurement_required || Number(qcForm.lengthMm) > 0),
+  );
   const completedNodes = events.filter((event) => event.phase === 'completed').length;
   // Seven nodes exist in the graph, but conditional routes execute only the
   // nodes required by the selected path. A completed route is therefore 100%.
@@ -1103,12 +1354,12 @@ function InspectionStudio({
     : run?.status === 'INTERRUPTED'
       ? 85
       : Math.min(90, completedNodes * 15);
-  const evidenceImage = uploadedEvidence?.previewUrl ||
-    (run?.state.image_url ? `${API}${run.state.image_url}` : '');
+  const evidenceImage = (run?.state.image_url ? `${API}${run.state.image_url}` : '') ||
+    uploadedEvidence?.previewUrl || '';
+  const primaryIsVideo = !run && uploadedEvidence?.file.type.startsWith('video/');
   const evidenceVehicle = uploadedEvidence?.vehicleId || run?.state.vehicle_id || '—';
   const evidenceModel = uploadedEvidence || run ? 'Web upload' : '—';
   const evidenceCamera = uploadedEvidence?.cameraId || run?.state.camera_id || '—';
-  const evidencePanel = uploadedEvidence?.panel || run?.state.panel || 'unknown_panel';
   return (
     <>
       <section className="studio-head">
@@ -1116,14 +1367,14 @@ function InspectionStudio({
           <span className="kicker">LIVE AGENT INSPECTION</span>
           <h2>
             {t(
-              'Upload an inspection image and watch every node execute.',
-              'Tải ảnh kiểm tra và theo dõi từng node thực thi.',
+              'Connect the primary camera and follow its frame through every Agent node.',
+              'Kết nối camera chính và theo dõi frame đi qua từng node của Agent.',
             )}
           </h2>
           <p>
             {t(
-              'The selected image is analyzed by best.pt; class, confidence, bounding box, and mask come from the model.',
-              'Ảnh đã chọn được best.pt phân tích; class, confidence, bounding box và mask đều do model trả về.',
+              'The primary video is converted to one inspection frame before best.pt inference. Supporting cameras will be enabled in a later phase.',
+              'Video camera chính được cắt thành một frame kiểm tra trước khi đưa vào best.pt. Các camera hỗ trợ sẽ được triển khai ở giai đoạn sau.',
             )}
           </p>
         </div>
@@ -1151,15 +1402,15 @@ function InspectionStudio({
         <label className="upload-drop">
           <input
             type="file"
-            accept="image/jpeg,image/png"
+            accept="image/jpeg,image/png,video/mp4,video/webm"
             disabled={running}
             onChange={(event) => onUpload(event.target.files?.[0] || null)}
           />
           <span>↑</span>
           <div>
             <small>{t('REAL MODEL INPUT', 'ĐẦU VÀO MODEL THẬT')}</small>
-            <b>{uploadedEvidence?.file.name || t('Upload a JPEG or PNG image', 'Tải ảnh JPEG hoặc PNG')}</b>
-            <em>{t('The backend will run best.pt; the browser does not provide class or confidence.', 'Backend sẽ chạy best.pt; trình duyệt không cung cấp class hay confidence.')}</em>
+            <b>{uploadedEvidence?.file.name || t('Upload the front video or an inspection frame', 'Tải video phía trước hoặc một frame kiểm tra')}</b>
+            <em>{t('For video, the workstation extracts the middle frame and sends only that image to best.pt.', 'Với video, workstation cắt frame ở giữa và chỉ gửi ảnh đó tới best.pt.')}</em>
           </div>
         </label>
         {uploadedEvidence && (
@@ -1177,12 +1428,8 @@ function InspectionStudio({
               <input value={uploadedEvidence.cameraId} onChange={(event) => onUpdateUpload({ cameraId: event.target.value })} />
             </label>
             <label>
-              <small>PANEL</small>
-              <input value={uploadedEvidence.panel} onChange={(event) => onUpdateUpload({ panel: event.target.value })} />
-            </label>
-            <label>
-              <small>{t('MATERIAL', 'VẬT LIỆU')}</small>
-              <input value={uploadedEvidence.material} onChange={(event) => onUpdateUpload({ material: event.target.value })} />
+              <small>ZONE NAME</small>
+              <input value={uploadedEvidence.zoneName} onChange={(event) => onUpdateUpload({ zoneName: event.target.value })} />
             </label>
             <button onClick={() => onUpload(null)} disabled={running}>×</button>
           </div>
@@ -1191,7 +1438,7 @@ function InspectionStudio({
       <section className="process-rail" aria-label={t('Inspection progress', 'Tiến trình kiểm tra')}>
         <div className={uploadedEvidence ? 'process-step complete' : 'process-step active'}>
           <span>01</span>
-          <div><small>INPUT</small><b>{t('Image evidence', 'Ảnh bằng chứng')}</b></div>
+          <div><small>INPUT</small><b>{t('Primary evidence', 'Evidence camera chính')}</b></div>
         </div>
         <i />
         <div className={events.some((event) => event.node === 'detect_defect') ? 'process-step complete' : running ? 'process-step active' : 'process-step'}>
@@ -1219,50 +1466,46 @@ function InspectionStudio({
               </h3>
             </div>
             <span className="live-tag">
-              <i /> YOLO SEGMENT
+              <i /> {t('PRIMARY CAMERA', 'CAMERA CHÍNH')}
             </span>
           </header>
           {evidenceImage && (
             <>
-              <div className="camera-view">
-                {/* Blob URLs and FastAPI evidence URLs are intentionally rendered directly. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={evidenceImage}
-                  alt={uploadedEvidence?.file.name || 'Inspection evidence'}
-                />
-                <div className="camera-hud">
-                  <span><i /> LIVE EVIDENCE</span>
-                  <b>{evidenceCamera}</b>
-                </div>
-                <div className="camera-reticle" aria-hidden="true" />
-                {maskPolygon && (
-                  <div
-                    className="segmentation-mask"
-                    style={{ clipPath: `polygon(${maskPolygon})` }}
-                    aria-label={t('Model segmentation mask', 'Mask segmentation của model')}
-                  />
-                )}
-                {bbox && (
-                  <div
-                    className="detection-box"
-                    style={{
-                      left: `${(bbox.x1 / imageWidth) * 100}%`,
-                      top: `${(bbox.y1 / imageHeight) * 100}%`,
-                      width: `${((bbox.x2 - bbox.x1) / imageWidth) * 100}%`,
-                      height: `${((bbox.y2 - bbox.y1) / imageHeight) * 100}%`,
-                    }}
-                  >
-                    <span>
-                      {pretty(run?.state.defect_type)}{' '}
-                      ·{' '}
-                      {percent(
-                        run?.state.confidence,
-                      )}
-                    </span>
+              <div className="multiview-wall">
+                <div className="camera-view primary-camera">
+                  {/* Blob URLs and FastAPI evidence URLs are intentionally rendered directly. */}
+                  {primaryIsVideo ? (
+                    <video src={evidenceImage} autoPlay muted loop playsInline controls />
+                  ) : (
+                    <img src={evidenceImage} alt={uploadedEvidence?.file.name || 'Inspection evidence'} />
+                  )}
+                  <div className="camera-hud">
+                    <span><i /> {t('CAMERA FRONT · PRIMARY', 'CAMERA TRƯỚC · CHÍNH')}</span>
+                    <b>{evidenceCamera}</b>
                   </div>
-                )}
-                <div className="scan-line" />
+                  <div className="camera-reticle" aria-hidden="true" />
+                  {maskPolygon && (
+                    <div
+                      className="segmentation-mask"
+                      style={{ clipPath: `polygon(${maskPolygon})` }}
+                      aria-label={t('Model segmentation mask', 'Mask segmentation của model')}
+                    />
+                  )}
+                  {bbox && (
+                    <div
+                      className="detection-box"
+                      style={{
+                        left: `${(bbox.x1 / imageWidth) * 100}%`,
+                        top: `${(bbox.y1 / imageHeight) * 100}%`,
+                        width: `${((bbox.x2 - bbox.x1) / imageWidth) * 100}%`,
+                        height: `${((bbox.y2 - bbox.y1) / imageHeight) * 100}%`,
+                      }}
+                    >
+                      <span>{pretty(run?.state.defect_type)} · {percent(run?.state.confidence)}</span>
+                    </div>
+                  )}
+                  <div className="scan-line" />
+                </div>
               </div>
               <div className="evidence-grid">
                 <Data
@@ -1270,13 +1513,13 @@ function InspectionStudio({
                   value={evidenceCamera}
                 />
                 <Data
-                  label={t('Panel', 'Panel')}
-                  value={pretty(run?.state.panel || evidencePanel)}
+                  label={t('Inspection zone', 'Vùng kiểm tra')}
+                  value={pretty(run?.state.zone_name || uploadedEvidence?.zoneName || 'unknown_zone')}
                 />
                 <Data
                   label={t('Input evidence', 'Evidence đầu vào')}
                   value={uploadedEvidence
-                    ? t('Uploaded from the QC workstation for best.pt inference.', 'Ảnh được tải từ workstation để best.pt inference.')
+                    ? t('The primary frame is sent to YOLO and then evaluated by the Agent workflow.', 'Frame camera chính được gửi tới YOLO, sau đó được workflow Agent đánh giá.')
                     : t('Stored upload evidence from the completed inspection.', 'Evidence upload đã lưu từ phiên kiểm tra.')}
                   wide
                 />
@@ -1291,6 +1534,16 @@ function InspectionStudio({
                   <Data
                     label={t('Model output', 'Kết quả model')}
                     value={`${run.state.detections?.length || 0} detection · ${run.state.model_task || 'segment'} · ${run.state.model_version || '—'}`}
+                    wide
+                  />
+                )}
+                {run?.state.visual_measurements && (
+                  <Data
+                    label={t('Visual extent and position', 'Kích thước ảnh và vị trí lỗi')}
+                    value={t(
+                      `${run.state.visual_measurements.width_px.toFixed(0)} × ${run.state.visual_measurements.height_px.toFixed(0)} px · ${(run.state.visual_measurements.image_area_ratio * 100).toFixed(1)}% image · ${pretty(run.state.visual_measurements.relative_position)}${run.state.visual_measurements.estimated_width_mm ? ` · pilot estimate ${run.state.visual_measurements.estimated_width_mm.toFixed(1)} × ${run.state.visual_measurements.estimated_height_mm?.toFixed(1)} mm` : ' · millimetres require calibration'}`,
+                      `${run.state.visual_measurements.width_px.toFixed(0)} × ${run.state.visual_measurements.height_px.toFixed(0)} px · ${(run.state.visual_measurements.image_area_ratio * 100).toFixed(1)}% diện tích ảnh · vị trí ${pretty(run.state.visual_measurements.relative_position)}${run.state.visual_measurements.estimated_width_mm ? ` · ước lượng pilot ${run.state.visual_measurements.estimated_width_mm.toFixed(1)} × ${run.state.visual_measurements.estimated_height_mm?.toFixed(1)} mm` : ' · số đo mm cần calibration'}`,
+                    )}
                     wide
                   />
                 )}
@@ -1330,50 +1583,36 @@ function InspectionStudio({
               <div className={`outcome ${outcomeTone(run)}`}>
                 <small>{t('OPERATIONAL ACTION', 'HÀNH ĐỘNG VẬN HÀNH')}</small>
                 <strong>{actionLabel(run.state, lang)}</strong>
-                <p><b>{t('Plain-language explanation:', 'Giải thích dễ hiểu:')}</b> {localizedReason(run.state, lang)}</p>
+                <AgentReasoning state={run.state} lang={lang} t={t} />
               </div>
               <div className="decision-facts">
                 <Data
-                  label={t('Defect', 'Lỗi')}
-                  value={defectLabel(run.state, lang)}
+                  label={t('Confirmed QC code', 'Mã lỗi đã xác định')}
+                  value={`${suggestedCode || t('New defect', 'Lỗi mới')} · ${defectLabel(run.state, lang)}`}
                 />
                 <Data
-                  label="Confidence"
-                  value={percent(run.state.confidence)}
+                  label={t('Pilot measurement', 'Kích thước pilot')}
+                  value={run.state.visual_measurements?.estimated_length_mm
+                    ? `${run.state.visual_measurements.estimated_length_mm.toFixed(1)} mm · ${run.state.visual_measurements.estimated_width_mm?.toFixed(1)} × ${run.state.visual_measurements.estimated_height_mm?.toFixed(1)} mm`
+                    : t('QC measurement required', 'Cần QC đo xác nhận')}
                 />
                 <Data
-                  label={t('Severity', 'Mức độ')}
-                  value={run.state.severity || t('Not assigned', 'Chưa phân hạng')}
-                />
-                <Data
-                  label={t('Panel / camera', 'Panel / camera')}
-                  value={`${pretty(run.state.panel)} · ${run.state.camera_id}`}
-                />
-                <Data
-                  label={t('Verification', 'Xác minh')}
-                  value={verificationLabel(run.state, lang)}
-                />
-                <Data
-                  label={t('Final route', 'Điều phối cuối')}
+                  label={t('Destination', 'Điểm điều phối')}
                   value={finalRouteLabel(run, lang)}
                 />
+                <Data
+                  label={t('Test drive', 'Quyền test drive')}
+                  value={run.state.allow_test_drive ? t('ALLOWED', 'CHO PHÉP') : t('BLOCKED', 'TẠM KHÓA')}
+                />
               </div>
+              {run.state.similar_defect_warning && (
+                <div className="classification-note warning">
+                  <b>{t('Repeated defect warning', 'Cảnh báo lỗi tương tự')}</b>
+                  <span>{t('Multiple similar regions were detected. The Agent classified this as a defect cluster.', 'Phát hiện nhiều vùng lỗi tương tự. Agent đã phân loại đây là lỗi theo cụm.')}</span>
+                </div>
+              )}
               {guide && (
                 <>
-                  <div className="safety-gates">
-                    <div className="safety-gate danger">
-                      <small>{t('TEST DRIVE GATE', 'QUYỀN TEST DRIVE')}</small>
-                      <b>{policy?.test_drive_allowed === false ? t('BLOCKED', 'TẠM KHÓA') : guide.testDrive}</b>
-                    </div>
-                    <div className="safety-gate">
-                      <small>{t('RELEASE CONDITION', 'ĐIỀU KIỆN RELEASE')}</small>
-                      <b>{policy?.production_eligible
-                        ? guide.releaseGate
-                        : policy?.policy_status === 'APPROVED' && policy.approval_scope === 'DEMO_BASELINE_ONLY'
-                          ? t('Demo approved; production release remains locked', 'Đã phê duyệt demo; vẫn khóa release sản xuất')
-                          : t('Plant approval and QC sign-off required', 'Cần policy nhà máy phê duyệt và QC ký xác nhận')}</b>
-                    </div>
-                  </div>
                   <details className="decision-rationale policy-disclosure">
                     <summary>
                       <span>DOC</span>
@@ -1456,13 +1695,103 @@ function InspectionStudio({
                   <span>!</span>
                   <div>
                     <small>{t('HUMAN REVIEW CHECKPOINT', 'CHECKPOINT KIỂM DUYỆT')}</small>
-                    <b>{t('QC decision required to continue', 'Cần QC xác nhận để tiếp tục')}</b>
+                    <b>{t('New defect requires QC classification', 'Lỗi mới cần QC phân loại')}</b>
                     <p>
                       {t(
-                        'The Agent cannot finalize this case automatically. Review the image and record your conclusion before resuming the workflow.',
-                        'Agent chưa đủ cơ sở tự động kết luận. Hãy đối chiếu ảnh và ghi nhận kết luận trước khi tiếp tục workflow.',
+                        'The Agent only sends model errors or unmapped defect classes to QC. Classify this new exception before resuming the workflow.',
+                        'Agent chỉ chuyển model error hoặc loại lỗi chưa có trong danh mục cho QC. Hãy phân loại ngoại lệ mới trước khi tiếp tục workflow.',
                       )}
                     </p>
+                    <div className="qc-record-form">
+                      <label>
+                        <span>{t('DEFECT CODE', 'MÃ LỖI')}</span>
+                        <select
+                          value={qcForm.defectCode}
+                          onChange={(event) => {
+                            const selected = defectCodes.find(
+                              (item) => item.defect_code === event.target.value,
+                            );
+                            setQcForm((current) => ({
+                              ...current,
+                              defectCode: event.target.value,
+                              severity: selected?.default_severity || current.severity,
+                            }));
+                          }}
+                          aria-label={t('Defect code', 'Mã lỗi')}
+                        >
+                          <option value="">{t('Select a controlled code', 'Chọn mã lỗi kiểm soát')}</option>
+                          {defectCodes.map((item) => (
+                            <option value={item.defect_code} key={item.defect_code}>
+                              {item.defect_code} · {item.display_name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>{t('DEFECT TYPE', 'LOẠI LỖI')}</span>
+                        <input
+                          value={selectedDefectCode?.defect_type || ''}
+                          readOnly
+                          placeholder={t('Defined by defect code', 'Tự động theo mã lỗi')}
+                        />
+                      </label>
+                      <label>
+                        <span>{t('SEVERITY', 'MỨC ĐỘ')}</span>
+                        <select
+                          value={qcForm.severity}
+                          onChange={(event) => setQcForm((current) => ({ ...current, severity: event.target.value }))}
+                        >
+                          {['A', 'B', 'C', 'UNASSESSED'].map((severity) => (
+                            <option value={severity} key={severity}>{severity}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>{t('DISPOSITION', 'ĐIỀU PHỐI')}</span>
+                        <select
+                          value={qcForm.disposition}
+                          onChange={(event) => setQcForm((current) => ({
+                            ...current,
+                            disposition: event.target.value as QCFormState['disposition'],
+                          }))}
+                        >
+                          <option value="HOLD">HOLD</option>
+                          <option value="REWORK">REWORK</option>
+                          <option value="REINSPECT">REINSPECT</option>
+                          <option value="PASS">PASS</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>{t('DEFECT LOCATION', 'VỊ TRÍ LỖI')}</span>
+                        <input
+                          value={qcForm.location}
+                          onChange={(event) => setQcForm((current) => ({ ...current, location: event.target.value }))}
+                          placeholder={t('Example: left door, lower edge', 'Ví dụ: cửa trái, mép dưới')}
+                        />
+                      </label>
+                      <label>
+                        <span>
+                          {t('DEFECT LENGTH (MM)', 'CHIỀU DÀI LỖI (MM)')}
+                          {selectedDefectCode?.measurement_required ? ' *' : ''}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={qcForm.lengthMm}
+                          onChange={(event) => setQcForm((current) => ({ ...current, lengthMm: event.target.value }))}
+                          placeholder={selectedDefectCode?.measurement_required ? t('Required QC measurement', 'Bắt buộc QC đo') : t('Optional', 'Không bắt buộc')}
+                        />
+                      </label>
+                      <label className="wide">
+                        <span>{t('QC REVIEWER', 'NGƯỜI XÁC NHẬN QC')}</span>
+                        <input
+                          value={qcForm.reviewer}
+                          onChange={(event) => setQcForm((current) => ({ ...current, reviewer: event.target.value }))}
+                          placeholder="qc-inspector-01"
+                        />
+                      </label>
+                    </div>
                     <label>
                       <span>{t('QC REVIEW NOTE', 'GHI NHẬN CỦA QC')}</span>
                       <textarea
@@ -1474,7 +1803,7 @@ function InspectionStudio({
                     </label>
                     <div className="hitl-actions">
                       <button
-                        disabled={running}
+                        disabled={running || !qcRecordComplete}
                         onClick={() => onResume('REJECT')}
                       >
                         <small>{t('MODEL RESULT INCORRECT', 'KẾT QUẢ MODEL KHÔNG ĐÚNG')}</small>
@@ -1482,7 +1811,7 @@ function InspectionStudio({
                       </button>
                       <button
                         className="primary"
-                        disabled={running}
+                        disabled={running || !qcRecordComplete}
                         onClick={() => onResume('APPROVE')}
                       >
                         <small>{t('DEFECT OBSERVED', 'ĐÃ QUAN SÁT THẤY LỖI')}</small>
@@ -1499,8 +1828,8 @@ function InspectionStudio({
               <b>{t('Waiting for inspection', 'Đang chờ kiểm tra')}</b>
               <p>
                 {t(
-                  'Upload an image and press Start inspection. The decision will appear only after its nodes execute.',
-                  'Tải ảnh rồi bấm Bắt đầu kiểm tra. Quyết định chỉ xuất hiện sau khi các node thực thi.',
+                  'Connect the primary camera, then start the inspection.',
+                  'Kết nối camera chính rồi bắt đầu kiểm tra.',
                 )}
               </p>
             </div>
@@ -1572,6 +1901,162 @@ function NodeTimeline({
   );
 }
 
+function DefectRegistry({
+  codes,
+  decisions,
+  onCreate,
+  t,
+}: {
+  codes: DefectCode[];
+  decisions: QCDecisionRecord[];
+  onCreate: (payload: DefectCodeInput) => Promise<void>;
+  t: (en: string, vi: string) => string;
+}) {
+  const [draft, setDraft] = useState<DefectCodeInput>({
+    defect_code: '',
+    defect_type: 'scratch',
+    cv_label: 'scratch',
+    defect_family: 'SURFACE_SCRATCH',
+    display_name: '',
+    description: '',
+    classification_rule: 'QC confirmation required',
+    default_severity: 'C',
+    measurement_required: true,
+    active: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [formMessage, setFormMessage] = useState('');
+
+  async function submitCode() {
+    setSaving(true);
+    setFormMessage('');
+    try {
+      await onCreate(draft);
+      setFormMessage(t('Defect code saved.', 'Đã lưu mã lỗi.'));
+      setDraft((current) => ({ ...current, defect_code: '', display_name: '', description: '' }));
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : t('Could not save code.', 'Không thể lưu mã lỗi.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="defect-registry-page">
+      <div className="registry-intro card">
+        <div>
+          <small>QC MASTER DATA · CV LABEL MAPPING</small>
+          <h2>{t('Controlled defect registry', 'Sổ mã lỗi kiểm soát')}</h2>
+          <p>
+            {t(
+              'The Agent maps the Computer Vision label to this controlled catalog. Length and relative location support policy evaluation.',
+              'Agent ánh xạ label Computer Vision với danh mục kiểm soát này. Chiều dài và vị trí tương đối hỗ trợ đánh giá policy.',
+            )}
+          </p>
+        </div>
+        <span>{codes.length} {t('active codes', 'mã đang dùng')}</span>
+      </div>
+
+      <article className="registry-card registry-create-card card">
+        <header>
+          <div>
+            <small>01 · QC MASTER DATA INPUT</small>
+            <h3>{t('Add a controlled defect code', 'Thêm mã lỗi QC thủ công')}</h3>
+          </div>
+          <span>{t('Saved to database', 'Lưu vào database')}</span>
+        </header>
+        <div className="registry-form">
+          <label><small>{t('Defect code', 'Mã lỗi')}</small><input value={draft.defect_code} placeholder="SCRATCH02" onChange={(event) => setDraft({ ...draft, defect_code: event.target.value.toUpperCase() })} /></label>
+          <label><small>CV LABEL</small><select value={draft.cv_label} onChange={(event) => setDraft({ ...draft, cv_label: event.target.value, defect_type: event.target.value })}><option value="scratch">scratch</option><option value="dent">dent</option></select></label>
+          <label><small>{t('Defect family', 'Nhóm mã lỗi')}</small><input value={draft.defect_family} placeholder="SURFACE_SCRATCH" onChange={(event) => setDraft({ ...draft, defect_family: event.target.value.toUpperCase() })} /></label>
+          <label><small>{t('Display name', 'Tên hiển thị')}</small><input value={draft.display_name} placeholder={t('Fine surface scratch', 'Vết xước mảnh')} onChange={(event) => setDraft({ ...draft, display_name: event.target.value })} /></label>
+          <label><small>SEVERITY</small><select value={draft.default_severity} onChange={(event) => setDraft({ ...draft, default_severity: event.target.value })}><option>A</option><option>B</option><option>C</option><option>UNASSESSED</option></select></label>
+          <label className="registry-description"><small>{t('Description / criteria', 'Mô tả / tiêu chí')}</small><input value={draft.description} placeholder={t('Describe the controlled defect subtype', 'Mô tả cụ thể phân loại lỗi')} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+          <label className="registry-description"><small>{t('Agent classification rule', 'Rule phân loại cho Agent')}</small><input value={draft.classification_rule} placeholder="estimated_width_mm <= 50" onChange={(event) => setDraft({ ...draft, classification_rule: event.target.value })} /></label>
+          <label className="registry-check"><input type="checkbox" checked={draft.measurement_required} onChange={(event) => setDraft({ ...draft, measurement_required: event.target.checked })} /><span>{t('QC physical measurement required', 'QC bắt buộc xác nhận kích thước thực')}</span></label>
+          <button className="registry-save" disabled={saving || draft.defect_code.length < 3 || draft.display_name.length < 2} onClick={submitCode}>{saving ? t('Saving…', 'Đang lưu…') : t('Save defect code', 'Lưu mã lỗi')}</button>
+          {formMessage && <p className="registry-form-message">{formMessage}</p>}
+        </div>
+      </article>
+
+      <article className="registry-card card">
+        <header>
+          <div>
+            <small>02 · DEFECT CATALOG</small>
+            <h3>{t('CV label → controlled code', 'Label CV → mã lỗi chuẩn')}</h3>
+          </div>
+        </header>
+        <div className="registry-table-wrap">
+          <table className="registry-table">
+            <thead>
+              <tr>
+                <th>{t('Code', 'Mã lỗi')}</th>
+                <th>CV label</th>
+                <th>{t('Defect type', 'Loại lỗi')}</th>
+                <th>{t('Family', 'Nhóm')}</th>
+                <th>Severity</th>
+                <th>{t('Length', 'Chiều dài')}</th>
+                <th>{t('Description', 'Mô tả')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {codes.map((item) => (
+                <tr key={item.defect_code}>
+                  <td><b>{item.defect_code}</b></td>
+                  <td><code>{item.cv_label}</code></td>
+                  <td>{pretty(item.defect_type)}</td>
+                  <td><code>{item.defect_family}</code></td>
+                  <td><span className="severity-chip">{item.default_severity}</span></td>
+                  <td>{item.measurement_required ? t('QC measurement required', 'QC bắt buộc đo') : t('Optional', 'Không bắt buộc')}</td>
+                  <td>{item.description}<small>{item.classification_rule}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article className="registry-card card">
+        <header>
+          <div>
+            <small>03 · QC CONFIRMED RECORDS</small>
+            <h3>{t('Measured defects and decisions', 'Lỗi đã đo và quyết định QC')}</h3>
+          </div>
+          <span>{decisions.length} {t('records', 'bản ghi')}</span>
+        </header>
+        <div className="registry-table-wrap">
+          <table className="registry-table decision-registry-table">
+            <thead>
+              <tr>
+                <th>{t('Vehicle / inspection', 'Xe / inspection')}</th>
+                <th>{t('Code / type', 'Mã / loại lỗi')}</th>
+                <th>{t('Defect location', 'Vị trí lỗi')}</th>
+                <th>{t('Length', 'Chiều dài')}</th>
+                <th>{t('QC decision', 'Quyết định QC')}</th>
+                <th>{t('Reviewer', 'Người xác nhận')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {decisions.length ? decisions.map((item) => (
+                <tr key={item.decision_id}>
+                  <td><b>{item.vehicle_id}</b><small>{item.inspection_id.slice(0, 12)}</small></td>
+                  <td><b>{item.defect_code}</b><small>{pretty(item.defect_type)} · {item.severity}</small></td>
+                  <td><b>{item.location}</b></td>
+                  <td>{item.length_mm == null ? '—' : `${item.length_mm.toFixed(1)} mm`}</td>
+                  <td><span className={`disposition-chip disposition-${item.disposition.toLowerCase()}`}>{item.disposition}</span><small>{item.action}</small></td>
+                  <td><b>{item.reviewer}</b><small>{new Date(item.created_at).toLocaleString()}</small></td>
+                </tr>
+              )) : (
+                <tr><td colSpan={6} className="registry-empty">{t('No QC-confirmed record is available yet.', 'Chưa có bản ghi nào được QC xác nhận.')}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function QualityAlertsPage({
   summary,
   t,
@@ -1583,16 +2068,18 @@ function QualityAlertsPage({
 }) {
   const criticalCount =
     summary?.alerts.filter((item) => item.severity === 'CRITICAL').length || 0;
+  const affectedVehicles =
+    summary?.alerts.reduce((total, item) => total + item.affected_vehicle_count, 0) || 0;
   return (
     <div className="alert-page">
       <section className="alert-hero">
         <div>
-          <span className="kicker">QUALITY TREND MONITOR</span>
-          <h2>{t('Repeated defect early warning', 'Cảnh báo sớm lỗi lặp lại')}</h2>
+          <span className="kicker">QUALITY EARLY WARNING</span>
+          <h2>{t('Repeated defect alerts', 'Cảnh báo lỗi lặp lại')}</h2>
           <p>
             {t(
-              'The Agent groups the latest result per vehicle by defect, panel, and camera. Three affected vehicles within 24 hours trigger an upstream process check.',
-              'Agent nhóm kết quả mới nhất của mỗi xe theo loại lỗi, panel và camera. Từ 3 xe trong 24 giờ sẽ yêu cầu kiểm tra công đoạn phía trước.',
+              'The Agent groups repeated defects and tells QC what needs attention and what to check next.',
+              'Agent gom các lỗi lặp lại, chỉ rõ vấn đề cần chú ý và hành động QC cần thực hiện tiếp theo.',
             )}
           </p>
         </div>
@@ -1603,7 +2090,7 @@ function QualityAlertsPage({
           <span>DOCX</span>
           <div>
             <b>{t('Download QC report', 'Tải báo cáo QC')}</b>
-            <small>{t('Evidence and check plan', 'Evidence và kế hoạch kiểm tra')}</small>
+            <small>{t('Alert evidence and actions', 'Bằng chứng và hành động')}</small>
           </div>
           <i>↓</i>
         </a>
@@ -1611,71 +2098,43 @@ function QualityAlertsPage({
 
       <section className="alert-metrics">
         <article>
-          <small>{t('INSPECTIONS ANALYZED', 'PHIÊN ĐÃ PHÂN TÍCH')}</small>
+          <small>{t('INSPECTIONS MONITORED', 'LƯỢT ĐÃ GIÁM SÁT')}</small>
           <strong>{summary?.analyzed_inspections || 0}</strong>
-          <p>{t('latest record per vehicle', 'bản ghi mới nhất mỗi xe')}</p>
+          <p>{t('latest inspection window', 'trong cửa sổ gần nhất')}</p>
         </article>
         <article className="warning">
-          <small>{t('OPEN ALERTS', 'CẢNH BÁO MỞ')}</small>
+          <small>{t('OPEN ALERTS', 'CẢNH BÁO CẦN XỬ LÝ')}</small>
           <strong>{summary?.alerts.length || 0}</strong>
-          <p>{t('threshold ≥ 3 vehicles', 'ngưỡng ≥ 3 xe')}</p>
+          <p>{t('require QC action', 'cần QC hành động')}</p>
         </article>
         <article className="critical">
           <small>{t('CRITICAL', 'NGHIÊM TRỌNG')}</small>
           <strong>{criticalCount}</strong>
-          <p>{t('five or more vehicles', 'từ 5 xe trở lên')}</p>
+          <p>{t('immediate escalation', 'cần chuyển xử lý ngay')}</p>
         </article>
         <article>
-          <small>{t('MONITORING WINDOW', 'CỬA SỔ GIÁM SÁT')}</small>
-          <strong>{summary?.window_hours || 24}h</strong>
-          <p>{t('rolling trend window', 'cửa sổ xu hướng trượt')}</p>
+          <small>{t('AFFECTED VEHICLES', 'XE BỊ ẢNH HƯỞNG')}</small>
+          <strong>{affectedVehicles}</strong>
+          <p>{t('across active alerts', 'trong cảnh báo hiện tại')}</p>
         </article>
       </section>
-
-      {!!summary?.defect_breakdown.length && (
-        <section className="defect-breakdown card">
-          <header>
-            <div>
-              <small>{t('INSPECTION HISTORY SUMMARY', 'TỔNG HỢP LỊCH SỬ KIỂM TRA')}</small>
-              <h3>{t('Defects retained in the monitoring window', 'Các lỗi ghi nhận trong cửa sổ giám sát')}</h3>
-            </div>
-            <span>{summary.findings.length} {t('findings', 'kết quả lỗi')}</span>
-          </header>
-          <div className="defect-breakdown-grid">
-            {summary.defect_breakdown.map((item) => (
-              <article key={item.defect_type}>
-                <div>
-                  <span>{pretty(item.defect_type).slice(0, 2).toUpperCase()}</span>
-                  <p><small>{t('DEFECT TYPE', 'LOẠI LỖI')}</small><b>{pretty(item.defect_type)}</b></p>
-                </div>
-                <dl>
-                  <div><dt>{t('Occurrences', 'Số lần')}</dt><dd>{item.occurrence_count}</dd></div>
-                  <div><dt>{t('Vehicles', 'Số xe')}</dt><dd>{item.affected_vehicle_count}</dd></div>
-                  <div><dt>{t('Average', 'Trung bình')}</dt><dd>{percent(item.average_confidence)}</dd></div>
-                  <div><dt>{t('Maximum', 'Cao nhất')}</dt><dd>{percent(item.maximum_confidence)}</dd></div>
-                </dl>
-                <p className="breakdown-scope">
-                  <b>{item.panels.map(pretty).join(', ')}</b>
-                  <span>{item.camera_ids.join(', ')}</span>
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
 
       {summary?.alerts.length ? (
         <section className="alert-stack">
           {summary.alerts.map((alert) => {
             const checks =
               lang === 'vi' ? alert.upstream_checks_vi : alert.upstream_checks_en;
-            const routeCounts = (alert.occurrences || []).reduce<Record<string, number>>(
-              (counts, occurrence) => ({
-                ...counts,
-                [occurrence.final_status]: (counts[occurrence.final_status] || 0) + 1,
-              }),
-              {},
-            );
+            const knownZone = alert.zone_name && !alert.zone_name.startsWith('unknown');
+            const defectCodes = Array.from(new Set([
+              ...(alert.related_defect_codes || []),
+              ...(alert.occurrences || []).map((item) => item.classified_defect_code),
+            ].filter(Boolean)));
+            const visualEvidence = (alert.occurrences || [])
+              .filter((item, index, items) =>
+                Boolean(item.image_url) &&
+                items.findIndex((candidate) => candidate.image_url === item.image_url) === index,
+              )
+              .slice(0, 4);
             return (
               <article
                 className={`trend-alert ${alert.severity.toLowerCase()}`}
@@ -1688,67 +2147,71 @@ function QualityAlertsPage({
                       {alert.severity} · {alert.affected_vehicle_count}{' '}
                       {t('VEHICLES', 'XE')}
                     </span>
-                    <h3>{pretty(alert.defect_type)} · {pretty(alert.panel)}</h3>
-                    <p>{lang === 'vi' ? alert.message_vi : alert.message_en}</p>
+                    <h3>{pretty(alert.defect_type)}{knownZone ? ` · ${pretty(alert.zone_name)}` : ''}</h3>
+                    <p>
+                      {t(
+                        `${alert.occurrence_count} repeated detections require an upstream process check.`,
+                        `Phát hiện ${alert.occurrence_count} lần lặp lại; cần kiểm tra công đoạn trước.`,
+                      )}
+                    </p>
                   </div>
                   <span className="alert-open">
-                    {t('UPSTREAM CHECK', 'CHECK KHÂU TRƯỚC')}
+                    {t('ACTION REQUIRED', 'CẦN XỬ LÝ')}
                   </span>
                 </header>
                 <div className="alert-evidence-grid">
-                  <div><small>CAMERA</small><b>{alert.camera_id}</b></div>
-                  <div><small>{t('AVERAGE CONFIDENCE', 'CONFIDENCE TRUNG BÌNH')}</small><b>{percent(alert.average_confidence)}</b></div>
-                  <div><small>{t('MAX CONFIDENCE', 'CONFIDENCE CAO NHẤT')}</small><b>{percent(alert.maximum_confidence)}</b></div>
-                  <div><small>{t('LAST SEEN', 'LẦN CUỐI')}</small><b>{new Date(alert.last_seen).toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US')}</b></div>
+                  <div><small>{t('REPEATED', 'SỐ LẦN LẶP')}</small><b>{alert.occurrence_count}</b></div>
+                  <div><small>{t('AFFECTED VEHICLES', 'XE ẢNH HƯỞNG')}</small><b>{alert.affected_vehicle_count}</b></div>
+                  <div><small>{t('CAMERA', 'CAMERA PHÁT HIỆN')}</small><b>{alert.camera_id}</b></div>
+                  <div><small>{t('LAST SEEN', 'PHÁT HIỆN GẦN NHẤT')}</small><b>{new Date(alert.last_seen).toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US')}</b></div>
                 </div>
-                <section className="trend-analysis">
-                  <div className="trend-analysis-copy">
-                    <div className="trend-analysis-title">
-                      <span>AI</span>
-                      <p>
-                        <small>{t('AGENT TREND ANALYSIS', 'AGENT PHÂN TÍCH XU HƯỚNG')}</small>
-                        <b>{t('Consolidated signal from inspection history', 'Tín hiệu tổng hợp từ lịch sử kiểm tra')}</b>
-                      </p>
+                <section className="alert-visual-evidence">
+                  <header>
+                    <div>
+                      <small>{t('VISUAL EVIDENCE', 'BẰNG CHỨNG TRỰC QUAN')}</small>
+                      <h4>{t('Repeated defect samples', 'Ảnh lỗi ghi nhận lặp lại')}</h4>
                     </div>
-                    <p>
-                      {alert.ai_analysis
-                        ? (lang === 'vi' ? alert.ai_analysis.summary_vi : alert.ai_analysis.summary_en)
-                        : (lang === 'vi' ? alert.message_vi : alert.message_en)}
+                    <div className="alert-code-list" aria-label={t('Related defect codes', 'Mã lỗi liên quan')}>
+                      {defectCodes.length ? defectCodes.map((code) => (
+                        <span key={code}>{code}</span>
+                      )) : <span>{t('Code pending', 'Chưa có mã lỗi')}</span>}
+                    </div>
+                  </header>
+                  {visualEvidence.length ? (
+                    <div className="alert-image-strip">
+                      {visualEvidence.map((item) => {
+                        const imageSource = item.image_url.startsWith('http')
+                          ? item.image_url
+                          : `${API}${item.image_url}`;
+                        return (
+                          <figure key={`${item.inspection_id}-${item.image_url}`}>
+                            <img src={imageSource} alt={`${pretty(item.defect_type)} · ${item.vehicle_id}`} />
+                            <figcaption>
+                              <b>{item.classified_defect_code || pretty(item.defect_type)}</b>
+                              <span>{item.vehicle_id}</span>
+                              <small>{new Date(item.inspected_at).toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US')}</small>
+                            </figcaption>
+                          </figure>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="alert-no-image">
+                      {t('No retained image is available for this alert.', 'Chưa có ảnh được lưu cho cảnh báo này.')}
                     </p>
-                    {!!alert.ai_analysis?.risk_flags.length && (
-                      <div className="reasoning-flags">
-                        {alert.ai_analysis.risk_flags.map((flag) => <span key={flag}>{pretty(flag)}</span>)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="trend-overview">
-                    <small>{t('AGGREGATED INSPECTION SIGNAL', 'TỔNG QUAN CÁC LẦN KIỂM TRA')}</small>
-                    <dl>
-                      <div><dt>{t('Detections', 'Lần phát hiện')}</dt><dd>{alert.occurrence_count}</dd></div>
-                      <div><dt>{t('Vehicles', 'Xe ảnh hưởng')}</dt><dd>{alert.affected_vehicle_count}</dd></div>
-                      <div><dt>{t('Observed span', 'Khoảng ghi nhận')}</dt><dd>{new Date(alert.first_seen).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US')} – {new Date(alert.last_seen).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-US')}</dd></div>
-                    </dl>
-                    <div className="route-summary">
-                      <b>{t('ROUTE DISTRIBUTION', 'PHÂN BỐ ĐIỀU PHỐI')}</b>
-                      <div>
-                        {Object.entries(routeCounts).map(([route, count]) => (
-                          <span key={route}>{pretty(route)} <strong>{count}</strong></span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </section>
                 <div className="upstream-plan">
                   <div>
-                    <small>AGENT CHECK PLAN</small>
+                    <small>{t('ACTION NOW', 'HÀNH ĐỘNG NGAY')}</small>
                     <h4>
                       {t(
-                        'Required verification before release',
-                        'Xác minh bắt buộc trước khi release',
+                        'Check the suspected upstream source',
+                        'Kiểm tra nguồn phát sinh nghi ngờ',
                       )}
                     </h4>
                     <ol>
-                      {checks.map((check, index) => (
+                      {checks.slice(0, 3).map((check, index) => (
                         <li key={check}>
                           <span>{index + 1}</span>
                           <p>{check}</p>
@@ -1758,13 +2221,22 @@ function QualityAlertsPage({
                   </div>
                   <aside>
                     <small>
-                      {t('CONTROL RECOMMENDATION', 'KHUYẾN NGHỊ KIỂM SOÁT')}
+                      {t('AGENT CONCLUSION', 'KẾT LUẬN CỦA AGENT')}
                     </small>
                     <b>
                       {lang === 'vi'
                         ? alert.recommendation_vi
                         : alert.recommendation_en}
                     </b>
+                    <p><strong>{t('Suspected source:', 'Nguồn nghi ngờ:')}</strong> {alert.predicted_root_cause}</p>
+                    <p><strong>{t('Responsible area:', 'Bộ phận xử lý:')}</strong> {alert.upstream_target_shop}</p>
+                    <p className="alert-close-rule">
+                      <strong>{t('Close when:', 'Đóng cảnh báo khi:')}</strong>{' '}
+                      {t(
+                        'QC records the upstream check and confirms the repeated defect has stopped.',
+                        'QC ghi nhận kết quả kiểm tra và xác nhận lỗi không còn lặp lại.',
+                      )}
+                    </p>
                   </aside>
                 </div>
               </article>
@@ -1794,6 +2266,7 @@ function RunList({
   empty,
   onOpen,
   onClear,
+  variant = 'queue',
   t,
   lang,
 }: {
@@ -1803,6 +2276,7 @@ function RunList({
   empty: string;
   onOpen: (run: GraphRun) => void;
   onClear?: () => void;
+  variant?: 'queue' | 'history';
   t: (en: string, vi: string) => string;
   lang: Lang;
 }) {
@@ -1824,36 +2298,107 @@ function RunList({
           <strong>{runs.length.toString().padStart(2, '0')}</strong>
         </div>
       </section>
-      <section className="run-list card">
+      <section className={`run-list card ${variant === 'history' ? 'history-records' : ''}`}>
         {runs.length ? (
-          runs.map((run) => (
-              <button key={run.thread_id} onClick={() => onOpen(run)}>
-                <div className="run-vehicle">
-                  <span>QC</span>
-                  <div>
-                    <b>{run.state.vehicle_id}</b>
-                    <small>Thread #{run.thread_id.slice(0, 8)}</small>
+          runs.map((run) => {
+            const imageSource = run.state.image_url
+              ? (run.state.image_url.startsWith('http') ? run.state.image_url : `${API}${run.state.image_url}`)
+              : '';
+            const measurement = run.state.visual_measurements;
+            const estimatedLength = measurement?.estimated_length_mm;
+            const recordTime = run.state.qc_decision_record?.created_at;
+            if (variant === 'history') {
+              return (
+                <button className="history-record" key={run.thread_id} onClick={() => onOpen(run)}>
+                  <div className="history-thumb">
+                    {imageSource ? (
+                      <img src={imageSource} alt={`${run.state.vehicle_id} inspection evidence`} />
+                    ) : (
+                      <span>QC</span>
+                    )}
+                  </div>
+                  <div className="history-main">
+                    <div className="history-title">
+                      <div>
+                        <small>{t('VEHICLE / INSPECTION', 'XE / PHIÊN KIỂM TRA')}</small>
+                        <b>{run.state.vehicle_id}</b>
+                        <em>#{run.state.inspection_id?.slice(0, 8)} · Thread #{run.thread_id.slice(0, 8)}</em>
+                      </div>
+                      <StatusPill run={run} t={t} />
+                    </div>
+                    <div className="history-facts">
+                      <div>
+                        <small>{t('DEFECT', 'LỖI PHÁT HIỆN')}</small>
+                        <b>{run.state.defect_detected ? pretty(run.state.defect_type) : t('No defect', 'Không có lỗi')}</b>
+                        <em>{run.state.classified_defect_code || t('No defect code', 'Chưa có mã lỗi')}</em>
+                      </div>
+                      <div>
+                        <small>{t('MODEL EVIDENCE', 'BẰNG CHỨNG MODEL')}</small>
+                        <b>{percent(run.state.confidence)}</b>
+                        <em>{run.state.camera_id}</em>
+                      </div>
+                      <div>
+                        <small>{t('SIZE / LOCATION', 'KÍCH THƯỚC / VỊ TRÍ')}</small>
+                        <b>{estimatedLength != null ? `${estimatedLength.toFixed(1)} mm` : t('Not available', 'Chưa có số đo')}</b>
+                        <em>{measurement?.relative_position ? pretty(measurement.relative_position) : pretty(run.state.zone_name)}</em>
+                      </div>
+                      <div className="history-decision">
+                        <small>{t('FINAL ACTION', 'HÀNH ĐỘNG CUỐI')}</small>
+                        <b>{actionLabel(run.state, lang)}</b>
+                        <em>{recordTime ? new Date(recordTime).toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US') : pretty(run.state.final_status)}</em>
+                      </div>
+                    </div>
+                  </div>
+                  <i>→</i>
+                </button>
+              );
+            }
+            return (
+              <button className="queue-record" key={run.thread_id} onClick={() => onOpen(run)}>
+                <div className="queue-thumb">
+                  {imageSource ? (
+                    <img src={imageSource} alt={`${run.state.vehicle_id} QC evidence`} />
+                  ) : (
+                    <span>QC</span>
+                  )}
+                </div>
+                <div className="queue-main">
+                  <div className="queue-title">
+                    <div>
+                      <small>{t('QC CHECKPOINT', 'CHECKPOINT KIỂM DUYỆT')}</small>
+                      <b>{run.state.vehicle_id}</b>
+                      <em>Thread #{run.thread_id.slice(0, 8)}</em>
+                    </div>
+                    <StatusPill run={run} t={t} />
+                  </div>
+                  <div className="queue-facts">
+                    <div>
+                      <small>{t('DEFECT / CODE', 'LỖI / MÃ LỖI')}</small>
+                      <b>{run.state.defect_detected ? pretty(run.state.defect_type) : t('Unknown defect', 'Lỗi chưa xác định')}</b>
+                      <em>{run.state.classified_defect_code || t('New defect — QC classification required', 'Lỗi mới — cần QC phân loại')}</em>
+                    </div>
+                    <div>
+                      <small>{t('MODEL EVIDENCE', 'BẰNG CHỨNG MODEL')}</small>
+                      <b>{percent(run.state.confidence)}</b>
+                      <em>{estimatedLength != null ? `${estimatedLength.toFixed(1)} mm` : t('Size unavailable', 'Chưa có kích thước')}</em>
+                    </div>
+                    <div>
+                      <small>{t('LOCATION', 'VỊ TRÍ')}</small>
+                      <b>{measurement?.relative_position ? pretty(measurement.relative_position) : pretty(run.state.zone_name)}</b>
+                      <em>{run.state.camera_id}</em>
+                    </div>
+                  </div>
+                  <div className="queue-reason">
+                    <div>
+                      <small>{t('WHY QC IS NEEDED', 'LÝ DO CẦN QC')}</small>
+                      <p>{run.interrupt?.reason || run.state.reason || t('The Agent needs QC confirmation for a new or unsupported case.', 'Agent cần QC xác nhận trường hợp mới hoặc chưa có quy tắc xử lý.')}</p>
+                    </div>
+                    <span>{t('Open review', 'Mở kiểm duyệt')} →</span>
                   </div>
                 </div>
-                <div>
-                  <small>{t('DETECTION', 'PHÁT HIỆN')}</small>
-                  <b>
-                    {run.state.defect_detected
-                      ? pretty(run.state.defect_type)
-                      : t('No defect', 'Không có lỗi')}
-                  </b>
-                  <em>
-                    {percent(run.state.confidence)} · {run.state.camera_id}
-                  </em>
-                </div>
-                <div className="run-action">
-                  <small>{t('ACTION', 'HÀNH ĐỘNG')}</small>
-                  <b>{actionLabel(run.state, lang)}</b>
-                </div>
-                <StatusPill run={run} t={t} />
-                <i>→</i>
               </button>
-          ))
+            );
+          })
         ) : (
           <div className="empty-state">
             <span>◇</span>
@@ -1951,6 +2496,73 @@ function Data({
     </div>
   );
 }
+function AgentReasoning({
+  state,
+  lang,
+  t,
+}: {
+  state: QCState;
+  lang: Lang;
+  t: (en: string, vi: string) => string;
+}) {
+  const visual = state.visual_measurements;
+  const selected = state.suggested_defect_codes?.find(
+    (item) => item.defect_code === state.classified_defect_code,
+  );
+  const certainty = percent(
+    state.defect_code_classification?.confidence ?? state.confidence,
+  );
+  const impactLabels: Record<string, readonly [string, string]> = {
+    A: ['High impact', 'Ảnh hưởng cao'],
+    B: ['Significant impact', 'Ảnh hưởng đáng chú ý'],
+    C: ['Minor impact', 'Ảnh hưởng nhẹ'],
+  };
+  const impact = local(
+    impactLabels[state.severity || ''],
+    lang,
+    t('Not assigned', 'Chưa phân hạng'),
+  );
+  const size = visual?.estimated_length_mm
+    ? t(
+        `${visual.estimated_length_mm.toFixed(1)} mm long, ${visual.estimated_width_mm?.toFixed(1)} × ${visual.estimated_height_mm?.toFixed(1)} mm`,
+        `dài ${visual.estimated_length_mm.toFixed(1)} mm, vùng bao ${visual.estimated_width_mm?.toFixed(1)} × ${visual.estimated_height_mm?.toFixed(1)} mm`,
+      )
+    : t('Physical size unavailable', 'Chưa có kích thước vật lý');
+  const policy = state.policy_decision;
+  const steps = [
+    {
+      label: t('1 · Evidence', '1 · Bằng chứng'),
+      value: `${defectLabel(state, lang)} · ${size} · ${pretty(state.zone_name)} / ${pretty(visual?.relative_position)}`,
+    },
+    {
+      label: t('2 · Classification', '2 · Phân loại'),
+      value: `${state.classified_defect_code || t('Unmapped', 'Chưa ánh xạ')} · ${selected?.display_name || defectLabel(state, lang)} · ${certainty} · ${state.severity || '—'} (${impact})`,
+    },
+    {
+      label: t('3 · Applied policy', '3 · Policy áp dụng'),
+      value: policy
+        ? `${policy.policy_id} · rev. ${policy.policy_revision}`
+        : t('No matching controlled policy', 'Chưa có policy kiểm soát phù hợp'),
+    },
+    {
+      label: t('4 · Agent decision', '4 · Agent quyết định'),
+      value: `${actionLabel(state, lang)} · ${state.allow_test_drive ? t('test drive allowed', 'cho phép test drive') : t('test drive blocked', 'khóa test drive')}`,
+    },
+  ];
+  return (
+    <section className="agent-reasoning" aria-label={t('Agent reasoning', 'Lập luận của Agent')}>
+      <b>{t('AGENT REASONING', 'AGENT REASONING')}</b>
+      <ol>
+        {steps.map((step) => (
+          <li key={step.label}>
+            <small>{step.label}</small>
+            <span>{step.value}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 function StatusPill({
   run,
   t,
@@ -1972,26 +2584,6 @@ function StatusPill({
       {text}
     </span>
   );
-}
-function localizedReason(state: QCState, lang: Lang) {
-  if (state.ai_analysis)
-    return lang === 'vi' ? state.ai_analysis.summary_vi : state.ai_analysis.summary_en;
-  if (lang === 'en') return state.reason || 'No reason recorded.';
-  const defect =
-    state.defect_type === 'dent'
-      ? 'Vết móp'
-      : state.defect_type === 'scratch'
-        ? 'Vết xước'
-        : 'Kết quả';
-  if (state.final_status === 'PASS')
-    return 'Không phát hiện lỗi thân vỏ trong ảnh kiểm tra; xe đủ điều kiện đi tiếp.';
-  if (state.human_decision?.action === 'REJECT')
-    return 'QC không xác nhận kết quả tự động. Xe tiếp tục được giữ để kiểm tra ngoại quan lại.';
-  if (state.recommendation_code === 'SURFACE_POLISH_AND_REINSPECT')
-    return `${defect} được xác nhận ở mức ${percent(state.confidence)}. Sau đánh bóng có kiểm soát, bắt buộc kiểm tra và ghi nhận lại bề mặt.`;
-  if (state.recommendation_code === 'ISOLATE_FOR_BODY_REPAIR_ASSESSMENT')
-    return `${defect} được xác nhận ở mức ${percent(state.confidence)}. Xe bị khóa release cho đến khi Body Repair đánh giá hình học panel và khả năng sửa chữa.`;
-  return state.reason || 'Kết quả chưa đủ rõ; cần QC xác nhận trực tiếp.';
 }
 function translateDetail(event: LiveEvent, lang: Lang) {
   if (lang === 'en') return event.detail;

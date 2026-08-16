@@ -16,7 +16,6 @@ def test_surface_policy_is_cited_but_blocked_from_production_release():
         {
             "defect_type": "scratch",
             "confidence": 0.88,
-            "panel": "unknown_panel",
             "severity": "UNASSESSED",
         }
     )
@@ -34,8 +33,6 @@ def test_surface_policy_is_cited_but_blocked_from_production_release():
     review = decision.document_review
     assert review.query == {
         "vehicle_model": "unknown_model",
-        "panel": "unknown_panel",
-        "material": "unknown_material",
         "defect_type": "scratch",
     }
     assert review.matched_document_count == 1
@@ -83,8 +80,6 @@ def test_document_review_blocks_expired_and_conflicting_revisions(tmp_path):
     decision = PolicyCatalog(path).evaluate(
         {
             "vehicle_model": "SUV_EV_2026",
-            "panel": "front_door_outer",
-            "material": "ordinary_steel",
             "defect_type": "scratch",
         }
     )

@@ -9,15 +9,15 @@ substitute for a plant control plan, cosmetic standard, engineering drawing,
 or repair instruction.
 
 Public standards define terminology, assessment frameworks, and quality-system
-controls. They do not publish the OEM-specific scratch, dent, paint, panel, weld,
-material, or repair acceptance limits needed to release a production vehicle.
+controls. They do not publish the OEM-specific scratch, dent, paint, weld,
+or repair acceptance limits needed to release a production vehicle.
 
 ## Controlled source register
 
 | Source | Publicly supported scope | Explicit limitation in this project |
 | --- | --- | --- |
 | ISO 4628-1:2016 | Designation of coating defect quantity, size, and appearance change | Does not become an OEM cosmetic acceptance limit |
-| ISO 1101:2017 | Language and interpretation of geometrical tolerancing | Actual limits must come from the approved panel drawing |
+| ISO 1101:2017 | Language and interpretation of geometrical tolerancing | Actual limits must come from an approved drawing |
 | ISO 17637:2016 | Visual testing of fusion-welded joints | Weld-process applicability must be confirmed |
 | ISO 5817:2023 | Quality levels B/C/D for covered fusion-weld imperfections | No default level is assigned; it is not a spot-weld acceptance rule |
 | ISO 3779:2009 | VIN content and structure | Market and build-record checks remain required |
@@ -46,9 +46,9 @@ by `GET /api/policies`.
 Before changing approval scope from `DEMO_BASELINE_ONLY` to `PRODUCTION`,
 Quality Engineering must attach:
 
-- OEM cosmetic acceptance standard by model, panel, and visual zone;
+- OEM cosmetic acceptance standard by model and visual zone;
 - released drawings and GD&T limits;
-- approved material and repair restrictions;
+- approved repair restrictions;
 - weld process and acceptance-level mapping;
 - stud/nut BOM, presence/count, torque, and rework requirements;
 - VIN market/build-record validation rules;

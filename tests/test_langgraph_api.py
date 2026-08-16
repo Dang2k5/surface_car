@@ -43,13 +43,14 @@ async def test_langgraph_api_completes_and_exposes_mermaid(tmp_path, monkeypatch
                     "vehicle_id": "CAR-LG-001",
                     "image_url": "/test-fixtures/medium_confirmed.jpg",
                     "camera_id": "cam-fns-01",
-                    "panel": "door_panel",
+                    "location": "left_front_door_lower_edge",
+                    "length_mm": 18.4,
                 },
             )
             assert response.status_code == 201
             body = response.json()
             assert body["status"] == "COMPLETED"
-            assert body["state"]["verify_count"] == 1
+            assert body["state"]["verify_count"] == 0
             assert body["state"]["recommendation_code"] == "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT"
             assert body["state"]["recommendation"] == "Hold for controlled surface assessment and documented reinspection"
 
@@ -64,12 +65,12 @@ async def test_langgraph_api_interrupts_and_resumes_same_thread(tmp_path, monkey
                 "/inspections",
                 json={
                     "vehicle_id": "CAR-LG-HITL",
-                    "image_url": "/test-fixtures/verify_uncertain.jpg",
+                    "image_url": "/test-fixtures/unknown_defect.jpg",
                 },
             )
             body = created.json()
             assert body["status"] == "INTERRUPTED"
-            assert body["state"]["verify_count"] == 2
+            assert body["state"]["verify_count"] == 0
             thread_id = body["thread_id"]
 
             waiting = await client.get(f"/inspections/{thread_id}/state")
@@ -81,6 +82,12 @@ async def test_langgraph_api_interrupts_and_resumes_same_thread(tmp_path, monkey
                     "action": "APPROVE",
                     "reviewer": "qc-test",
                     "reason": "Defect confirmed under controlled lighting.",
+                    "defect_code": "DENT01",
+                    "severity": "B",
+                    "location": "left_front_door_lower_edge",
+                    "length_mm": 18.4,
+                    "disposition": "REWORK",
+                    "notes": "Confirmed against the controlled defect catalog.",
                 },
             )
             assert resumed.status_code == 200
@@ -89,6 +96,16 @@ async def test_langgraph_api_interrupts_and_resumes_same_thread(tmp_path, monkey
             assert result["status"] == "COMPLETED"
             assert result["state"]["human_decision"]["action"] == "APPROVE"
             assert result["state"]["final_status"] == "HOLD_FOR_REWORK"
+            assert result["state"]["qc_decision_record"]["defect_code"] == "DENT01"
+            assert result["state"]["qc_decision_record"]["location"] == "left_front_door_lower_edge"
+            assert result["state"]["qc_decision_record"]["length_mm"] == 18.4
+            assert result["state"]["measurements"]["defect_length_mm"] == 18.4
+            decisions = await client.get(
+                "/api/qc/decisions",
+                params={"inspection_id": result["state"]["inspection_id"]},
+            )
+            assert decisions.status_code == 200
+            assert decisions.json()[0]["disposition"] == "REWORK"
 
 
 @pytest.mark.asyncio
@@ -101,15 +118,15 @@ async def test_langgraph_stream_emits_real_node_updates_and_saves_run(tmp_path, 
                 "/inspections/stream",
                 json={
                     "vehicle_id": "CAR-LG-STREAM",
-                    "image_url": "/test-fixtures/verify_uncertain.jpg",
+                    "image_url": "/test-fixtures/unknown_defect.jpg",
                 },
             )
             assert response.status_code == 200
             events = [json.loads(line) for line in response.text.splitlines()]
             nodes = [event["node"] for event in events if event["type"] == "node"]
             assert nodes[:3] == ["prepare_input", "detect_defect", "assess_result"]
-            assert nodes.count("verify_defect") == 2
-            assert nodes.count("assess_result") == 3
+            assert nodes.count("verify_defect") == 0
+            assert nodes.count("assess_result") == 1
             assert events[-1]["type"] == "result"
             assert events[-1]["status"] == "INTERRUPTED"
 
@@ -158,7 +175,6 @@ async def test_agent_audit_exports_json_and_jsonl_without_local_image_paths(tmp_
                     "vehicle_id": "CAR-EXPORT-001",
                     "image_paths": [r"C:\\private-workstation\\evidence.jpg"],
                     "camera_id": "cam-export",
-                    "panel": "door_panel",
                 },
             )
             assert created.status_code == 201
@@ -204,7 +220,7 @@ async def test_hitl_resume_updates_the_same_automatic_audit_file(tmp_path, monke
                 "/inspections",
                 json={
                     "vehicle_id": "CAR-AUTO-EXPORT-HITL",
-                    "image_url": "/test-fixtures/verify_uncertain.jpg",
+                    "image_url": "/test-fixtures/unknown_defect.jpg",
                 },
             )
             thread_id = created.json()["thread_id"]
@@ -222,7 +238,7 @@ async def test_hitl_resume_updates_the_same_automatic_audit_file(tmp_path, monke
             )
             assert resumed.status_code == 200
             completed = json.loads(automatic_file.read_text(encoding="utf-8"))
-            assert completed["identity"]["status"] == "HOLD_FOR_REWORK"
+            assert completed["identity"]["status"] == "HOLD_FOR_QC"
             assert completed["workflow"]["human_decision"]["action"] == "APPROVE"
 
 
@@ -237,7 +253,7 @@ async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, m
                 data={
                     "vehicle_id": "CAR-WEB-UPLOAD",
                     "camera_id": "cam-web",
-                    "panel": "front_door_outer",
+                    "zone_name": "front_door_outer",
                 },
                 files={"file": ("evidence.png", ONE_PIXEL_PNG, "image/png")},
             )
@@ -246,6 +262,9 @@ async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, m
             saved_path = Path(state["image_paths"][0])
             try:
                 assert state["vehicle_id"] == "CAR-WEB-UPLOAD"
+                assert state["zone_name"] == "front_door_outer"
+                assert "recommended_plan" not in state
+                assert "final_action" not in state
                 assert state["image_url"].startswith("/assets/uploads/")
                 assert len(state["image_sha256"]) == 64
                 assert state["decision"] == "DEFECT_CONFIRMED"
@@ -253,6 +272,88 @@ async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, m
             finally:
                 saved_path.unlink(missing_ok=True)
                 saved_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_v1_inspect_contract_wraps_the_langgraph_workflow(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/inspect",
+                data={
+                    "vehicle_id": "CAR-V1-001",
+                    "station_id": "FNS_LINE_HA_01",
+                    "zone_name": "front_door_outer",
+                },
+                files={"file": ("evidence.png", ONE_PIXEL_PNG, "image/png")},
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["success"] is True
+            assert payload["vehicle_id"] == "CAR-V1-001"
+            assert payload["result"]["recommended_plan"] in {
+                "PASS",
+                "PLAN_A_BUFFING",
+                "PLAN_B_HOLD",
+            }
+            assert payload["result"]["concrete_action"]
+            assert payload["result"]["defects"][0]["estimated_depth_mm"] is None
+            assert payload["result"]["defects"][0]["physical_measurement_status"] == (
+                "REQUIRES_CALIBRATION_OR_QC_MEASUREMENT"
+            )
+
+
+@pytest.mark.asyncio
+async def test_agent_status_distinguishes_llm_from_rule_fallback(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/agent/status")
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["langgraph"] == "READY"
+            assert payload["reasoning"]["mode"] == "RULE_BASED"
+            assert payload["reasoning"]["llm_accessed"] is False
+
+
+@pytest.mark.asyncio
+async def test_multi_camera_upload_runs_one_aggregated_vehicle_inspection(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    transport = ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/inspections/from-images",
+                data={
+                    "vehicle_id": "CAR-MULTI-CAMERA",
+                    "camera_ids": ["CAM-FNS-FRONT", "CAM-FNS-REAR"],
+                },
+                files=[
+                    ("files", ("front.png", ONE_PIXEL_PNG, "image/png")),
+                    ("files", ("rear.png", ONE_PIXEL_PNG, "image/png")),
+                ],
+            )
+            assert response.status_code == 201
+            state = response.json()["state"]
+            paths = [Path(item["image_path"]) for item in state["camera_evidence"]]
+            try:
+                assert [item["camera_id"] for item in state["camera_evidence"]] == [
+                    "CAM-FNS-FRONT",
+                    "CAM-FNS-REAR",
+                ]
+                assert len(state["camera_results"]) == 2
+                assert state["finding_groups"][0]["observation_count"] == 2
+                assert state["finding_groups"][0]["deduplication_status"] == (
+                    "CANDIDATE_DUPLICATE_REQUIRES_CALIBRATION"
+                )
+                assert all(path.is_file() for path in paths)
+            finally:
+                for path in paths:
+                    path.unlink(missing_ok=True)
+                paths[0].parent.rmdir()
 
 
 @pytest.mark.asyncio
