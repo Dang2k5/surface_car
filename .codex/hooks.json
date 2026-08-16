@@ -1,15 +1,13 @@
 {
-  "description": "Send Codex lifecycle events to AI Log",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/log_hook.py --tool=codex",
-            "commandWindows": "python scripts\\log_hook.py --tool=codex",
-            "timeout": 10,
-            "statusMessage": "Saving prompt to AI Log"
+            "name": "log-prompt",
+            "command": "node scripts/log_hook.js --tool=codex",
+            "timeout": 10
           }
         ]
       }
@@ -19,10 +17,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/log_hook.py --tool=codex",
-            "commandWindows": "python scripts\\log_hook.py --tool=codex",
-            "timeout": 10,
-            "statusMessage": "Saving Codex response to AI Log"
+            "name": "log-stop",
+            "command": "node scripts/log_hook.js --tool=codex",
+            "timeout": 10
           }
         ]
       }

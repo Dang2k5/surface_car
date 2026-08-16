@@ -1,0 +1,29 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+    __start__([START]):::first
+    prepare_input(prepare_input)
+    detect_defect(detect_defect)
+    assess_result(assess_result)
+    verify_defect(verify_defect)
+    human_review(human_review / interrupt)
+    generate_recommendation(generate_recommendation)
+    save_result(save_result)
+    __end__([END]):::last
+    __start__ --> prepare_input
+    prepare_input --> detect_defect
+    detect_defect --> assess_result
+    assess_result -. PASS .-> save_result
+    assess_result -. CONFIRMED .-> generate_recommendation
+    assess_result -. VERIFY .-> verify_defect
+    assess_result -. HITL .-> human_review
+    verify_defect --> assess_result
+    human_review --> generate_recommendation
+    generate_recommendation --> save_result
+    save_result --> __end__
+    classDef default fill:#f2f0ff,line-height:1.2
+    classDef first fill-opacity:0
+    classDef last fill:#bfb6fc
