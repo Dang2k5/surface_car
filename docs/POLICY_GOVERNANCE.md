@@ -67,6 +67,7 @@ GROQ_API_KEY=gsk_...
 GROQ_MODEL=openai/gpt-oss-20b
 ```
 
-If the key is missing, the API fails safely to deterministic reasoning. If a
-Groq response is invalid or cites a source outside the policy context, that
-response is rejected and the deterministic explanation is used.
+If the key is missing, the LLM Agent is marked unavailable and the graph routes
+the inspection to HITL. If a Groq response is invalid, selects values outside
+the controlled catalog/policy context, or cites an unknown source, the response
+is rejected and no deterministic output is presented as Agent reasoning.

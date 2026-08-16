@@ -128,7 +128,7 @@ Khi phát hiện bất thường chuỗi, Agent tự động kích hoạt 3 hàn
   bảng quyết định QC của baseline. Dữ liệu cũ được lọc khi đọc và cột legacy được
   loại qua migration tương thích.
 - Không suy diễn độ sâu hoặc kích thước mm từ một ảnh RGB chưa calibration.
-- Profile demo `FNS_FRONT_PILOT_1280` dùng hệ số `0.8 mm/pixel` cho hai trục, chỉ hợp lệ khi camera, ống kính, khoảng cách, góc chụp và độ phân giải inference được giữ cố định.
+- Profile demo `FNS_FRONT_PILOT_1280` dùng hệ số `0.8 mm/pixel` cho hai trục, chỉ hợp lệ khi camera, ống kính, khoảng cách, góc chụp và độ phân giải ảnh nguồn được giữ cố định. `MODEL_IMAGE_SIZE` có thể giảm để tăng tốc inference vì Ultralytics quy đổi bbox/mask về tọa độ ảnh nguồn.
 - Cảnh báo chuỗi kích hoạt khi có 3 xe gần nhất liên tiếp cùng `defect_type + zone_name`, hoặc 4/10 xe trong cửa sổ cùng nhóm lỗi.
 - Dự đoán nguyên nhân gốc là giả thuyết cần QC xác minh, không phải kết luận tự động về thiết bị.
 

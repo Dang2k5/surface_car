@@ -279,6 +279,7 @@ type QualityAlertSummary = {
 };
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+const TRACE_REPLAY_DELAY_MS = 90;
 const apiFetch = (path: string, timeoutMs = 8000) =>
   fetch(`${API}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
 async function modelFrameFromFile(file: File): Promise<File> {
@@ -689,6 +690,15 @@ export default function Home() {
     });
     setActiveRun(null);
     setLiveEvents([]);
+    setQcForm((current) => ({
+      ...current,
+      defectCode: '',
+      severity: 'UNASSESSED',
+      disposition: 'HOLD',
+      location: '',
+      lengthMm: '',
+      notes: '',
+    }));
   }
 
   async function clearHistory() {
@@ -748,7 +758,10 @@ export default function Home() {
       ...current,
       { id, node, status: 'RUNNING', detail, phase: 'running' },
     ]);
-    await wait(520);
+    // The backend has already executed these real nodes. Keep only a short
+    // visual hand-off instead of adding half a second of artificial latency
+    // for every trace item.
+    await wait(TRACE_REPLAY_DELAY_MS);
     setLiveEvents((current) =>
       current.map((event) =>
         event.id === id
@@ -794,16 +807,30 @@ export default function Home() {
         await revealNode(trace.node, trace.detail);
       }
       if (result.status === 'INTERRUPTED') {
-        const suggestedCode = defectCodes.find(
-          (item) => item.defect_code === result.state.classified_defect_code,
-        ) || defectCodes.find((item) => item.defect_type === result.state.defect_type);
-        if (suggestedCode) {
-          setQcForm((current) => ({
-            ...current,
-            defectCode: suggestedCode.defect_code,
-            severity: result.state.severity || suggestedCode.default_severity,
-          }));
-        }
+        const agentSelectedCode =
+          result.state.defect_code_classification?.provider === 'groq' &&
+          result.state.classified_defect_code
+          ? [
+              ...defectCodes,
+              ...(result.state.suggested_defect_codes || []),
+            ].find(
+              (item) =>
+                item.defect_code === result.state.classified_defect_code,
+            )
+          : undefined;
+        setQcForm((current) => ({
+          ...current,
+          defectCode: agentSelectedCode?.defect_code || '',
+          severity:
+            result.state.severity && result.state.severity !== 'UNASSESSED'
+              ? result.state.severity
+              : agentSelectedCode?.default_severity || 'UNASSESSED',
+          location:
+            result.state.visual_measurements?.relative_position || '',
+          lengthMm:
+            result.state.visual_measurements?.estimated_length_mm?.toFixed(1) ||
+            '',
+        }));
         await revealNode(
           'human_review',
           result.state.reason || t('QC input required.', 'Cần QC xác nhận.'),
@@ -978,7 +1005,16 @@ export default function Home() {
           <div className={`agent-access-status ${agentStatus?.reasoning.llm_accessed ? 'connected' : 'fallback'}`}>
             <i />
             <div>
-              <b>{agentStatus?.reasoning.llm_accessed ? 'GROQ LLM CONNECTED' : agentStatus?.reasoning.requested_provider === 'groq' ? 'GROQ NOT ACCESSED' : 'RULE-BASED AGENT'}</b>
+              <b>
+                {agentStatus?.reasoning.llm_accessed
+                  ? 'GROQ LLM CONNECTED'
+                  : agentStatus?.reasoning.requested_provider === 'groq' &&
+                      agentStatus?.reasoning.api_key_configured
+                    ? 'GROQ LLM READY'
+                    : agentStatus?.reasoning.requested_provider === 'groq'
+                      ? 'LLM AGENT UNAVAILABLE'
+                      : 'DETERMINISTIC TEST MODE'}
+              </b>
               <small>{agentStatus?.reasoning.last_call_status || 'CONNECTING'}</small>
             </div>
           </div>
@@ -1335,8 +1371,21 @@ function InspectionStudio({
     .join(', ');
   const guide = Boolean(run);
   const policy = run?.state.policy_decision;
-  const suggestedCode = run?.state.classified_defect_code || run?.state.suggested_defect_codes?.[0]?.defect_code;
-  const selectedDefectCode = defectCodes.find(
+  const codeHasAccountableSource =
+    run?.state.defect_code_classification?.provider === 'groq' ||
+    Boolean(run?.state.human_decision);
+  const confirmedCode = codeHasAccountableSource
+    ? run?.state.classified_defect_code || null
+    : null;
+  const availableDefectCodes = Array.from(
+    new Map(
+      [
+        ...defectCodes,
+        ...(run?.state.suggested_defect_codes || []),
+      ].map((item) => [item.defect_code, item]),
+    ).values(),
+  );
+  const selectedDefectCode = availableDefectCodes.find(
     (item) => item.defect_code === qcForm.defectCode,
   );
   const qcRecordComplete = Boolean(
@@ -1588,7 +1637,9 @@ function InspectionStudio({
               <div className="decision-facts">
                 <Data
                   label={t('Confirmed QC code', 'Mã lỗi đã xác định')}
-                  value={`${suggestedCode || t('New defect', 'Lỗi mới')} · ${defectLabel(run.state, lang)}`}
+                  value={confirmedCode
+                    ? `${confirmedCode} · ${defectLabel(run.state, lang)}`
+                    : t('Not classified — waiting for QC', 'Chưa phân loại — chờ QC chọn mã')}
                 />
                 <Data
                   label={t('Pilot measurement', 'Kích thước pilot')}
@@ -1720,12 +1771,20 @@ function InspectionStudio({
                           aria-label={t('Defect code', 'Mã lỗi')}
                         >
                           <option value="">{t('Select a controlled code', 'Chọn mã lỗi kiểm soát')}</option>
-                          {defectCodes.map((item) => (
+                          {availableDefectCodes.map((item) => (
                             <option value={item.defect_code} key={item.defect_code}>
                               {item.defect_code} · {item.display_name}
                             </option>
                           ))}
                         </select>
+                        {!availableDefectCodes.length && (
+                          <em className="field-error">
+                            {t(
+                              'No active defect codes are available. Check the defect catalog API.',
+                              'Không có mã lỗi đang hoạt động. Hãy kiểm tra API danh mục mã lỗi.',
+                            )}
+                          </em>
+                        )}
                       </label>
                       <label>
                         <span>{t('DEFECT TYPE', 'LOẠI LỖI')}</span>
@@ -2505,6 +2564,24 @@ function AgentReasoning({
   lang: Lang;
   t: (en: string, vi: string) => string;
 }) {
+  const reasoningSource = String(state.agent_analysis?.reasoning_source || '');
+  const llmUsed = state.agent_analysis?.llm_used === true;
+  if (!llmUsed && reasoningSource !== 'human_review') {
+    return (
+      <section
+        className="agent-reasoning unavailable"
+        aria-label={t('LLM Agent status', 'Trạng thái LLM Agent')}
+      >
+        <b>{t('LLM AGENT UNAVAILABLE', 'LLM AGENT CHƯA KHẢ DỤNG')}</b>
+        <p>
+          {t(
+            'No validated LLM decision was produced. The workflow must wait for QC review; deterministic output is not presented as Agent reasoning.',
+            'Chưa có quyết định hợp lệ từ LLM. Workflow phải chờ QC kiểm duyệt; kết quả rule nội bộ không được hiển thị như suy luận của Agent.',
+          )}
+        </p>
+      </section>
+    );
+  }
   const visual = state.visual_measurements;
   const selected = state.suggested_defect_codes?.find(
     (item) => item.defect_code === state.classified_defect_code,
@@ -2551,7 +2628,11 @@ function AgentReasoning({
   ];
   return (
     <section className="agent-reasoning" aria-label={t('Agent reasoning', 'Lập luận của Agent')}>
-      <b>{t('AGENT REASONING', 'AGENT REASONING')}</b>
+      <b>
+        {reasoningSource === 'human_review'
+          ? t('QC REVIEW DECISION', 'QUYẾT ĐỊNH KIỂM DUYỆT QC')
+          : t('LLM AGENT REASONING', 'SUY LUẬN CỦA LLM AGENT')}
+      </b>
       <ol>
         {steps.map((step) => (
           <li key={step.label}>
@@ -2597,13 +2678,13 @@ function translateDetail(event: LiveEvent, lang: Lang) {
         ? 'Kết quả chưa đủ an toàn để tự động quyết định; chuyển QC.'
         : event.detail.includes('PASS')
           ? 'Không xác nhận lỗi; đủ điều kiện đi thẳng đến bước lưu.'
-          : 'Kết quả đạt ngưỡng xác nhận tự động theo rule.',
+          : 'Lỗi đã biết; chuyển evidence và policy context cho LLM Agent.',
     verify_defect: `Đã hoàn thành lượt xác minh bổ sung. ${event.detail}`,
     human_review:
       event.phase === 'waiting'
         ? 'Graph đã lưu checkpoint và đang chờ QC xác nhận.'
         : 'Đã nhận quyết định của QC và tiếp tục cùng thread.',
-    generate_recommendation: 'Rule QC đã tạo phương án xử lý vận hành cụ thể.',
+    generate_recommendation: 'Quyết định của LLM Agent đã qua kiểm tra policy và được chuẩn hóa thành phương án vận hành.',
     save_result: 'State cuối và dấu vết thực thi đã được lưu vào SQLite.',
   };
   return copy[event.node] || event.detail;

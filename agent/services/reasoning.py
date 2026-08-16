@@ -21,9 +21,19 @@ class ReasoningPayload(BaseModel):
 
 
 class ReasoningAnalysis(ReasoningPayload):
-    provider: str
-    model: str
+    provider: str = "groq"
+    model: str = ""
+    severity: str
+    action_code: str
+    action_label: str
+    final_status: str
+    allow_test_drive: bool
+    decision_rationale_vi: str
     fallback_reason: str | None = None
+
+
+class ReasoningUnavailableError(RuntimeError):
+    """Raised when the configured LLM Agent cannot produce a validated decision."""
 
 
 class DefectCodeClassification(BaseModel):
@@ -49,7 +59,7 @@ class ReasoningService(Protocol):
 
 
 class DeterministicReasoningService:
-    """Auditable fallback that never invents measurements or acceptance limits."""
+    """Deterministic test service. Production Groq mode never falls back to it."""
 
     def runtime_status(self) -> dict[str, object]:
         return {
@@ -186,25 +196,56 @@ class DeterministicReasoningService:
             cited_source_ids=[item.id for item in policy.references],
             provider="deterministic",
             model="policy-template-v1",
+            severity=str(state.get("severity") or "UNASSESSED"),
+            action_code=policy.action_code,
+            action_label=policy.action_label,
+            final_status=policy.final_status,
+            allow_test_drive=bool(policy.test_drive_allowed),
+            decision_rationale_vi=summary_vi,
         )
 
 
-class GroqReasoningService:
-    """Constrained Groq copilot; deterministic policy remains authoritative."""
+class UnavailableReasoningService:
+    """Fail-closed service used when LLM mode is requested without a usable key."""
 
-    def __init__(self, *, api_key: str, model: str, fallback: ReasoningService | None = None) -> None:
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def runtime_status(self) -> dict[str, object]:
+        return {
+            "mode": "LLM_REQUIRED",
+            "provider": "groq",
+            "configured": False,
+            "llm_accessed": False,
+            "last_call_status": "UNAVAILABLE",
+            "last_success_at": None,
+            "last_error": self.reason,
+        }
+
+    def classify_defect_code(
+        self, state: QCState, candidates: list[dict[str, object]]
+    ) -> DefectCodeClassification:
+        raise ReasoningUnavailableError(self.reason)
+
+    def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
+        raise ReasoningUnavailableError(self.reason)
+
+
+class GroqReasoningService:
+    """LLM decision service constrained by catalog, evidence and policy guards."""
+
+    def __init__(self, *, api_key: str, model: str) -> None:
         from groq import Groq
 
         self.client = Groq(api_key=api_key)
         self.model = model
-        self.fallback = fallback or DeterministicReasoningService()
         self.last_call_status = "NOT_CALLED"
         self.last_success_at: str | None = None
         self.last_error: str | None = None
 
     def runtime_status(self) -> dict[str, object]:
         return {
-            "mode": "LLM_WITH_RULE_FALLBACK",
+            "mode": "LLM_AGENT",
             "provider": "groq",
             "model": self.model,
             "configured": True,
@@ -220,15 +261,14 @@ class GroqReasoningService:
         self.last_error = None
 
     def _mark_failure(self, error: Exception) -> None:
-        self.last_call_status = "FAILED_USING_RULE_FALLBACK"
+        self.last_call_status = "FAILED_REQUIRES_HITL"
         self.last_error = type(error).__name__
 
     def classify_defect_code(
         self, state: QCState, candidates: list[dict[str, object]]
     ) -> DefectCodeClassification:
-        fallback = self.fallback.classify_defect_code(state, candidates)
         if not candidates:
-            return fallback
+            raise ReasoningUnavailableError("No approved defect-code candidate matches the CV label")
         allowed = {str(item.get("defect_code")) for item in candidates}
         prompt = {
             "task": "Select exactly one approved QC defect code for this CV finding.",
@@ -274,12 +314,12 @@ class GroqReasoningService:
             )
         except Exception as exc:
             self._mark_failure(exc)
-            logger.warning("Groq code classification unavailable; using deterministic fallback: %s", exc)
-            return fallback.model_copy(update={"fallback_reason": type(exc).__name__})
+            logger.warning("Groq code classification failed; HITL is required: %s", exc)
+            raise ReasoningUnavailableError(type(exc).__name__) from exc
 
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
         prompt = {
-            "task": "Explain the policy outcome and identify missing evidence. Do not change the action code, final status, release permission, measurements, or citations.",
+            "task": "Analyze the inspection evidence and make the operational QC decision using only the controlled catalog and policy context.",
             "inspection": {
                 "defect_type": state.get("defect_type"),
                 "classified_defect_code": state.get("classified_defect_code"),
@@ -293,10 +333,18 @@ class GroqReasoningService:
                 "verify_result": state.get("verify_result"),
                 "similar_defect_warning": state.get("similar_defect_warning"),
             },
-            "authoritative_policy_result": policy.model_dump(mode="json"),
+            "controlled_policy_context": policy.model_dump(mode="json"),
+            "allowed_decision": {
+                "action_codes": [policy.action_code],
+                "final_statuses": [policy.final_status],
+                "test_drive_may_be_allowed": bool(policy.test_drive_allowed),
+            },
             "constraints": [
                 "Never invent a measurement or acceptance threshold.",
-                "Only cite source IDs included in authoritative_policy_result.references.",
+                "Only cite source IDs included in controlled_policy_context.references.",
+                "Select action_code and final_status only from allowed_decision.",
+                "Never allow test drive when allowed_decision.test_drive_may_be_allowed is false.",
+                "Determine severity from the selected catalog code, geometry and policy context.",
                 "Explain the exact policy status and approval scope; demo approval is not production release authority.",
                 "Return concise Vietnamese and English summaries.",
                 "Explain the selected defect code, confidence, estimated length, location, action plan, and warnings when present.",
@@ -309,7 +357,7 @@ class GroqReasoningService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a Visual QC reasoning copilot. Policy output is immutable. Return only the requested JSON schema.",
+                        "content": "You are the Visual QC decision Agent. Analyze evidence, classify impact, and select an operational decision within the supplied controlled policy boundaries. Return only the requested JSON schema.",
                     },
                     {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
                 ],
@@ -318,23 +366,24 @@ class GroqReasoningService:
                     "json_schema": {
                         "name": "visual_qc_reasoning",
                         "strict": False,
-                        "schema": ReasoningPayload.model_json_schema(),
+                        "schema": ReasoningAnalysis.model_json_schema(),
                     },
                 },
             )
             content = completion.choices[0].message.content or "{}"
-            payload = ReasoningPayload.model_validate_json(content)
+            decision_payload = ReasoningAnalysis.model_validate_json(content)
             allowed_sources = {item.id for item in policy.references}
-            if not set(payload.cited_source_ids).issubset(allowed_sources):
+            if not set(decision_payload.cited_source_ids).issubset(allowed_sources):
                 raise ValueError("Groq returned a citation outside the approved policy context")
+            if decision_payload.action_code != policy.action_code:
+                raise ValueError("Groq selected an action outside the controlled policy")
+            if decision_payload.final_status != policy.final_status:
+                raise ValueError("Groq selected a final status outside the controlled policy")
+            if decision_payload.allow_test_drive and not policy.test_drive_allowed:
+                raise ValueError("Groq attempted to allow a blocked test drive")
             self._mark_success()
-            return ReasoningAnalysis(
-                **payload.model_dump(),
-                provider="groq",
-                model=self.model,
-            )
-        except Exception as exc:  # fail closed to deterministic explanation
+            return decision_payload.model_copy(update={"provider": "groq", "model": self.model})
+        except Exception as exc:
             self._mark_failure(exc)
-            logger.warning("Groq reasoning unavailable; using deterministic fallback: %s", exc)
-            result = self.fallback.analyze(state, policy)
-            return result.model_copy(update={"fallback_reason": type(exc).__name__})
+            logger.warning("Groq decision failed; HITL is required: %s", exc)
+            raise ReasoningUnavailableError(type(exc).__name__) from exc

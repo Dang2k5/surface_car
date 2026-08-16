@@ -106,7 +106,7 @@ class LocalYoloSegmentationDetector:
         *,
         device: str = "cpu",
         confidence: float = 0.25,
-        image_size: int = 1280,
+        image_size: int = 640,
         fixed_calibration_enabled: bool = True,
         mm_per_pixel_x: float = 0.8,
         mm_per_pixel_y: float = 0.8,

@@ -38,7 +38,7 @@ Password phải được URL-encode. Không đặt URL này trong biến `NEXT_P
 | `MODEL_PATH` | `./data/best.pt` | Đường dẫn model Ultralytics |
 | `MODEL_DEVICE` | `cpu` | `cpu`, CUDA device hoặc cấu hình Ultralytics hợp lệ |
 | `MODEL_CONFIDENCE` | `0.25` | Ngưỡng detection ban đầu |
-| `MODEL_IMAGE_SIZE` | `1280` | Kích thước inference |
+| `MODEL_IMAGE_SIZE` | `640` | Kích thước inference tối ưu cho CPU demo; tăng lên `1280` khi cần ưu tiên độ chính xác |
 
 ### Pilot camera calibration
 
@@ -58,12 +58,13 @@ Các giá trị này chỉ là ước lượng demo, không phải phép đo QC 
 | `AUTO_PASS_ENABLED` | `true` | Cho phép nhánh PASS theo rule baseline |
 | `CONFIRMED_THRESHOLD` | `0.70` | Ngưỡng confirmed trong graph |
 | `VERIFY_THRESHOLD` | `0.40` | Ngưỡng verifier |
-| `QC_REASONING_PROVIDER` | `deterministic` | `deterministic` hoặc `groq` |
+| `QC_REASONING_PROVIDER` | `groq` | `groq` cho runtime; `deterministic` chỉ dành cho test/offline diagnostics |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Model reasoning tùy chọn |
 | `GROQ_API_KEY` | rỗng | Secret server-side; bắt buộc khi provider là `groq` |
 
-Thiếu Groq key không làm workflow dừng: backend chuyển về deterministic fallback
-và trạng thái `/agent/status` cho biết provider thực tế.
+Thiếu Groq key hoặc LLM trả output không hợp lệ sẽ chuyển inspection sang HITL;
+runtime không tạo deterministic reasoning thay thế. Trạng thái `/agent/status`
+cho biết LLM đã được gọi thành công hay chưa.
 
 ### Audit export
 

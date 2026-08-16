@@ -2,7 +2,8 @@
 
 Hệ thống hiện chạy upload-only với model segmentation local `data/best.pt`.
 Frontend không cung cấp class, confidence, bbox hoặc mask; toàn bộ detection đến
-từ model và được LangGraph điều phối bằng rule deterministic.
+từ model và được LangGraph điều phối; Groq LLM phân loại và ra quyết định trong
+giới hạn catalog/policy được backend kiểm soát.
 
 ```mermaid
 flowchart TD
@@ -25,7 +26,7 @@ flowchart TD
 | --- | --- |
 | Detector | `LocalYoloSegmentationDetector(data/best.pt)` |
 | Verifier | `ModelVerifier`, chạy second pass và kiểm tra class/confidence ổn định |
-| Reasoning | Deterministic Python formatter, không gọi LLM |
+| Reasoning | Groq LLM phân loại và ra quyết định; backend validate schema, catalog và policy |
 | Checkpointer | `InMemorySaver` cho pause/resume HITL |
 | Audit | SQLite table `agent_graph_runs` |
 | Evidence | `data/uploads/<inspection_id>/original.*` |

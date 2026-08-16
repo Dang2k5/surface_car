@@ -8,7 +8,12 @@ from agent.graph.state import QCState, TraceEvent
 from agent.services.defect_catalog import DefectCatalogService
 from agent.services.detector import DetectorService
 from agent.services.policy import PolicyCatalog
-from agent.services.reasoning import ReasoningService
+from agent.services.reasoning import (
+    DefectCodeClassification,
+    ReasoningAnalysis,
+    ReasoningService,
+    ReasoningUnavailableError,
+)
 from agent.services.repository import QCRepository
 from agent.services.verifier import VerifierService
 
@@ -76,9 +81,23 @@ class QCNodes:
         detected = bool(detection.get("defect_detected"))
         model_name = str(detection.get("model_name") or type(self.detector).__name__)
         suggested_codes = self.defect_catalog.match(str(detection.get("defect_type") or "none"))
-        classification = self.reasoning.classify_defect_code(
-            {**state, **detection}, suggested_codes
-        )
+        try:
+            classification = self.reasoning.classify_defect_code(
+                {**state, **detection}, suggested_codes
+            )
+            reasoning_status = "LLM_CLASSIFICATION_COMPLETED"
+        except ReasoningUnavailableError as error:
+            classification = DefectCodeClassification(
+                defect_code=None,
+                defect_family=None,
+                confidence=0.0,
+                rationale_vi="LLM Agent chưa thể phân loại; cần QC kiểm duyệt.",
+                candidate_codes=[str(item.get("defect_code")) for item in suggested_codes],
+                provider="groq",
+                model="unavailable",
+                fallback_reason=str(error),
+            )
+            reasoning_status = "LLM_UNAVAILABLE_REQUIRES_HITL"
         classified_record = next(
             (
                 item
@@ -100,6 +119,7 @@ class QCNodes:
             "zone_name": str(state.get("zone_name") or "unknown_zone"),
             "suggested_defect_codes": suggested_codes,
             "defect_code_classification": classification.model_dump(mode="json"),
+            "agent_reasoning_status": reasoning_status,
             "classified_defect_code": classification.defect_code,
             "defect_family": classification.defect_family,
             "severity": (
@@ -138,6 +158,14 @@ class QCNodes:
             decision = "DEFECT_CONFIRMED"
             reason = "The Agent classified the known defect and selected an active QC code."
         policy = self.policy_catalog.evaluate(state)
+        analysis: ReasoningAnalysis | None = None
+        if route == "CONFIRMED":
+            try:
+                analysis = self.reasoning.analyze(state, policy)
+            except ReasoningUnavailableError as error:
+                route = "HITL"
+                decision = "LLM_AGENT_UNAVAILABLE"
+                reason = f"LLM Agent could not produce a validated decision: {error}."
         review = policy.document_review
         return {
             "assessment_route": route,
@@ -147,6 +175,10 @@ class QCNodes:
             "reason": reason,
             "human_required": route == "HITL",
             "policy_decision": policy.model_dump(mode="json"),
+            "ai_analysis": analysis.model_dump(mode="json") if analysis else {},
+            "agent_reasoning_status": (
+                "LLM_DECISION_COMPLETED" if analysis else state.get("agent_reasoning_status", "NOT_RUN")
+            ),
             "execution_trace": _trace(
                 "assess_result",
                 f"Route={route}. Policy lookup matched {review.matched_document_count} controlled "
@@ -212,17 +244,43 @@ class QCNodes:
                     "production_eligible": False,
                 }
             )
-        analysis = self.reasoning.analyze(state, policy)
+        stored_analysis = state.get("ai_analysis") or {}
+        if stored_analysis:
+            analysis = ReasoningAnalysis.model_validate(stored_analysis)
+        elif state.get("human_decision"):
+            review_reason = str(
+                (state.get("human_decision") or {}).get("reason")
+                or state.get("reason")
+                or "QC completed the required manual review."
+            )
+            analysis = ReasoningAnalysis(
+                summary_en=review_reason,
+                summary_vi=review_reason,
+                risk_flags=["HUMAN_REVIEW_DECISION"],
+                recommended_checks=policy.required_steps,
+                cited_source_ids=[item.id for item in policy.references],
+                provider="human_review",
+                model="qc-resume",
+                severity=str(state.get("severity") or "UNASSESSED"),
+                action_code=policy.action_code,
+                action_label=policy.action_label,
+                final_status=policy.final_status,
+                allow_test_drive=bool(policy.test_drive_allowed),
+                decision_rationale_vi=review_reason,
+            )
+        else:
+            analysis = self.reasoning.analyze(state, policy)
         visual = state.get("visual_measurements") or {}
         classification = state.get("defect_code_classification") or {}
         warnings = list(analysis.risk_flags)
         if state.get("similar_defect_warning"):
             warnings.append("MULTIPLE_SIMILAR_DEFECT_REGIONS")
         return {
-            "recommendation_code": policy.action_code,
-            "recommendation": policy.action_label,
-            "final_status": policy.final_status,
-            "allow_test_drive": bool(policy.test_drive_allowed),
+            "severity": analysis.severity,
+            "recommendation_code": analysis.action_code,
+            "recommendation": analysis.action_label,
+            "final_status": analysis.final_status,
+            "allow_test_drive": analysis.allow_test_drive,
             "reason": analysis.summary_en,
             "human_required": policy.human_required,
             "policy_decision": policy.model_dump(mode="json"),
@@ -257,11 +315,11 @@ class QCNodes:
                     "bbox": state.get("bbox"),
                 },
                 "plan": {
-                    "code": policy.action_code,
-                    "label": policy.action_label,
-                    "final_status": policy.final_status,
-                    "allow_test_drive": bool(policy.test_drive_allowed),
-                    "required_steps": policy.required_steps,
+                    "code": analysis.action_code,
+                    "label": analysis.action_label,
+                    "final_status": analysis.final_status,
+                    "allow_test_drive": analysis.allow_test_drive,
+                    "required_steps": analysis.recommended_checks,
                 },
                 "warnings": warnings,
                 "missing_evidence": policy.missing_evidence,
@@ -269,7 +327,7 @@ class QCNodes:
             "execution_trace": _trace(
                 "generate_recommendation",
                 f"Policy {policy.policy_id}@{policy.policy_revision} selected "
-                f"{policy.action_code}; reasoning={analysis.provider}.",
+                f"{analysis.action_code}; decision_source={analysis.provider}.",
             ),
         }
 

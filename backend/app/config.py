@@ -41,7 +41,7 @@ class ModelSettings:
             model_path=model_path.resolve(),
             model_device=os.getenv("MODEL_DEVICE", "cpu").strip(),
             model_confidence=float(os.getenv("MODEL_CONFIDENCE", "0.25")),
-            model_image_size=int(os.getenv("MODEL_IMAGE_SIZE", "1280")),
+            model_image_size=int(os.getenv("MODEL_IMAGE_SIZE", "640")),
             fixed_camera_calibration_enabled=_env_bool(
                 "FIXED_CAMERA_CALIBRATION_ENABLED", True
             ),
@@ -57,7 +57,7 @@ class ModelSettings:
             auto_pass_enabled=_env_bool("AUTO_PASS_ENABLED", True),
             confirmed_threshold=float(os.getenv("CONFIRMED_THRESHOLD", "0.70")),
             verify_threshold=float(os.getenv("VERIFY_THRESHOLD", "0.40")),
-            reasoning_provider=os.getenv("QC_REASONING_PROVIDER", "deterministic").strip().lower(),
+            reasoning_provider=os.getenv("QC_REASONING_PROVIDER", "groq").strip().lower(),
             groq_api_key=os.getenv("GROQ_API_KEY") or None,
             groq_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip(),
         )

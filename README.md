@@ -29,19 +29,23 @@ Baseline MVP đã có:
 - Policy catalog có revision, evidence bắt buộc và nguồn ISO/AIAG công khai;
   catalog mặc định là `APPROVED` trong phạm vi `DEMO_BASELINE_ONLY`, không phải
   quyền release sản xuất.
-- Groq reasoning là copilot tùy chọn: chỉ giải thích policy output bất biến và
-  tự fallback về deterministic reasoning khi API lỗi hoặc thiếu key.
+- Groq LLM là Agent phân loại mã lỗi và tạo quyết định vận hành trong giới hạn
+  catalog/policy đã kiểm soát. Nếu LLM lỗi hoặc thiếu key, graph dừng tại HITL;
+  không dùng rule-based fallback dưới tên Agent.
 - LangGraph chạy thật với state, conditional routing, verify loop và HITL.
 - Giao diện phát lại execution trace theo đúng thứ tự node sau khi model hoàn tất.
-- Rule-based policy tạo phương pháp xử lý cụ thể và lý do có thể audit.
+- Policy engine giới hạn tập hành động an toàn; LLM Agent phân tích evidence và
+  chọn quyết định hợp lệ, sau đó toàn bộ kết quả được audit.
 - SQLAlchemy repository hỗ trợ SQLite local và Supabase PostgreSQL qua `DATABASE_URL`.
 - Contract mới có `POST /api/v1/inspect` và SSE `GET /api/v1/station/stream-alerts`.
 - Kích thước bbox theo pixel/tỷ lệ ảnh luôn được lưu. Profile camera cố định pilot dùng `0.8 mm/pixel` để ước lượng rộng, cao và diện tích mask; kết quả mang trạng thái `PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED`. Độ sâu vẫn để trống nếu không có depth sensor hoặc QC đo xác nhận.
 - Sổ mã lỗi QC ánh xạ label CV với mã kiểm soát, số đo chiều dài và vị trí tương đối.
 - Danh mục demo có 10 mã hoạt động: `SCRATCH01–05` và `DENT01–05`, được nhóm bằng `defect_family` và có `classification_rule` kiểm soát.
-- Agent phân loại một `classified_defect_code` từ danh sách mã database dựa trên label, kích thước pilot, vị trí và số vùng phát hiện. Groq chỉ được chọn mã có sẵn; nếu API không hoạt động, rule deterministic tự động tiếp quản.
+- Agent phân loại một `classified_defect_code` từ danh sách mã database dựa trên label, kích thước pilot, vị trí và số vùng phát hiện. Groq chỉ được chọn mã có sẵn; nếu API không hoạt động, inspection chuyển HITL.
 - Khi một inspection có từ hai vùng lỗi cùng loại, state bật `similar_defect_warning` và ưu tiên mã cụm để QC kiểm tra.
-- `GET /agent/status` phân biệt rõ LangGraph đang sẵn sàng, Groq đã cấu hình, LLM đã được gọi thành công hay hệ thống đang dùng rule fallback. UI hiển thị trạng thái này ngay dưới LangGraph runtime.
+- `GET /agent/status` phân biệt rõ LangGraph đang sẵn sàng, Groq đã cấu hình,
+  LLM đã được gọi thành công hay đang không khả dụng. UI hiển thị trạng thái này
+  ngay dưới LangGraph runtime.
 - Mỗi kết quả có `agent_analysis` tổng hợp nguồn reasoning, mã lỗi, confidence, kích thước pixel/mm, vị trí, plan, quyền test drive, cảnh báo và evidence còn thiếu.
 - Giao diện Việt–Anh để upload evidence, theo dõi node và xử lý HITL. Hàng đợi QC
   hiển thị ảnh, mã lỗi, confidence, kích thước/vị trí và lý do Agent chuyển
@@ -53,7 +57,8 @@ Chi tiết luồng giao diện: [`docs/UI_WORKFLOWS.md`](docs/UI_WORKFLOWS.md).
 
 Chưa có trong baseline:
 
-- LLM hoặc Gemini/OpenAI API.
+- LLM vision trực tiếp; ảnh vẫn do `best.pt` xử lý, Groq chỉ nhận dữ liệu CV đã
+  cấu trúc và policy context để suy luận.
 - GD&T, work instruction và policy production đã được nhà máy phê duyệt.
 - PostgreSQL checkpointer cho LangGraph, MinIO/S3 và Phoenix monitoring.
 - Redis adapter cho sliding-window realtime; baseline hiện đọc 10 xe gần nhất từ Supabase.
@@ -82,7 +87,7 @@ agent/
   LangGraph state machine
   ├── DetectorService  → LocalYoloSegmentationDetector(best.pt)
   ├── VerifierService  → model second pass
-  ├── ReasoningService → deterministic formatter, không gọi LLM
+  ├── ReasoningService → Groq LLM Agent + schema/policy validation
   └── QCRepository     → Supabase PostgreSQL / SQLite test fallback
        │
        ▼
@@ -144,7 +149,7 @@ tránh hai trường cùng mô tả một quyết định. `vehicle_id` là khó
 | `assess_result`           | Tự xác nhận label/mã đã biết; chỉ chuyển ngoại lệ sang HITL |
 | `verify_defect`           | Node dự phòng, không dùng trong chế độ Agent-first hiện tại |
 | `human_review`            | Dừng graph bằng `interrupt()` để QC quyết định         |
-| `generate_recommendation` | Chọn phương pháp kiểm soát theo policy deterministic   |
+| `generate_recommendation` | Dùng quyết định LLM đã validate để tạo phương án vận hành |
 | `save_result`             | Lưu state cuối qua repository                          |
 
 ### Conditional routing và loop guard
@@ -323,7 +328,7 @@ DETECTOR_PROVIDER=local_yolo
 MODEL_PATH=./data/best.pt
 MODEL_DEVICE=cpu
 MODEL_CONFIDENCE=0.25
-MODEL_IMAGE_SIZE=1280
+MODEL_IMAGE_SIZE=640
 FIXED_CAMERA_CALIBRATION_ENABLED=true
 CALIBRATION_MM_PER_PIXEL_X=0.8
 CALIBRATION_MM_PER_PIXEL_Y=0.8
@@ -331,7 +336,7 @@ CALIBRATION_PROFILE_ID=FNS_FRONT_PILOT_1280
 AUTO_PASS_ENABLED=true
 CONFIRMED_THRESHOLD=0.70
 VERIFY_THRESHOLD=0.40
-QC_REASONING_PROVIDER=deterministic
+QC_REASONING_PROVIDER=groq
 GROQ_MODEL=openai/gpt-oss-20b
 # GROQ_API_KEY=gsk_...
 AUDIT_AUTO_EXPORT_ENABLED=true
@@ -462,21 +467,18 @@ trực tiếp database. LangGraph checkpoint hiện vẫn là `InMemorySaver`; �
 được thread HITL sau backend restart, cài `langgraph-checkpoint-postgres`, khởi
 tạo `PostgresSaver`, chạy `setup()` một lần và truyền vào graph builder.
 
-### LLM reasoning
-
-Baseline không cần LLM. Nếu sau này cần giải thích phức tạp, implement một
-`ReasoningService` riêng và chỉ dùng cho phần diễn giải. Không giao quyền release,
-safety routing hoặc tạo tự do phương pháp sửa chữa cho LLM.
-
-### Groq reasoning copilot
+### Groq LLM decision Agent
 
 1. Tạo project và API key tại `https://console.groq.com/keys`.
 2. Lưu key trong root `.env`; không đưa key vào frontend hoặc Git.
 3. Đặt `QC_REASONING_PROVIDER=groq` rồi khởi động lại backend.
-4. Kiểm tra `/health`: trường `reasoning` phải là `GroqReasoningService`.
+4. Kiểm tra `/agent/status`: provider là `groq`, key đã cấu hình và trạng thái
+   chuyển sang `SUCCESS` sau inspection đầu tiên.
 
-Groq không có quyền đổi action code, final status, test-drive gate hoặc citation
-do policy engine trả về. Chi tiết governance: `docs/POLICY_GOVERNANCE.md`.
+Groq phân loại mã, mức ảnh hưởng, diễn giải evidence và chọn quyết định trong tập
+được policy cho phép. Backend từ chối mã, citation, action hoặc test-drive gate
+ngoài context kiểm soát. Khi lời đáp lỗi/không hợp lệ, graph chuyển HITL thay vì
+giả lập reasoning bằng rule. Chi tiết governance: `docs/POLICY_GOVERNANCE.md`.
 
 ## 14. Cấu trúc repository
 

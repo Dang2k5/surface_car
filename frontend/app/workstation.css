@@ -625,6 +625,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   line-height: 1.45;
 }
 
+.content-inspect .agent-reasoning.unavailable {
+  padding: 14px 16px;
+  border: 1px solid #ead8ae;
+  border-radius: 10px;
+  background: #fffaf0;
+}
+
+.content-inspect .agent-reasoning.unavailable p {
+  margin: 7px 0 0;
+  color: #6c5934;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.content-inspect .field-error {
+  display: block;
+  margin-top: 6px;
+  color: #a24b42;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
 .content-inspect .decision-card .decision-facts {
   grid-column: 2;
   grid-row: 2;

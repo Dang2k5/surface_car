@@ -16,7 +16,11 @@ from agent.services.audit_export import JsonAuditExporter
 from agent.services.defect_catalog import DatabaseDefectCatalog
 from agent.services.detector import MockDetector
 from agent.services.policy import PolicyCatalog
-from agent.services.reasoning import DeterministicReasoningService, GroqReasoningService
+from agent.services.reasoning import (
+    DeterministicReasoningService,
+    GroqReasoningService,
+    UnavailableReasoningService,
+)
 from agent.services.repository import SQLiteQCRepository
 from agent.services.verifier import MockVerifier, ModelVerifier
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
@@ -107,17 +111,17 @@ async def lifespan(app: FastAPI):
     app.state.reasoning_requested_provider = app.state.model_settings.reasoning_provider
     app.state.reasoning_key_configured = bool(app.state.model_settings.groq_api_key)
     app.state.qc_policy_catalog = PolicyCatalog()
-    deterministic_reasoning = DeterministicReasoningService()
     if app.state.model_settings.reasoning_provider == "groq" and app.state.model_settings.groq_api_key:
         app.state.qc_reasoning = GroqReasoningService(
             api_key=app.state.model_settings.groq_api_key,
             model=app.state.model_settings.groq_model,
-            fallback=deterministic_reasoning,
         )
+    elif app.state.model_settings.reasoning_provider == "groq":
+        logger.warning("QC_REASONING_PROVIDER=groq but GROQ_API_KEY is missing; LLM decisions require HITL")
+        app.state.qc_reasoning = UnavailableReasoningService("GROQ_API_KEY_MISSING")
     else:
-        if app.state.model_settings.reasoning_provider == "groq":
-            logger.warning("QC_REASONING_PROVIDER=groq but GROQ_API_KEY is missing; using deterministic reasoning")
-        app.state.qc_reasoning = deterministic_reasoning
+        # Deterministic mode is retained for automated tests and explicit offline diagnostics.
+        app.state.qc_reasoning = DeterministicReasoningService()
     if app.state.model_settings.detector_provider == "local_yolo":
         app.state.qc_detector = LocalYoloSegmentationDetector(
             app.state.model_settings.model_path,
@@ -202,7 +206,7 @@ def health() -> dict[str, object]:
 
 @app.get("/agent/status")
 def agent_status() -> dict[str, object]:
-    """Expose whether reasoning came from Groq or the local safety fallback."""
+    """Expose whether the LLM Agent is available and has produced a decision."""
     return {
         "langgraph": "READY",
         "checkpointer": type(getattr(app.state, "qc_checkpointer", None)).__name__,

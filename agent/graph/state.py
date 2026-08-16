@@ -61,6 +61,7 @@ class QCState(TypedDict, total=False):
     recommendation: str
     policy_decision: dict[str, Any]
     ai_analysis: dict[str, Any]
+    agent_reasoning_status: str
     agent_analysis: dict[str, Any]
     final_status: str
     allow_test_drive: bool
