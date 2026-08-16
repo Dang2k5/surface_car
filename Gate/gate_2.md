@@ -5,7 +5,6 @@
 [x] README.md — setup instructions, env vars, sample queries, ...
 [x] Eval envidences — ít nhất 5 test case manual với output thực tế
 
-
 -- Triển khai tiếp theo:
     Tạo videos showcase end-to-end
     Giao diện hiển thị AI - hướng 1/ một màn hình chia ra các bộ phận
