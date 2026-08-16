@@ -1,0 +1,67 @@
+{
+  "source": "eval\\results\\results_kaggle.csv",
+  "epochs": 40,
+  "selection_metric": "metrics/mAP50-95(B)",
+  "recommended_epoch": 39,
+  "recommended_checkpoint_metrics": {
+    "metrics/precision(B)": 0.37274,
+    "metrics/recall(B)": 0.24747,
+    "metrics/mAP50(B)": 0.24058,
+    "metrics/mAP50-95(B)": 0.12268,
+    "metrics/precision(M)": 0.38459,
+    "metrics/recall(M)": 0.23274,
+    "metrics/mAP50(M)": 0.22999,
+    "metrics/mAP50-95(M)": 0.10543
+  },
+  "best_metrics": {
+    "metrics/precision(B)": {
+      "value": 0.656,
+      "epoch": 20
+    },
+    "metrics/recall(B)": {
+      "value": 0.26746,
+      "epoch": 31
+    },
+    "metrics/mAP50(B)": {
+      "value": 0.24058,
+      "epoch": 39
+    },
+    "metrics/mAP50-95(B)": {
+      "value": 0.12268,
+      "epoch": 39
+    },
+    "metrics/precision(M)": {
+      "value": 0.64434,
+      "epoch": 20
+    },
+    "metrics/recall(M)": {
+      "value": 0.24919,
+      "epoch": 31
+    },
+    "metrics/mAP50(M)": {
+      "value": 0.22999,
+      "epoch": 39
+    },
+    "metrics/mAP50-95(M)": {
+      "value": 0.10543,
+      "epoch": 39
+    }
+  },
+  "last_epoch": {
+    "epoch": 40,
+    "metrics/precision(B)": 0.32275,
+    "metrics/recall(B)": 0.25876,
+    "metrics/mAP50(B)": 0.23061,
+    "metrics/mAP50-95(B)": 0.11564,
+    "metrics/precision(M)": 0.45331,
+    "metrics/recall(M)": 0.21882,
+    "metrics/mAP50(M)": 0.21823,
+    "metrics/mAP50-95(M)": 0.09992
+  },
+  "improvement_from_first_epoch": {
+    "metrics/mAP50-95(B)": 0.09856,
+    "metrics/mAP50-95(M)": 0.09796
+  },
+  "training_time_seconds": 7391.84,
+  "interpretation": "The model learned, but recall and mAP50-95 remain low for autonomous Visual QC. Use the same held-out split when comparing future runs."
+}

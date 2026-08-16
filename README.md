@@ -15,6 +15,17 @@ Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent ho
 - **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
 - **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
 
+# Team 235 — AI Agent
+
+## Mô tả
+AI Agent Kiểm Tra Chất Lượng Bề Mặt Bằng Computer Vision (Visual QC Agent).
+
+## Thành viên
+- Phạm Bá Huy — PM
+- Đào Hải Đăng — PO
+- Hoàng Văn Thành — DEV
+- Lê Quốc An - DEV
+
 ## ⚡ Quick Start
 
 ### Bước 1: Fork hoặc Clone
@@ -159,6 +170,24 @@ uvicorn src.main:app --reload --port 8000
 
 ## 📊 AI Usage Logging
 
+## Benchmark
+
+Benchmark hiện tại đánh giá rule engine PASS/FAIL/REVIEW trên các ca biên và
+thống kê bộ dữ liệu ảnh trong file ZIP. Chạy lại bằng:
+
+```bash
+python -m eval.benchmark --archive train-20260810T025146Z-1-001.zip
+pytest tests/test_eval_benchmark.py -q
+```
+
+Kết quả được ghi vào `eval/results/benchmark.md` và
+`eval/results/benchmark.json`. Năm manual test use và output thực tế của rule
+engine được ghi riêng vào `eval/results/manual_test_evidence.md` và
+`eval/results/manual_test_evidence.json`. Kết quả huấn luyện trong
+`results_kaggle.csv` được tổng hợp tại `kaggle_training_benchmark.md` và
+`kaggle_training_benchmark.json`. Dữ liệu hiện chưa có annotation, vì vậy benchmark
+không dùng tiền tố tên file làm nhãn và chưa báo cáo mAP/IoU.
+
 Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
 
 | Tool | Cơ chế | Config |
@@ -194,7 +223,7 @@ bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
 
 - 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
 - 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Đặng Hải Lộc
+- 👨‍🏫 **Mentor:** Trần Thành Trung
 
 ## 📄 License
 

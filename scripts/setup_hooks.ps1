@@ -14,7 +14,30 @@ bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
 '@
 
-Set-Content -Path $HookFile -Value $HookBody -Encoding UTF8 -NoNewline
+# Write the hook without a UTF-8 BOM and normalize to LF line endings (BOM/CRLF break bash shebangs).
+$hookText = $HookBody -replace "`r`n", "`n"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($HookFile, $hookText, $utf8NoBom)
+
+# Resolve Git Bash explicitly. `Get-Command bash` may select WSL's
+# C:\Windows\System32\bash.exe, which cannot execute Git hooks reliably.
+try {
+    $gitCommand = Get-Command git -ErrorAction Stop
+    $gitRoot = Split-Path (Split-Path $gitCommand.Source -Parent) -Parent
+    $gitBash = Join-Path $gitRoot 'bin\bash.exe'
+    if (Test-Path $gitBash) {
+        $hookPathUnix = (Get-Item $HookFile).FullName -replace '\\','/'
+        & $gitBash -lc "chmod +x '$hookPathUnix'"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git Bash chmod failed with exit code $LASTEXITCODE"
+        }
+    } else {
+        throw "Git Bash not found at $gitBash"
+    }
+} catch {
+    throw "Could not make the pre-push hook executable: $($_.Exception.Message)"
+}
+
 Write-Host "[ai-log] Git pre-push hook installed."
 
 if (-not (Test-Path .ai-log)) { New-Item -ItemType Directory -Path .ai-log | Out-Null }

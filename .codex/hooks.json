@@ -1,13 +1,15 @@
 {
-  "version": "1.0",
+  "description": "Send Codex lifecycle events to AI Log",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
-            "name": "log-prompt",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=codex",
-            "timeout": 10
+            "type": "command",
+            "command": "python3 scripts/log_hook.py --tool=codex",
+            "commandWindows": "python scripts\\log_hook.py --tool=codex",
+            "timeout": 10,
+            "statusMessage": "Saving prompt to AI Log"
           }
         ]
       }
@@ -16,9 +18,11 @@
       {
         "hooks": [
           {
-            "name": "log-stop",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=codex",
-            "timeout": 10
+            "type": "command",
+            "command": "python3 scripts/log_hook.py --tool=codex",
+            "commandWindows": "python scripts\\log_hook.py --tool=codex",
+            "timeout": 10,
+            "statusMessage": "Saving Codex response to AI Log"
           }
         ]
       }

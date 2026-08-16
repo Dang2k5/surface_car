@@ -180,8 +180,12 @@ def main():
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    # Output valid JSON (required by some tools like Gemini)
-    print(json.dumps({"status": "logged"}))
+    # Claude Code parses successful hook stdout using an event-specific schema.
+    # A generic payload such as {"status": "logged"} is invalid for Stop hooks,
+    # so logging-only hooks must remain silent. Gemini expects JSON output, so
+    # preserve the acknowledgement only for that integration.
+    if tool == "gemini":
+        print(json.dumps({"status": "logged"}))
 
 
 if __name__ == "__main__":
