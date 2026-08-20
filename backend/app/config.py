@@ -83,6 +83,27 @@ class AuthSettings:
 
 
 @dataclass(frozen=True)
+class ObjectStorageSettings:
+    provider: str
+    endpoint: str | None
+    bucket: str
+    access_key: str | None
+    secret_key: str | None
+    region: str | None
+
+    @classmethod
+    def from_env(cls) -> ObjectStorageSettings:
+        return cls(
+            provider=os.getenv("OBJECT_STORAGE_PROVIDER", "minio").strip().lower(),
+            endpoint=os.getenv("S3_ENDPOINT") or None,
+            bucket=os.getenv("S3_BUCKET", "visual-qc").strip(),
+            access_key=os.getenv("S3_ACCESS_KEY") or None,
+            secret_key=os.getenv("S3_SECRET_KEY") or None,
+            region=os.getenv("S3_REGION") or None,
+        )
+
+
+@dataclass(frozen=True)
 class AuditExportSettings:
     enabled: bool
     directory: Path

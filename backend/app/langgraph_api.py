@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -114,6 +116,21 @@ def _initial_state(
 
 def _save_waiting_state(request: Request, state: dict[str, Any]) -> None:
     request.app.state.qc_repository.save({**state, "final_status": "WAITING_FOR_HITL"})
+
+
+def _write_scratch_image(data: bytes, suffix: str) -> Path:
+    """Write uploaded bytes to a private temp file for the local YOLO
+    detector to read during this request only.
+
+    The durable copy lives in object storage (ENVIRONMENT.md Object
+    Storage), not on local disk — the caller deletes this scratch file
+    right after `graph.invoke()` returns.
+    """
+    fd, raw_path = tempfile.mkstemp(suffix=suffix, prefix="qc-inference-")
+    path = Path(raw_path)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+    return path
 
 
 @router.post("/inspections", response_model=LangGraphRunResponse, status_code=201)
@@ -350,7 +367,7 @@ def run_uploaded_image_inspection(
     station_id: str = Form("FNS_LINE_HA_01"),
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
-    """Persist a validated image locally and run the configured model-backed graph."""
+    """Persist the validated image to object storage and run the model-backed graph."""
     allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=415, detail="Only JPEG and PNG images are accepted")
@@ -370,32 +387,34 @@ def run_uploaded_image_inspection(
     thread_id = str(uuid4())
     inspection_id = str(uuid4())
     suffix = allowed_types[file.content_type]
-    relative_path = Path(inspection_id) / f"original{suffix}"
-    upload_root = Path(__file__).resolve().parents[2] / "data" / "uploads"
-    destination = upload_root / relative_path
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(data)
-    payload = LangGraphInspectionCreate(
-        inspection_id=inspection_id,
-        vehicle_id=vehicle_id,
-        vehicle_model=vehicle_model,
-        lot_id=lot_id,
-        shift_id=shift_id,
-        production_date=production_date,
-        station_id=station_id,
-        image_url=f"/assets/uploads/{relative_path.as_posix()}",
-        image_paths=[str(destination)],
-        camera_id=camera_id,
-        zone_name=zone_name,
-    )
-    initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
-    initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()
-    graph = request.app.state.qc_langgraph
-    result = graph.invoke(initial_state, config=_config(thread_id))
-    response = _graph_response(graph, thread_id, result)
-    if response.status == "INTERRUPTED":
-        _save_waiting_state(request, response.state)
-    return response
+    object_key = f"inspections/{inspection_id}/original{suffix}"
+    request.app.state.object_storage.put(object_key, data, file.content_type)
+
+    scratch_path = _write_scratch_image(data, suffix)
+    try:
+        payload = LangGraphInspectionCreate(
+            inspection_id=inspection_id,
+            vehicle_id=vehicle_id,
+            vehicle_model=vehicle_model,
+            lot_id=lot_id,
+            shift_id=shift_id,
+            production_date=production_date,
+            station_id=station_id,
+            image_url=f"/assets/objects/{object_key}",
+            image_paths=[str(scratch_path)],
+            camera_id=camera_id,
+            zone_name=zone_name,
+        )
+        initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
+        initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()
+        graph = request.app.state.qc_langgraph
+        result = graph.invoke(initial_state, config=_config(thread_id))
+        response = _graph_response(graph, thread_id, result)
+        if response.status == "INTERRUPTED":
+            _save_waiting_state(request, response.state)
+        return response
+    finally:
+        scratch_path.unlink(missing_ok=True)
 
 
 @router.post("/inspections/from-images", response_model=LangGraphRunResponse, status_code=201)
@@ -456,42 +475,46 @@ def run_uploaded_images_inspection(
 
     thread_id = str(uuid4())
     inspection_id = str(uuid4())
-    upload_root = Path(__file__).resolve().parents[2] / "data" / "uploads"
     camera_evidence: list[dict[str, str]] = []
-    for index, ((_, data, suffix), camera_id) in enumerate(zip(validated, normalized_camera_ids, strict=True), start=1):
-        relative_path = Path(inspection_id) / f"camera-{index}{suffix}"
-        destination = upload_root / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(data)
+    scratch_paths: list[Path] = []
+    for index, ((file, data, suffix), camera_id) in enumerate(zip(validated, normalized_camera_ids, strict=True), start=1):
+        object_key = f"inspections/{inspection_id}/camera-{index}{suffix}"
+        request.app.state.object_storage.put(object_key, data, file.content_type or "application/octet-stream")
+        scratch_path = _write_scratch_image(data, suffix)
+        scratch_paths.append(scratch_path)
         camera_evidence.append(
             {
                 "camera_id": camera_id,
-                "image_url": f"/assets/uploads/{relative_path.as_posix()}",
-                "image_path": str(destination),
+                "image_url": f"/assets/objects/{object_key}",
+                "image_path": str(scratch_path),
                 "image_sha256": hashlib.sha256(data).hexdigest(),
             }
         )
 
-    primary = camera_evidence[0]
-    payload = LangGraphInspectionCreate(
-        inspection_id=inspection_id,
-        vehicle_id=vehicle_id,
-        vehicle_model=vehicle_model,
-        lot_id=lot_id,
-        shift_id=shift_id,
-        production_date=production_date,
-        station_id=station_id,
-        image_url=primary["image_url"],
-        image_paths=[item["image_path"] for item in camera_evidence],
-        camera_id=primary["camera_id"],
-        zone_name=zone_name,
-    )
-    initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
-    initial_state["image_sha256"] = primary["image_sha256"]
-    initial_state["camera_evidence"] = camera_evidence
-    graph = request.app.state.qc_langgraph
-    result = graph.invoke(initial_state, config=_config(thread_id))
-    response = _graph_response(graph, thread_id, result)
-    if response.status == "INTERRUPTED":
-        _save_waiting_state(request, response.state)
-    return response
+    try:
+        primary = camera_evidence[0]
+        payload = LangGraphInspectionCreate(
+            inspection_id=inspection_id,
+            vehicle_id=vehicle_id,
+            vehicle_model=vehicle_model,
+            lot_id=lot_id,
+            shift_id=shift_id,
+            production_date=production_date,
+            station_id=station_id,
+            image_url=primary["image_url"],
+            image_paths=[item["image_path"] for item in camera_evidence],
+            camera_id=primary["camera_id"],
+            zone_name=zone_name,
+        )
+        initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
+        initial_state["image_sha256"] = primary["image_sha256"]
+        initial_state["camera_evidence"] = camera_evidence
+        graph = request.app.state.qc_langgraph
+        result = graph.invoke(initial_state, config=_config(thread_id))
+        response = _graph_response(graph, thread_id, result)
+        if response.status == "INTERRUPTED":
+            _save_waiting_state(request, response.state)
+        return response
+    finally:
+        for scratch_path in scratch_paths:
+            scratch_path.unlink(missing_ok=True)

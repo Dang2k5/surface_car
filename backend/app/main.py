@@ -15,6 +15,7 @@ from agent.graph.builder import build_qc_graph
 from agent.services.audit_export import JsonAuditExporter
 from agent.services.defect_catalog import DatabaseDefectCatalog
 from agent.services.detector import MockDetector
+from agent.services.object_storage import LocalDiskObjectStorage, ObjectStorageService, S3ObjectStorage
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import (
     DeterministicReasoningService,
@@ -31,9 +32,10 @@ from agent.services.vision_verifier import (
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
 from .auth_api import router as auth_router
-from .config import AuditExportSettings, AuthSettings, ModelSettings
+from .config import AuditExportSettings, AuthSettings, ModelSettings, ObjectStorageSettings
 from .database import DEFAULT_DATABASE_URL, Database
 from .langgraph_api import router as langgraph_router
+from .objects_api import router as objects_router
 from .policy_api import router as policy_router
 from .qc_api import router as qc_router
 from .quality_alerts_api import router as quality_alerts_router
@@ -100,9 +102,48 @@ def get_database_url() -> str:
     return DEFAULT_DATABASE_URL
 
 
+def _build_object_storage(
+    settings: ObjectStorageSettings, local_root: Path
+) -> ObjectStorageService:
+    """Build the configured object storage backend, never crashing startup.
+
+    Mirrors the Noop/dev-bypass convention used by every other optional
+    integration in this backend: an unreachable or unconfigured MinIO/S3
+    falls back to local disk instead of blocking the whole app from
+    starting (ENVIRONMENT.md Object Storage).
+    """
+    if settings.provider in {"minio", "s3"} and settings.access_key and settings.secret_key:
+        try:
+            return S3ObjectStorage(
+                provider=settings.provider,
+                bucket=settings.bucket,
+                endpoint=settings.endpoint,
+                access_key=settings.access_key,
+                secret_key=settings.secret_key,
+                region=settings.region,
+            )
+        except Exception:
+            logger.warning(
+                "OBJECT_STORAGE_PROVIDER=%s configured but unreachable at startup; "
+                "falling back to local disk storage (dev/demo only)",
+                settings.provider,
+                exc_info=True,
+            )
+            return LocalDiskObjectStorage(local_root)
+    logger.warning(
+        "S3_ACCESS_KEY/S3_SECRET_KEY not configured; using local disk object "
+        "storage (dev/demo only, ENVIRONMENT.md Object Storage)"
+    )
+    return LocalDiskObjectStorage(local_root)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.database = Database(get_database_url())
+    app.state.object_storage_settings = ObjectStorageSettings.from_env()
+    app.state.object_storage = _build_object_storage(
+        app.state.object_storage_settings, upload_image_directory
+    )
     app.state.auth_settings = AuthSettings.from_env()
     if not app.state.auth_settings.supabase_jwt_secret:
         logger.warning(
@@ -208,6 +249,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(objects_router)
 app.include_router(langgraph_router)
 app.include_router(quality_alerts_router)
 app.include_router(policy_router)
@@ -228,6 +270,11 @@ def _reasoning_runtime_status() -> dict[str, object]:
         "requested_provider": getattr(app.state, "reasoning_requested_provider", "starting"),
         "api_key_configured": getattr(app.state, "reasoning_key_configured", False),
     }
+
+
+def _object_storage_runtime_status() -> dict[str, object]:
+    service = getattr(app.state, "object_storage", None)
+    return service.runtime_status() if service and hasattr(service, "runtime_status") else {}
 
 
 def _vision_runtime_status() -> dict[str, object]:
@@ -258,4 +305,5 @@ def agent_status() -> dict[str, object]:
         "checkpointer": type(getattr(app.state, "qc_checkpointer", None)).__name__,
         "reasoning": _reasoning_runtime_status(),
         "vision": _vision_runtime_status(),
+        "object_storage": _object_storage_runtime_status(),
     }

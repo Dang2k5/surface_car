@@ -264,19 +264,20 @@ async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, m
             )
             assert response.status_code == 201
             state = response.json()["state"]
-            saved_path = Path(state["image_paths"][0])
-            try:
-                assert state["vehicle_id"] == "CAR-WEB-UPLOAD"
-                assert state["zone_name"] == "front_door_outer"
-                assert "recommended_plan" not in state
-                assert "final_action" not in state
-                assert state["image_url"].startswith("/assets/uploads/")
-                assert len(state["image_sha256"]) == 64
-                assert state["decision"] == "DEFECT_CONFIRMED"
-                assert saved_path.is_file()
-            finally:
-                saved_path.unlink(missing_ok=True)
-                saved_path.parent.rmdir()
+            assert state["vehicle_id"] == "CAR-WEB-UPLOAD"
+            assert state["zone_name"] == "front_door_outer"
+            assert "recommended_plan" not in state
+            assert "final_action" not in state
+            assert state["image_url"].startswith("/assets/objects/inspections/")
+            assert len(state["image_sha256"]) == 64
+            assert state["decision"] == "DEFECT_CONFIRMED"
+            # The scratch file used for local YOLO inference is deleted right
+            # after graph.invoke(); the durable copy lives in object storage
+            # and is served back through the same proxy URL.
+            assert not Path(state["image_paths"][0]).exists()
+            evidence = await client.get(state["image_url"])
+            assert evidence.status_code == 200
+            assert evidence.content == ONE_PIXEL_PNG
 
 
 @pytest.mark.asyncio
@@ -343,22 +344,22 @@ async def test_multi_camera_upload_runs_one_aggregated_vehicle_inspection(tmp_pa
             )
             assert response.status_code == 201
             state = response.json()["state"]
-            paths = [Path(item["image_path"]) for item in state["camera_evidence"]]
-            try:
-                assert [item["camera_id"] for item in state["camera_evidence"]] == [
-                    "CAM-FNS-FRONT",
-                    "CAM-FNS-REAR",
-                ]
-                assert len(state["camera_results"]) == 2
-                assert state["finding_groups"][0]["observation_count"] == 2
-                assert state["finding_groups"][0]["deduplication_status"] == (
-                    "CANDIDATE_DUPLICATE_REQUIRES_CALIBRATION"
-                )
-                assert all(path.is_file() for path in paths)
-            finally:
-                for path in paths:
-                    path.unlink(missing_ok=True)
-                paths[0].parent.rmdir()
+            assert [item["camera_id"] for item in state["camera_evidence"]] == [
+                "CAM-FNS-FRONT",
+                "CAM-FNS-REAR",
+            ]
+            assert len(state["camera_results"]) == 2
+            assert state["finding_groups"][0]["observation_count"] == 2
+            assert state["finding_groups"][0]["deduplication_status"] == (
+                "CANDIDATE_DUPLICATE_REQUIRES_CALIBRATION"
+            )
+            # Scratch files used for local YOLO inference are deleted right
+            # after graph.invoke(); each camera's durable copy lives in
+            # object storage and is served back through the same proxy URLs.
+            for item in state["camera_evidence"]:
+                assert not Path(item["image_path"]).exists()
+                evidence = await client.get(item["image_url"])
+                assert evidence.status_code == 200
 
 
 @pytest.mark.asyncio
