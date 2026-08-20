@@ -6,11 +6,11 @@ import time
 from pathlib import Path
 from threading import Lock
 from typing import Any
-from urllib.parse import urlparse
 
 from agent.graph.state import QCState
+from agent.services.image_source import camera_evidence as _camera_evidence
+from agent.services.image_source import resolve_image_source as _resolve_image_source
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CLASS_MAP = {
     "dent": "dent",
     "scratch": "scratch",
@@ -54,47 +54,6 @@ def _polygon_area(points: list[list[float]]) -> float:
             for index in range(len(points))
         )
     ) / 2
-
-
-def _resolve_image_source(image_path: str | None, image_url: str) -> str:
-    if image_path:
-        path = Path(image_path)
-        if not path.is_absolute():
-            path = PROJECT_ROOT / path
-        return str(path.resolve())
-
-    parsed = urlparse(image_url)
-    url_path = parsed.path
-    static_roots = {"/assets/uploads/": PROJECT_ROOT / "data" / "uploads"}
-    for prefix, root in static_roots.items():
-        if url_path.startswith(prefix):
-            candidate = (root / url_path.removeprefix(prefix)).resolve()
-            if not candidate.is_relative_to(root.resolve()):
-                raise ValueError("Image path escapes the configured evidence directory")
-            return str(candidate)
-    if parsed.scheme in {"http", "https"}:
-        return image_url
-    raise ValueError(f"Unsupported image source: {image_url}")
-
-
-def _camera_evidence(state: QCState) -> list[dict[str, str]]:
-    """Normalize legacy single-image state and the multi-camera API payload."""
-    evidence = state.get("camera_evidence") or []
-    if evidence:
-        return [
-            {
-                "camera_id": str(item.get("camera_id") or "unknown_camera"),
-                "image_url": str(item.get("image_url") or ""),
-                "image_path": str(item.get("image_path") or ""),
-            }
-            for item in evidence
-        ]
-    image_paths = state.get("image_paths") or []
-    return [{
-        "camera_id": str(state.get("camera_id") or "unknown_camera"),
-        "image_url": str(state.get("image_url") or ""),
-        "image_path": str(image_paths[0]) if image_paths else "",
-    }]
 
 
 class LocalYoloSegmentationDetector:

@@ -16,6 +16,7 @@ from agent.services.reasoning import (
 )
 from agent.services.repository import QCRepository
 from agent.services.verifier import VerifierService
+from agent.services.vision_verifier import VisionUnavailableError, VisionVerifierService
 
 
 def _trace(node: str, detail: str, status: str = "COMPLETED") -> list[TraceEvent]:
@@ -31,6 +32,7 @@ class QCNodes:
         policy_catalog: PolicyCatalog,
         repository: QCRepository,
         defect_catalog: DefectCatalogService,
+        vision: VisionVerifierService,
     ) -> None:
         self.detector = detector
         self.verifier = verifier
@@ -38,6 +40,7 @@ class QCNodes:
         self.policy_catalog = policy_catalog
         self.repository = repository
         self.defect_catalog = defect_catalog
+        self.vision = vision
 
     def prepare_input(self, state: QCState) -> dict[str, Any]:
         camera_evidence = state.get("camera_evidence", [])
@@ -140,6 +143,45 @@ class QCNodes:
             ),
         }
 
+    def multimodal_verify(self, state: QCState) -> dict[str, Any]:
+        if not state.get("defect_detected", False):
+            return {
+                "agent_vision_status": "SKIPPED_NO_DEFECT",
+                "execution_trace": _trace(
+                    "multimodal_verify", "No detected defect; visual cross-check skipped."
+                ),
+            }
+        try:
+            assessment = self.vision.verify_visual(state)
+        except VisionUnavailableError as error:
+            return {
+                "visual_assessment": None,
+                "agent_vision_status": "UNAVAILABLE_REQUIRES_HITL",
+                "execution_trace": _trace(
+                    "multimodal_verify",
+                    f"Vision LLM unavailable or invalid output: {error}.",
+                    "FAILED",
+                ),
+            }
+        if assessment is None:
+            return {
+                "visual_assessment": None,
+                "agent_vision_status": "NOT_CONFIGURED",
+                "execution_trace": _trace(
+                    "multimodal_verify", "VISION_LLM_PROVIDER not configured; skipped."
+                ),
+            }
+        return {
+            "visual_assessment": assessment.model_dump(mode="json"),
+            "agent_vision_status": "COMPLETED",
+            "execution_trace": _trace(
+                "multimodal_verify",
+                f"verification={assessment.visual_verification}, "
+                f"uncertainty={assessment.visual_uncertainty}, "
+                f"possible_artifact={assessment.possible_artifact}.",
+            ),
+        }
+
     def assess_result(self, state: QCState) -> dict[str, Any]:
         if state.get("inference_status") == "ERROR":
             route = "HITL"
@@ -157,6 +199,23 @@ class QCNodes:
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
             reason = "The Agent classified the known defect and selected an active QC code."
+
+        # Multimodal LLM visual cross-check must never let a CONFLICT/HIGH-uncertainty
+        # result slip through as an automatic PASS/CONFIRMED (POLICY_GOVERNANCE.md).
+        visual = state.get("visual_assessment")
+        if state.get("agent_vision_status") == "UNAVAILABLE_REQUIRES_HITL":
+            route = "HITL"
+            decision = "VISION_LLM_UNAVAILABLE"
+            reason = "Vision LLM could not produce a validated visual assessment; fail-safe QC review is required."
+        elif visual and visual.get("visual_verification") == "CONFLICT":
+            route = "HITL"
+            decision = "VISUAL_LLM_CONFLICT_REQUIRES_HITL"
+            reason = "Visual LLM cross-check conflicts with the YOLO detection; QC review is required."
+        elif visual and visual.get("visual_uncertainty") == "HIGH":
+            route = "HITL"
+            decision = "VISUAL_LLM_UNCERTAINTY_HIGH_REQUIRES_HITL"
+            reason = "Visual LLM cross-check uncertainty is HIGH; QC review is required."
+
         policy = self.policy_catalog.evaluate(state)
         analysis: ReasoningAnalysis | None = None
         if route == "CONFIRMED":

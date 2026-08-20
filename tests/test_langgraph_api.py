@@ -124,7 +124,12 @@ async def test_langgraph_stream_emits_real_node_updates_and_saves_run(tmp_path, 
             assert response.status_code == 200
             events = [json.loads(line) for line in response.text.splitlines()]
             nodes = [event["node"] for event in events if event["type"] == "node"]
-            assert nodes[:3] == ["prepare_input", "detect_defect", "assess_result"]
+            assert nodes[:4] == [
+                "prepare_input",
+                "detect_defect",
+                "multimodal_verify",
+                "assess_result",
+            ]
             assert nodes.count("verify_defect") == 0
             assert nodes.count("assess_result") == 1
             assert events[-1]["type"] == "result"
