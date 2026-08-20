@@ -1,0 +1,112 @@
+{
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0
+  },
+  "tests": [
+    {
+      "test_id": "MANUAL-01",
+      "scenario": "clean_surface",
+      "input": {
+        "image_quality": 95,
+        "detections": []
+      },
+      "expected_status": "PASS",
+      "actual_output": {
+        "status": "PASS",
+        "reason": "Ảnh chất lượng 95% và không phát hiện lỗi nào.",
+        "quality": 95
+      },
+      "latency_ms": 0.0039,
+      "result": "PASS"
+    },
+    {
+      "test_id": "MANUAL-02",
+      "scenario": "clear_defect",
+      "input": {
+        "image_quality": 92,
+        "detections": [
+          {
+            "type": "scratch",
+            "confidence": 0.94,
+            "size_mm": 4.2
+          }
+        ]
+      },
+      "expected_status": "FAIL",
+      "actual_output": {
+        "status": "FAIL",
+        "reason": "Phát hiện lỗi rõ ràng (Confidence=0.94, Size=4.20mm).",
+        "quality": 92
+      },
+      "latency_ms": 0.0082,
+      "result": "PASS"
+    },
+    {
+      "test_id": "MANUAL-03",
+      "scenario": "borderline_defect",
+      "input": {
+        "image_quality": 88,
+        "detections": [
+          {
+            "type": "dent",
+            "confidence": 0.72,
+            "size_mm": 3.1
+          }
+        ]
+      },
+      "expected_status": "REVIEW",
+      "actual_output": {
+        "status": "REVIEW",
+        "reason": "Lỗi nằm ở ranh giới nghi ngờ (Confidence=0.72, Size=3.10mm). Cần QC xác nhận.",
+        "quality": 88
+      },
+      "latency_ms": 0.0033,
+      "result": "PASS"
+    },
+    {
+      "test_id": "MANUAL-04",
+      "scenario": "low_image_quality",
+      "input": {
+        "image_quality": 55,
+        "detections": []
+      },
+      "expected_status": "REVIEW",
+      "actual_output": {
+        "status": "REVIEW",
+        "reason": "Ảnh chất lượng thấp (55%), cần QC kiểm tra thủ công.",
+        "quality": 55
+      },
+      "latency_ms": 0.0011,
+      "result": "PASS"
+    },
+    {
+      "test_id": "MANUAL-05",
+      "scenario": "multiple_defects",
+      "input": {
+        "image_quality": 90,
+        "detections": [
+          {
+            "type": "scratch",
+            "confidence": 0.91,
+            "size_mm": 3.5
+          },
+          {
+            "type": "paint_damage",
+            "confidence": 0.86,
+            "size_mm": 2.4
+          }
+        ]
+      },
+      "expected_status": "FAIL",
+      "actual_output": {
+        "status": "FAIL",
+        "reason": "Phát hiện lỗi rõ ràng (Confidence=0.91, Size=3.50mm).",
+        "quality": 90
+      },
+      "latency_ms": 0.0032,
+      "result": "PASS"
+    }
+  ]
+}

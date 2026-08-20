@@ -3,14 +3,16 @@ __pycache__/
 *.py[cod]
 *.so
 *.egg-info/
-dist/
-build/
+/dist/
+/build/
 .eggs/
 
 # Virtual environments
 venv/
 .venv/
+.venv-*/
 env/
+.venv-new/
 
 # Environment variables
 .env
@@ -28,14 +30,19 @@ env/
 .DS_Store
 Thumbs.db
 
-# Data (never commit large data)
-data/
+# Data (never commit large data). Portable audit JSON exports are reviewable artifacts.
+data/*
+!data/exports/
+data/exports/*
+!data/exports/*.json
 *.db
 *.sqlite3
+train-*.zip
 
 # Logs
 logs/
 *.log
+runs/
 
 # Test coverage
 htmlcov/

@@ -1,29 +1,18 @@
-from unittest.mock import AsyncMock
+from __future__ import annotations
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-
-from src.main import app
 
 
-@pytest_asyncio.fixture
-async def client():
-    """Async HTTP client for testing API endpoints."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-
-@pytest.fixture
-def mock_llm():
-    """Mock LLM to avoid calling OpenAI during tests.
-
-    Usage in test:
-        def test_something(mock_llm):
-            # LLM calls will return mock response instead of hitting OpenAI
-            ...
-    """
-    mock = AsyncMock()
-    mock.ainvoke.return_value = AsyncMock(content="Mocked LLM response")
-    return mock
+@pytest.fixture(autouse=True)
+def use_fast_mock_detector_for_automated_tests(monkeypatch, tmp_path):
+    """Production uses best.pt; unit/API tests keep deterministic injected fakes."""
+    monkeypatch.setenv("DETECTOR_PROVIDER", "mock")
+    monkeypatch.setenv("QC_REASONING_PROVIDER", "deterministic")
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
+    monkeypatch.setenv("AUDIT_AUTO_EXPORT_ENABLED", "true")
+    monkeypatch.setenv("AUDIT_EXPORT_DIR", str(tmp_path / "audit-exports"))
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        f"sqlite:///{(tmp_path / 'visual-qc-test.db').as_posix()}",
+    )

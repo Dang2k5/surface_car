@@ -1,0 +1,208 @@
+{
+  "benchmark": {
+    "summary": {
+      "cases": 9,
+      "correct": 8,
+      "accuracy": 0.8889,
+      "mean_latency_ms": 0.0035,
+      "max_latency_ms": 0.012
+    },
+    "per_label": {
+      "PASS": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "FAIL": {
+        "precision": 0.6667,
+        "recall": 1.0,
+        "f1": 0.8,
+        "support": 2
+      },
+      "REVIEW": {
+        "precision": 1.0,
+        "recall": 0.8,
+        "f1": 0.8889,
+        "support": 5
+      }
+    },
+    "per_category_accuracy": {
+      "borderline_defect": 0.6667,
+      "clean_surface": 1.0,
+      "clear_defect": 1.0,
+      "low_image_quality": 1.0
+    },
+    "confusion_matrix": {
+      "PASS": {
+        "PASS": 2,
+        "FAIL": 0,
+        "REVIEW": 0
+      },
+      "FAIL": {
+        "PASS": 0,
+        "FAIL": 2,
+        "REVIEW": 0
+      },
+      "REVIEW": {
+        "PASS": 0,
+        "FAIL": 1,
+        "REVIEW": 4
+      }
+    },
+    "failures": [
+      {
+        "case_id": "split-evidence-across-detections",
+        "category": "borderline_defect",
+        "expected": "REVIEW",
+        "image_quality": 90,
+        "detections": [
+          {
+            "confidence": 0.95,
+            "size_mm": 1
+          },
+          {
+            "confidence": 0.6,
+            "size_mm": 4
+          }
+        ],
+        "predicted": "FAIL",
+        "correct": false
+      }
+    ],
+    "cases": [
+      {
+        "case_id": "low-quality-clean",
+        "category": "low_image_quality",
+        "expected": "REVIEW",
+        "image_quality": 69,
+        "detections": [],
+        "predicted": "REVIEW",
+        "correct": true
+      },
+      {
+        "case_id": "low-quality-with-defect",
+        "category": "low_image_quality",
+        "expected": "REVIEW",
+        "image_quality": 20,
+        "detections": [
+          {
+            "confidence": 0.99,
+            "size_mm": 9
+          }
+        ],
+        "predicted": "REVIEW",
+        "correct": true
+      },
+      {
+        "case_id": "quality-boundary-clean",
+        "category": "clean_surface",
+        "expected": "PASS",
+        "image_quality": 70,
+        "detections": [],
+        "predicted": "PASS",
+        "correct": true
+      },
+      {
+        "case_id": "high-quality-clean",
+        "category": "clean_surface",
+        "expected": "PASS",
+        "image_quality": 100,
+        "detections": [],
+        "predicted": "PASS",
+        "correct": true
+      },
+      {
+        "case_id": "clear-defect",
+        "category": "clear_defect",
+        "expected": "FAIL",
+        "image_quality": 90,
+        "detections": [
+          {
+            "confidence": 0.95,
+            "size_mm": 4
+          }
+        ],
+        "predicted": "FAIL",
+        "correct": true
+      },
+      {
+        "case_id": "exact-fail-boundary",
+        "category": "clear_defect",
+        "expected": "FAIL",
+        "image_quality": 70,
+        "detections": [
+          {
+            "confidence": 0.8,
+            "size_mm": 2
+          }
+        ],
+        "predicted": "FAIL",
+        "correct": true
+      },
+      {
+        "case_id": "confidence-below-boundary",
+        "category": "borderline_defect",
+        "expected": "REVIEW",
+        "image_quality": 90,
+        "detections": [
+          {
+            "confidence": 0.79,
+            "size_mm": 4
+          }
+        ],
+        "predicted": "REVIEW",
+        "correct": true
+      },
+      {
+        "case_id": "size-below-boundary",
+        "category": "borderline_defect",
+        "expected": "REVIEW",
+        "image_quality": 90,
+        "detections": [
+          {
+            "confidence": 0.95,
+            "size_mm": 1.99
+          }
+        ],
+        "predicted": "REVIEW",
+        "correct": true
+      },
+      {
+        "case_id": "split-evidence-across-detections",
+        "category": "borderline_defect",
+        "expected": "REVIEW",
+        "image_quality": 90,
+        "detections": [
+          {
+            "confidence": 0.95,
+            "size_mm": 1
+          },
+          {
+            "confidence": 0.6,
+            "size_mm": 4
+          }
+        ],
+        "predicted": "FAIL",
+        "correct": false
+      }
+    ]
+  },
+  "dataset": {
+    "archive": "train-20260810T025146Z-1-001.zip",
+    "image_count": 2983,
+    "source_counts": {
+      "car_damages": 420,
+      "car_parts": 528,
+      "cardd_train": 2035
+    },
+    "extension_counts": {
+      ".jpeg": 1,
+      ".jpg": 2134,
+      ".png": 848
+    },
+    "non_image_count": 0,
+    "annotation_status": "missing",
+    "warning": "Source prefixes are not defect ground-truth labels."
+  }
+}

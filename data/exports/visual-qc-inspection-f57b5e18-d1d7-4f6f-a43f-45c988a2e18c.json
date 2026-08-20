@@ -1,0 +1,208 @@
+{
+  "schema": "visual-qc-agent-audit/v1",
+  "exported_at": "2026-08-15T10:31:22.033890+00:00",
+  "identity": {
+    "thread_id": "f57b5e18-d1d7-4f6f-a43f-45c988a2e18c",
+    "inspection_id": "db5ec45e-8e1c-40b7-8f20-7013666b7913",
+    "vehicle_id": "UPLOAD-872844",
+    "vehicle_model": "unknown_model",
+    "status": "WAITING_FOR_HITL"
+  },
+  "evidence": {
+    "image_url": "/assets/uploads/db5ec45e-8e1c-40b7-8f20-7013666b7913/original.jpg",
+    "image_sha256": "7c9200159f494b8c8f2ef78a4d515a0facc88c6491534b2259321e9642a23dc4",
+    "camera_id": "CAM-FNS-FRONT",
+    "camera_evidence": [],
+    "panel": "unknown_panel",
+    "material": "unknown_material"
+  },
+  "model_result": {
+    "model_name": "best.pt",
+    "model_version": "cd7ae936da3e",
+    "model_task": "segment",
+    "inference_ms": 1463.9,
+    "defect_detected": false,
+    "defect_type": "none",
+    "confidence": 0.0,
+    "severity": "UNASSESSED",
+    "bbox": null,
+    "segmentation_result": null,
+    "detections": [],
+    "camera_results": [
+      {
+        "camera_id": "CAM-FNS-FRONT",
+        "image_url": "/assets/uploads/db5ec45e-8e1c-40b7-8f20-7013666b7913/original.jpg",
+        "image_width": 738,
+        "image_height": 387,
+        "defect_detected": false,
+        "detections": []
+      }
+    ],
+    "finding_groups": [],
+    "suggested_defect_codes": [],
+    "measurements": {}
+  },
+  "workflow": {
+    "assessment_route": "HITL",
+    "verify_count": 0,
+    "verify_result": "NOT_RUN",
+    "human_required": true,
+    "human_decision": null,
+    "qc_decision_record": null,
+    "execution_trace": [
+      {
+        "node": "prepare_input",
+        "status": "COMPLETED",
+        "detail": "Input validated for 1 camera view(s)."
+      },
+      {
+        "node": "detect_defect",
+        "status": "COMPLETED",
+        "detail": "best.pt returned defect_detected=False, confidence=0.00, detections=0 across 1 camera view(s); catalog_matches=0."
+      },
+      {
+        "node": "assess_result",
+        "status": "COMPLETED",
+        "detail": "Route=HITL. Policy lookup matched 1 controlled document(s), found 1 missing evidence item(s), and raised 1 document-control warning(s)."
+      }
+    ]
+  },
+  "outcome": {
+    "decision": "NO_DETECTION_REVIEW_REQUIRED",
+    "recommendation_code": null,
+    "recommendation": null,
+    "reason": "Pilot mode blocks automatic PASS when the model returns no detection.",
+    "final_status": "WAITING_FOR_HITL"
+  },
+  "policy": {
+    "policy_id": "FNS-MANUAL-001",
+    "policy_revision": "2026.08.1",
+    "policy_status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "policy_title": "Fail-safe manual visual reinspection",
+    "action_code": "MANUAL_VISUAL_REINSPECTION",
+    "action_label": "Keep the vehicle on hold and perform a new manual visual inspection",
+    "final_status": "HOLD_FOR_QC",
+    "test_drive_allowed": false,
+    "human_required": true,
+    "required_evidence": [
+      "qc_reinspection"
+    ],
+    "missing_evidence": [
+      "qc_reinspection"
+    ],
+    "required_steps": [
+      "CONTAIN_VEHICLE",
+      "RECAPTURE_EVIDENCE",
+      "QC_SIGN_OFF"
+    ],
+    "references": [
+      {
+        "id": "FNS-QC-POLICY-DEMO-2026",
+        "document_family": "FNS-QC-POLICY",
+        "revision": "2026.08.1",
+        "section": "FNS-SURFACE-001 through FNS-TREND-001",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "APPROVED",
+        "authority": "CONTROLLED_POLICY",
+        "title": "Visual QC FNS baseline demonstration policy",
+        "scope": "Temporarily approved internal baseline for demonstrating document retrieval, evidence comparison, LangGraph routing, HITL, and audit behavior. Not valid for production vehicle release.",
+        "url": "/api/policies"
+      },
+      {
+        "id": "ISO-9001-2015",
+        "document_family": "ISO-9001",
+        "revision": "2015",
+        "section": "Documented information and operational control",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Quality management systems — Requirements",
+        "scope": "Documented information, operational control, monitoring, measurement, evaluation, and improvement.",
+        "url": "https://www.iso.org/standard/62085.html"
+      }
+    ],
+    "document_review": {
+      "query": {
+        "vehicle_model": "unknown_model",
+        "panel": "unknown_panel",
+        "material": "unknown_material",
+        "defect_type": "none"
+      },
+      "roles_completed": [
+        "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+        "EXTRACT_RELEVANT_CONDITIONS",
+        "COMPARE_EVIDENCE_TO_POLICY",
+        "DETECT_MISSING_DATA",
+        "EXPLAIN_DECISION_PLAINLY",
+        "PROPOSE_APPROVED_CHECKLIST",
+        "CITE_DOCUMENT_METADATA",
+        "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+      ],
+      "matched_document_count": 1,
+      "extracted_conditions": [
+        "No context-matched controlled policy could authorize an automated disposition"
+      ],
+      "evidence_comparison": [
+        {
+          "evidence": "qc_reinspection",
+          "available": false
+        }
+      ],
+      "missing_data": [
+        "qc_reinspection"
+      ],
+      "checklist_status": "APPROVED",
+      "approved_checklist": [
+        "CONTAIN_VEHICLE",
+        "RECAPTURE_EVIDENCE",
+        "QC_SIGN_OFF"
+      ],
+      "proposed_checklist": [
+        "CONTAIN_VEHICLE",
+        "RECAPTURE_EVIDENCE",
+        "QC_SIGN_OFF"
+      ],
+      "citations": [
+        {
+          "id": "FNS-QC-POLICY-DEMO-2026",
+          "document_family": "FNS-QC-POLICY",
+          "revision": "2026.08.1",
+          "section": "FNS-SURFACE-001 through FNS-TREND-001",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "APPROVED",
+          "authority": "CONTROLLED_POLICY",
+          "title": "Visual QC FNS baseline demonstration policy",
+          "scope": "Temporarily approved internal baseline for demonstrating document retrieval, evidence comparison, LangGraph routing, HITL, and audit behavior. Not valid for production vehicle release.",
+          "url": "/api/policies"
+        },
+        {
+          "id": "ISO-9001-2015",
+          "document_family": "ISO-9001",
+          "revision": "2015",
+          "section": "Documented information and operational control",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Quality management systems — Requirements",
+          "scope": "Documented information, operational control, monitoring, measurement, evaluation, and improvement.",
+          "url": "https://www.iso.org/standard/62085.html"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "POLICY_QUERY_CONTEXT_INCOMPLETE",
+          "severity": "BLOCKING",
+          "message": "Missing policy lookup context: vehicle_model, panel, material.",
+          "document_id": null
+        }
+      ]
+    },
+    "production_eligible": false
+  },
+  "reasoning": null
+}
