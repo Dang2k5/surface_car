@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
@@ -17,6 +17,7 @@ from agent.graph.builder import build_qc_graph
 from agent.graph.state import QCState
 from agent.services.audit_export import build_audit_export
 
+from .auth import CurrentUser, get_current_user
 from .langgraph_schemas import (
     AgentGraphResponse,
     LangGraphInspectionCreate,
@@ -116,6 +117,7 @@ def _save_waiting_state(request: Request, state: dict[str, Any]) -> None:
 def run_langgraph_inspection(
     request: Request,
     payload: LangGraphInspectionCreate,
+    user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     graph = request.app.state.qc_langgraph
     thread_id = str(uuid4())
@@ -129,7 +131,11 @@ def run_langgraph_inspection(
 
 @router.post("/inspections/stream")
 @router.post("/api/langgraph/inspections/stream")
-def stream_langgraph_inspection(request: Request, payload: LangGraphInspectionCreate) -> StreamingResponse:
+def stream_langgraph_inspection(
+    request: Request,
+    payload: LangGraphInspectionCreate,
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
     """Stream one NDJSON event per executed LangGraph node, followed by final state."""
     graph = request.app.state.qc_langgraph
     thread_id = str(uuid4())
@@ -173,6 +179,7 @@ def resume_langgraph_inspection(
     request: Request,
     thread_id: str,
     payload: LangGraphResumeRequest,
+    user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     graph = request.app.state.qc_langgraph
     snapshot = graph.get_state(_config(thread_id))
@@ -282,7 +289,9 @@ def export_agent_run(request: Request, thread_id: str) -> StreamingResponse:
 
 @router.delete("/agent/runs")
 @router.delete("/api/agent/runs")
-def clear_agent_runs(request: Request) -> dict[str, Any]:
+def clear_agent_runs(
+    request: Request, user: CurrentUser = Depends(get_current_user)
+) -> dict[str, Any]:
     """Clear persisted traces and invalidate in-memory HITL checkpoints."""
     deleted = request.app.state.qc_repository.clear()
     request.app.state.qc_checkpointer = InMemorySaver()
@@ -294,6 +303,7 @@ def clear_agent_runs(request: Request) -> dict[str, Any]:
         repository=request.app.state.qc_repository,
         checkpointer=request.app.state.qc_checkpointer,
         defect_catalog=request.app.state.qc_defect_catalog,
+        vision=request.app.state.qc_vision,
     )
     return {"deleted": deleted, "status": "CLEARED"}
 
@@ -330,6 +340,7 @@ def run_uploaded_image_inspection(
     vehicle_model: str = Form("unknown_model"),
     camera_id: str = Form("cam-fns-01"),
     zone_name: str = Form("unknown_zone"),
+    user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     """Persist a validated image locally and run the configured model-backed graph."""
     allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
@@ -388,6 +399,7 @@ def run_uploaded_images_inspection(
     vehicle_id: str = Form(...),
     vehicle_model: str = Form("unknown_model"),
     zone_name: str = Form("unknown_zone"),
+    user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     """Run one vehicle inspection from one to five synchronized camera frames.
 

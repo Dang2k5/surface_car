@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 
+from .auth import CurrentUser, get_current_user
 from .qc_schemas import DefectCodeCreate, QCDecisionCreate
 
 router = APIRouter(prefix="/api/qc", tags=["QC records"])
@@ -16,7 +17,11 @@ def list_defect_codes(request: Request, active_only: bool = True) -> list[dict[s
 
 
 @router.post("/defect-codes", response_model=dict[str, Any], status_code=201)
-def create_defect_code(request: Request, payload: DefectCodeCreate) -> dict[str, Any]:
+def create_defect_code(
+    request: Request,
+    payload: DefectCodeCreate,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     try:
         return request.app.state.database.create_defect_code(payload.model_dump())
     except IntegrityError as error:
@@ -32,7 +37,11 @@ def list_qc_decisions(
 
 
 @router.post("/decisions", response_model=dict[str, Any], status_code=201)
-def create_qc_decision(request: Request, payload: QCDecisionCreate) -> dict[str, Any]:
+def create_qc_decision(
+    request: Request,
+    payload: QCDecisionCreate,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     try:
         return request.app.state.database.create_qc_decision(payload.model_dump())
     except IntegrityError as error:

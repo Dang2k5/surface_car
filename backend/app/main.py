@@ -23,9 +23,15 @@ from agent.services.reasoning import (
 )
 from agent.services.repository import SQLiteQCRepository
 from agent.services.verifier import MockVerifier, ModelVerifier
+from agent.services.vision_verifier import (
+    GroqVisionVerifierService,
+    NoopVisionVerifier,
+    UnavailableVisionVerifier,
+)
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
-from .config import AuditExportSettings, ModelSettings
+from .auth_api import router as auth_router
+from .config import AuditExportSettings, AuthSettings, ModelSettings
 from .database import DEFAULT_DATABASE_URL, Database
 from .langgraph_api import router as langgraph_router
 from .policy_api import router as policy_router
@@ -96,6 +102,12 @@ def get_database_url() -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.database = Database(get_database_url())
+    app.state.auth_settings = AuthSettings.from_env()
+    if not app.state.auth_settings.supabase_jwt_secret:
+        logger.warning(
+            "SUPABASE_JWT_SECRET is not set; RBAC enforcement is disabled and all "
+            "write endpoints accept unauthenticated requests (ENVIRONMENT.md)"
+        )
     app.state.qc_checkpointer = InMemorySaver()
     app.state.audit_export_settings = AuditExportSettings.from_env()
     app.state.qc_audit_exporter = JsonAuditExporter(
@@ -122,6 +134,27 @@ async def lifespan(app: FastAPI):
     else:
         # Deterministic mode is retained for automated tests and explicit offline diagnostics.
         app.state.qc_reasoning = DeterministicReasoningService()
+    app.state.vision_requested_provider = app.state.model_settings.vision_llm_provider
+    if (
+        app.state.model_settings.vision_llm_provider == "groq"
+        and app.state.model_settings.vision_llm_model
+        and app.state.model_settings.vision_llm_api_key
+    ):
+        app.state.qc_vision = GroqVisionVerifierService(
+            api_key=app.state.model_settings.vision_llm_api_key,
+            model=app.state.model_settings.vision_llm_model,
+        )
+    elif app.state.model_settings.vision_llm_provider:
+        logger.warning(
+            "VISION_LLM_PROVIDER=%r is set but VISION_LLM_MODEL/VISION_LLM_API_KEY is "
+            "incomplete; visual cross-check requires HITL",
+            app.state.model_settings.vision_llm_provider,
+        )
+        app.state.qc_vision = UnavailableVisionVerifier("VISION_LLM_CONFIG_INCOMPLETE")
+    else:
+        # No vision-capable model configured. Do not guess one — ENVIRONMENT.md
+        # requires an explicit VISION_LLM_MODEL before visual cross-check runs.
+        app.state.qc_vision = NoopVisionVerifier()
     if app.state.model_settings.detector_provider == "local_yolo":
         app.state.qc_detector = LocalYoloSegmentationDetector(
             app.state.model_settings.model_path,
@@ -154,6 +187,7 @@ async def lifespan(app: FastAPI):
         repository=app.state.qc_repository,
         checkpointer=app.state.qc_checkpointer,
         defect_catalog=app.state.qc_defect_catalog,
+        vision=app.state.qc_vision,
     )
     yield
     app.state.database.close()
@@ -172,6 +206,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth_router)
 app.include_router(langgraph_router)
 app.include_router(quality_alerts_router)
 app.include_router(policy_router)
@@ -193,6 +228,15 @@ def _reasoning_runtime_status() -> dict[str, object]:
     }
 
 
+def _vision_runtime_status() -> dict[str, object]:
+    service = getattr(app.state, "qc_vision", None)
+    status = service.runtime_status() if service and hasattr(service, "runtime_status") else {}
+    return {
+        **status,
+        "requested_provider": getattr(app.state, "vision_requested_provider", "starting"),
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     provider = getattr(getattr(app.state, "model_settings", None), "detector_provider", "starting")
@@ -211,4 +255,5 @@ def agent_status() -> dict[str, object]:
         "langgraph": "READY",
         "checkpointer": type(getattr(app.state, "qc_checkpointer", None)).__name__,
         "reasoning": _reasoning_runtime_status(),
+        "vision": _vision_runtime_status(),
     }

@@ -119,6 +119,13 @@ class Database:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(defect_code) REFERENCES defect_catalog(defect_code)
             )""",
+            """CREATE TABLE IF NOT EXISTS profiles (
+                user_id TEXT PRIMARY KEY,
+                email TEXT,
+                role TEXT NOT NULL DEFAULT 'QC_OPERATOR',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
             "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_vehicle_updated ON agent_graph_runs(vehicle_id, updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_vehicle_created ON qc_decisions(vehicle_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_inspection ON qc_decisions(inspection_id)",
@@ -303,6 +310,27 @@ class Database:
                 {"inspection_id": inspection_id},
             )
         return self.fetch_all("SELECT * FROM qc_decisions ORDER BY created_at DESC")
+
+    def get_or_create_profile(
+        self, user_id: str, email: str | None, default_role: str
+    ) -> dict[str, Any]:
+        """Return the profile row for `user_id`, provisioning one with `default_role`
+        on first authenticated request (ENVIRONMENT.md: DEFAULT_QC_ROLE)."""
+        existing = self.fetch_one(
+            "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
+        )
+        if existing:
+            return existing
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """INSERT INTO profiles (user_id, email, role, created_at, updated_at)
+            VALUES (:user_id, :email, :role, :created_at, :updated_at)
+            ON CONFLICT(user_id) DO NOTHING""",
+            {"user_id": user_id, "email": email, "role": default_role, "created_at": now, "updated_at": now},
+        )
+        return self.fetch_one(
+            "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
+        ) or {"user_id": user_id, "email": email, "role": default_role}
 
     def close(self) -> None:
         self.engine.dispose()

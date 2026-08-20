@@ -5,9 +5,10 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
+from .auth import CurrentUser, get_current_user
 from .langgraph_api import run_uploaded_image_inspection
 from .quality_alerts import RepetitionAlertService
 
@@ -30,6 +31,7 @@ def inspect_vehicle(
     station_id: str = Form("FNS_LINE_HA_01"),
     vehicle_model: str = Form("unknown_model"),
     zone_name: str = Form("unknown_zone"),
+    user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Compatibility contract backed by the production LangGraph workflow."""
     run = run_uploaded_image_inspection(
