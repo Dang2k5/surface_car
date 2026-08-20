@@ -279,6 +279,16 @@ async def test_web_image_upload_is_validated_saved_and_sent_to_graph(tmp_path, m
             assert evidence.status_code == 200
             assert evidence.content == ONE_PIXEL_PNG
 
+            # FR-17: overlay/crop/mask renders of the primary detection are
+            # stored in object storage and served back through the same proxy.
+            for field in ("overlay_image_url", "crop_image_url", "mask_image_url"):
+                assert state[field].startswith("/assets/objects/inspections/")
+                rendered = await client.get(state[field])
+                assert rendered.status_code == 200
+                assert rendered.headers["content-type"] == "image/png"
+            primary_defect = next(item for item in state["enriched_defects"] if item["is_primary"])
+            assert primary_defect["overlay_image_url"] == state["overlay_image_url"]
+
 
 @pytest.mark.asyncio
 async def test_v1_inspect_contract_wraps_the_langgraph_workflow(tmp_path, monkeypatch):
@@ -360,6 +370,10 @@ async def test_multi_camera_upload_runs_one_aggregated_vehicle_inspection(tmp_pa
                 assert not Path(item["image_path"]).exists()
                 evidence = await client.get(item["image_url"])
                 assert evidence.status_code == 200
+            # Overlay/crop/mask are rendered from the primary defect's own
+            # camera image, not always camera[0].
+            overlay = await client.get(state["overlay_image_url"])
+            assert overlay.status_code == 200
 
 
 @pytest.mark.asyncio

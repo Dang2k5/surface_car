@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from langgraph.types import Command
 from agent.graph.builder import build_qc_graph
 from agent.graph.state import QCState
 from agent.services.audit_export import build_audit_export
+from agent.services.image_render import render_defect_images
 
 from .auth import CurrentUser, get_current_user
 from .langgraph_schemas import (
@@ -27,6 +29,7 @@ from .langgraph_schemas import (
     LangGraphRunResponse,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["LangGraph Visual QC"])
 
 
@@ -131,6 +134,43 @@ def _write_scratch_image(data: bytes, suffix: str) -> Path:
     with os.fdopen(fd, "wb") as handle:
         handle.write(data)
     return path
+
+
+def _attach_rendered_defect_images(
+    request: Request,
+    state: dict[str, Any],
+    inspection_id: str,
+    scratch_path_by_camera: dict[str, Path],
+) -> None:
+    """Render overlay/crop/mask PNGs for the primary detection and store them
+    in object storage (FR-17, API_CONTRACT.md). No-op when there is nothing
+    to render, and never fails the inspection response if rendering fails."""
+    primary_detection_id = state.get("primary_detection_id")
+    if not primary_detection_id:
+        return
+    detection = next(
+        (item for item in state.get("detections") or [] if item.get("detection_id") == primary_detection_id),
+        None,
+    )
+    if detection is None:
+        return
+    scratch_path = scratch_path_by_camera.get(str(detection.get("camera_id")))
+    if scratch_path is None:
+        return
+    try:
+        rendered = render_defect_images(scratch_path, detection)
+    except Exception:
+        logger.warning("Could not render overlay/crop/mask images for inspection %s", inspection_id, exc_info=True)
+        return
+    urls = {}
+    for name, content in rendered.items():
+        object_key = f"inspections/{inspection_id}/{name}.png"
+        request.app.state.object_storage.put(object_key, content, "image/png")
+        urls[f"{name}_image_url"] = f"/assets/objects/{object_key}"
+    state.update(urls)
+    for item in state.get("enriched_defects") or []:
+        if item.get("detection_id") == primary_detection_id:
+            item.update(urls)
 
 
 @router.post("/inspections", response_model=LangGraphRunResponse, status_code=201)
@@ -410,8 +450,13 @@ def run_uploaded_image_inspection(
         graph = request.app.state.qc_langgraph
         result = graph.invoke(initial_state, config=_config(thread_id))
         response = _graph_response(graph, thread_id, result)
+        _attach_rendered_defect_images(
+            request, response.state, inspection_id, {camera_id: scratch_path}
+        )
         if response.status == "INTERRUPTED":
             _save_waiting_state(request, response.state)
+        else:
+            request.app.state.qc_repository.save(response.state)
         return response
     finally:
         scratch_path.unlink(missing_ok=True)
@@ -512,8 +557,15 @@ def run_uploaded_images_inspection(
         graph = request.app.state.qc_langgraph
         result = graph.invoke(initial_state, config=_config(thread_id))
         response = _graph_response(graph, thread_id, result)
+        scratch_path_by_camera = {
+            item["camera_id"]: scratch_path
+            for item, scratch_path in zip(camera_evidence, scratch_paths, strict=True)
+        }
+        _attach_rendered_defect_images(request, response.state, inspection_id, scratch_path_by_camera)
         if response.status == "INTERRUPTED":
             _save_waiting_state(request, response.state)
+        else:
+            request.app.state.qc_repository.save(response.state)
         return response
     finally:
         for scratch_path in scratch_paths:

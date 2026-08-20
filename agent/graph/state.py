@@ -37,6 +37,9 @@ class QCState(TypedDict, total=False):
     detections: list[dict[str, Any]]
     primary_detection_id: str | None
     enriched_defects: list[dict[str, Any]]
+    overlay_image_url: str | None
+    crop_image_url: str | None
+    mask_image_url: str | None
     raw_class_name: str | None
     image_width: int
     image_height: int
