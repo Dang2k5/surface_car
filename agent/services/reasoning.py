@@ -332,6 +332,8 @@ class GroqReasoningService:
                 "severity": state.get("severity"),
                 "verify_result": state.get("verify_result"),
                 "similar_defect_warning": state.get("similar_defect_warning"),
+                "total_camera_views": len(state.get("camera_results") or []) or 1,
+                "cross_camera_findings": state.get("finding_groups") or [],
             },
             "controlled_policy_context": policy.model_dump(mode="json"),
             "allowed_decision": {
@@ -348,6 +350,9 @@ class GroqReasoningService:
                 "Explain the exact policy status and approval scope; demo approval is not production release authority.",
                 "Return concise Vietnamese and English summaries.",
                 "Explain the selected defect code, confidence, estimated length, location, action plan, and warnings when present.",
+                "When cross_camera_findings shows the same defect_type observed on more than one "
+                "camera_id, mention that in the summary as a candidate multi-view observation "
+                "requiring QC confirmation (do not claim it is physically deduplicated).",
             ],
         }
         try:

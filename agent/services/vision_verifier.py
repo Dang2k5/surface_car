@@ -9,7 +9,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel
 
 from agent.graph.state import QCState
-from agent.services.image_source import primary_image_source, resolve_local_path
+from agent.services.image_source import camera_image_source, resolve_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,10 @@ class GroqVisionVerifierService:
         self.last_error = type(error).__name__
 
     def _load_image_data_uri(self, state: QCState) -> str:
-        source = primary_image_source(state)
+        # Verify the exact camera view the primary (most severe) defect came
+        # from, not just the first submitted camera — otherwise a multi-camera
+        # inspection can cross-check the wrong image entirely.
+        source = camera_image_source(state, state.get("camera_id"))
         local_path = resolve_local_path(source)
         if local_path is None or not local_path.is_file():
             raise VisionUnavailableError("VISION_LLM_IMAGE_SOURCE_UNAVAILABLE")

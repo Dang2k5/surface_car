@@ -35,6 +35,7 @@ class QCState(TypedDict, total=False):
     segmentation_result: dict[str, Any] | None
     visual_measurements: dict[str, float | str]
     detections: list[dict[str, Any]]
+    primary_detection_id: str | None
     enriched_defects: list[dict[str, Any]]
     raw_class_name: str | None
     image_width: int

@@ -187,6 +187,7 @@ class LocalYoloSegmentationDetector:
                     )
                     camera_detections.append(
                         {
+                            "detection_id": f"{camera['camera_id']}::{index}",
                             "camera_id": camera["camera_id"],
                             "class_id": class_id,
                             "raw_class_name": raw_name,
@@ -241,6 +242,8 @@ class LocalYoloSegmentationDetector:
             "detections": detections,
             "camera_results": camera_results,
             "finding_groups": _group_findings(detections),
+            "camera_id": primary_camera["camera_id"],
+            "primary_detection_id": primary["detection_id"] if primary else None,
             "image_width": primary_camera["image_width"],
             "image_height": primary_camera["image_height"],
             "model_name": self.model_path.name,

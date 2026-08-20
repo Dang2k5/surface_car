@@ -233,7 +233,7 @@ class QCState(TypedDict):
 - `vehicle_id`: mã kỹ thuật bắt buộc để theo dõi một xe/phiên trong hệ thống.
 - `lot_id`, `shift_id`, `production_date`, `station_id`: metadata nghiệp vụ cho Historical Trend (`PRD.md` §6.3); `lot_id`/`shift_id` là tùy chọn ở các luồng chưa gắn lô/ca.
 - `zone_name`: vùng kiểm tra tương đối hoặc khu vực camera quan sát.
-- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), `visual_assessment` (Multimodal LLM), zone và metadata vận hành.
+- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), `visual_assessment` (Multimodal LLM), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` xác định finding nào dẫn dắt `assess_result`/policy/vision cross-check. Các finding không phải primary có `severity_rank = "UNCLASSIFIED_SECONDARY_FINDING"` vì chưa được QC Rules phân loại — không suy diễn severity của primary sang các finding khác.
 - `severity` là mức độ tổng thể duy nhất; không tạo thêm alias `overall_severity_rank`.
 - `recommendation_code`: mã hành động chuẩn duy nhất trong `QCState`; `recommendation` là mô tả dễ đọc.
 - `recommended_plan` chỉ tồn tại ở response `/api/v1/inspect` để tương thích client cũ. `final_action` không còn thuộc contract.

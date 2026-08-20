@@ -73,6 +73,7 @@ class MockDetector:
             camera_detection["detections"] = []
             if base["defect_detected"]:
                 item = {
+                    "detection_id": f"{camera['camera_id']}::0",
                     "camera_id": str(camera["camera_id"]),
                     "class_name": base["defect_type"],
                     "raw_class_name": base["defect_type"],
@@ -94,11 +95,15 @@ class MockDetector:
                 ),
             }
         ] if detections else []
+        primary_camera_id = str(detections[0]["camera_id"]) if detections else str(cameras[0]["camera_id"])
+        primary_detection_id = detections[0]["detection_id"] if detections else None
         return {
             **base,
             "detections": detections,
             "camera_results": camera_results,
             "finding_groups": groups,
+            "camera_id": primary_camera_id,
+            "primary_detection_id": primary_detection_id,
             "image_width": 640,
             "image_height": 640,
             "inference_status": "SUCCESS",

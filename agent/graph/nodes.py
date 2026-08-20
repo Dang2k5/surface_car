@@ -420,8 +420,14 @@ class QCNodes:
 
 
 def _enrich_defects(state: QCState) -> list[dict[str, Any]]:
-    """Add context and preserve the detector's explicit calibration provenance."""
+    """Add context and preserve the detector's explicit calibration provenance.
+
+    Only the primary detection (the one that drove assess_result/policy) is
+    classified into a QC severity; a fabricated severity must never be
+    attributed to the other camera views' findings.
+    """
     zone_name = str(state.get("zone_name") or "unknown_zone")
+    primary_detection_id = state.get("primary_detection_id")
     return [
         {
             **item,
@@ -443,7 +449,12 @@ def _enrich_defects(state: QCState) -> list[dict[str, Any]]:
             "calibration_profile_id": item.get("visual_measurements", {}).get(
                 "calibration_profile_id"
             ),
-            "severity_rank": state.get("severity") or "UNASSESSED",
+            "severity_rank": (
+                state.get("severity") or "UNASSESSED"
+                if item.get("detection_id") == primary_detection_id
+                else "UNCLASSIFIED_SECONDARY_FINDING"
+            ),
+            "is_primary": item.get("detection_id") == primary_detection_id,
         }
         for item in state.get("detections", [])
     ]

@@ -55,6 +55,16 @@ def primary_image_source(state: QCState) -> str:
     return resolve_image_source(evidence["image_path"] or None, evidence["image_url"])
 
 
+def camera_image_source(state: QCState, camera_id: str | None) -> str:
+    """Resolve the image source for `camera_id` (the camera that produced the
+    primary defect). Falls back to the first submitted camera when `camera_id`
+    is unset or does not match any submitted evidence."""
+    evidence = camera_evidence(state)
+    match = next((item for item in evidence if item["camera_id"] == camera_id), None)
+    chosen = match or evidence[0]
+    return resolve_image_source(chosen["image_path"] or None, chosen["image_url"])
+
+
 def resolve_local_path(source: str) -> Path | None:
     """Return a local filesystem Path for `source` if it is not a remote http(s) URL."""
     parsed = urlparse(source)
@@ -67,5 +77,6 @@ __all__: tuple[str, ...] = (
     "camera_evidence",
     "resolve_image_source",
     "primary_image_source",
+    "camera_image_source",
     "resolve_local_path",
 )
