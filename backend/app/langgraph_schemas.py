@@ -9,6 +9,10 @@ class LangGraphInspectionCreate(BaseModel):
     inspection_id: str | None = None
     vehicle_id: str = Field(min_length=1, max_length=32)
     vehicle_model: str = Field(default="unknown_model", min_length=1, max_length=100)
+    lot_id: str | None = Field(default=None, max_length=100)
+    shift_id: str | None = Field(default=None, max_length=100)
+    production_date: str | None = Field(default=None, max_length=10)
+    station_id: str = Field(default="FNS_LINE_HA_01", min_length=1, max_length=100)
     image_url: str | None = None
     image_paths: list[str] = Field(default_factory=list)
     camera_id: str = Field(default="cam-fns-01", min_length=1, max_length=100)

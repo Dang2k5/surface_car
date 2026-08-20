@@ -84,6 +84,11 @@ class Database:
                 inspection_id TEXT NOT NULL,
                 vehicle_id TEXT NOT NULL,
                 status TEXT NOT NULL,
+                lot_id TEXT,
+                shift_id TEXT,
+                station_id TEXT,
+                production_date TEXT,
+                defect_type TEXT,
                 state_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""",
@@ -137,6 +142,10 @@ class Database:
         self.execute(
             "CREATE INDEX IF NOT EXISTS idx_defect_catalog_cv_label ON defect_catalog(cv_label, active)"
         )
+        self.execute(
+            """CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_trend
+            ON agent_graph_runs(station_id, shift_id, lot_id, production_date)"""
+        )
         self._seed_defect_catalog()
 
     def _ensure_columns(self) -> None:
@@ -155,6 +164,16 @@ class Database:
             "location": "TEXT NOT NULL DEFAULT ''",
             "length_mm": "REAL",
         }
+        run_existing = {
+            column["name"] for column in inspect(self.engine).get_columns("agent_graph_runs")
+        }
+        run_columns = {
+            "lot_id": "TEXT",
+            "shift_id": "TEXT",
+            "station_id": "TEXT",
+            "production_date": "TEXT",
+            "defect_type": "TEXT",
+        }
         with self.begin() as connection:
             for name, ddl in defect_columns.items():
                 if name not in existing:
@@ -165,6 +184,9 @@ class Database:
             for obsolete in ("panel", "material"):
                 if obsolete in decision_existing:
                     connection.execute(text(f"ALTER TABLE qc_decisions DROP COLUMN {obsolete}"))
+            for name, ddl in run_columns.items():
+                if name not in run_existing:
+                    connection.execute(text(f"ALTER TABLE agent_graph_runs ADD COLUMN {name} {ddl}"))
 
     def _seed_defect_catalog(self) -> None:
         now = datetime.now(UTC).isoformat()
@@ -331,6 +353,84 @@ class Database:
         return self.fetch_one(
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
         ) or {"user_id": user_id, "email": email, "role": default_role}
+
+    _TREND_GROUP_EXPRESSIONS = {
+        "hour": "substr(updated_at, 1, 13)",
+        "day": "COALESCE(production_date, substr(updated_at, 1, 10))",
+        "shift": "COALESCE(shift_id, 'UNASSIGNED')",
+        "lot": "COALESCE(lot_id, 'UNASSIGNED')",
+    }
+
+    def get_trend(
+        self,
+        *,
+        group_by: str,
+        shift_id: str | None = None,
+        lot_id: str | None = None,
+        station_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Historical Trend aggregation (PRD.md §6.3 / API_CONTRACT.md §7.5).
+
+        Separate from the realtime Sliding Window anomaly engine: this reads
+        the latest persisted run per vehicle and groups it by hour/shift/lot/day.
+        """
+        group_expr = self._TREND_GROUP_EXPRESSIONS.get(group_by)
+        if group_expr is None:
+            raise ValueError(f"Unsupported group_by={group_by!r}")
+        clauses: list[str] = []
+        params: dict[str, Any] = {}
+        if shift_id:
+            clauses.append("shift_id = :shift_id")
+            params["shift_id"] = shift_id
+        if lot_id:
+            clauses.append("lot_id = :lot_id")
+            params["lot_id"] = lot_id
+        if station_id:
+            clauses.append("station_id = :station_id")
+            params["station_id"] = station_id
+        if date_from:
+            clauses.append("COALESCE(production_date, substr(updated_at, 1, 10)) >= :date_from")
+            params["date_from"] = date_from
+        if date_to:
+            clauses.append("COALESCE(production_date, substr(updated_at, 1, 10)) <= :date_to")
+            params["date_to"] = date_to
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.fetch_all(
+            f"""SELECT
+                {group_expr} AS group_value,
+                COUNT(*) AS total_inspections,
+                SUM(CASE WHEN defect_type = 'scratch' THEN 1 ELSE 0 END) AS scratch_count,
+                SUM(CASE WHEN defect_type = 'dent' THEN 1 ELSE 0 END) AS dent_count,
+                SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) AS pass_count
+            FROM agent_graph_runs
+            {where}
+            GROUP BY group_value
+            ORDER BY group_value""",
+            params,
+        )
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            total = row["total_inspections"] or 0
+            scratch = row["scratch_count"] or 0
+            dent = row["dent_count"] or 0
+            passed = row["pass_count"] or 0
+            results.append(
+                {
+                    "group_by": group_by,
+                    "group_value": row["group_value"],
+                    "total_inspections": total,
+                    "scratch_count": scratch,
+                    "dent_count": dent,
+                    "pass_count": passed,
+                    "fail_count": total - passed,
+                    "scratch_rate": round(scratch / total, 4) if total else 0.0,
+                    "dent_rate": round(dent / total, 4) if total else 0.0,
+                    "pass_fail_rate": round(passed / total, 4) if total else 0.0,
+                }
+            )
+        return results
 
     def close(self) -> None:
         self.engine.dispose()

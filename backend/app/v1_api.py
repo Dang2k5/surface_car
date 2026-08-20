@@ -31,6 +31,9 @@ def inspect_vehicle(
     station_id: str = Form("FNS_LINE_HA_01"),
     vehicle_model: str = Form("unknown_model"),
     zone_name: str = Form("unknown_zone"),
+    lot_id: str | None = Form(default=None),
+    shift_id: str | None = Form(default=None),
+    production_date: str | None = Form(default=None),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Compatibility contract backed by the production LangGraph workflow."""
@@ -41,6 +44,10 @@ def inspect_vehicle(
         vehicle_model=vehicle_model,
         camera_id=station_id,
         zone_name=zone_name,
+        lot_id=lot_id,
+        shift_id=shift_id,
+        production_date=production_date,
+        station_id=station_id,
     )
     state = run.state
     summary = _alert_service(request).analyze()

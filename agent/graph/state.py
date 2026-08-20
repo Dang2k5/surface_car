@@ -17,6 +17,10 @@ class QCState(TypedDict, total=False):
     thread_id: str
     vehicle_id: str
     vehicle_model: str
+    lot_id: str | None
+    shift_id: str | None
+    production_date: str | None
+    station_id: str
     image_url: str
     image_paths: list[str]
     camera_id: str

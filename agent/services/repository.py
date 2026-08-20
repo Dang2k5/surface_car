@@ -82,12 +82,19 @@ class SQLiteQCRepository:
             connection.execute(
                 text(
                     """INSERT INTO agent_graph_runs
-                    (thread_id, inspection_id, vehicle_id, status, state_json, updated_at)
-                    VALUES (:thread_id, :inspection_id, :vehicle_id, :status, :state_json, :updated_at)
+                    (thread_id, inspection_id, vehicle_id, status, lot_id, shift_id,
+                     station_id, production_date, defect_type, state_json, updated_at)
+                    VALUES (:thread_id, :inspection_id, :vehicle_id, :status, :lot_id, :shift_id,
+                            :station_id, :production_date, :defect_type, :state_json, :updated_at)
                     ON CONFLICT(thread_id) DO UPDATE SET
                         inspection_id = excluded.inspection_id,
                         vehicle_id = excluded.vehicle_id,
                         status = excluded.status,
+                        lot_id = excluded.lot_id,
+                        shift_id = excluded.shift_id,
+                        station_id = excluded.station_id,
+                        production_date = excluded.production_date,
+                        defect_type = excluded.defect_type,
                         state_json = excluded.state_json,
                         updated_at = excluded.updated_at"""
                 ),
@@ -96,6 +103,11 @@ class SQLiteQCRepository:
                     "inspection_id": state["inspection_id"],
                     "vehicle_id": state["vehicle_id"],
                     "status": state.get("final_status", "UNKNOWN"),
+                    "lot_id": state.get("lot_id"),
+                    "shift_id": state.get("shift_id"),
+                    "station_id": state.get("station_id"),
+                    "production_date": state.get("production_date"),
+                    "defect_type": state.get("defect_type"),
                     "state_json": json.dumps(state),
                     "updated_at": datetime.now(UTC).isoformat(),
                 },
