@@ -1,0 +1,2310 @@
+{
+  "schema": "visual-qc-agent-audit/v1",
+  "exported_at": "2026-08-21T15:50:36.364161+00:00",
+  "identity": {
+    "thread_id": "2c827a46-6cb0-47f6-91b0-fdc43740a6e7",
+    "inspection_id": "be6f2430-ac69-4b7a-b19a-29018fa6a446",
+    "vehicle_id": "VIN-005",
+    "vehicle_model": "VIN",
+    "status": "WAITING_FOR_HITL"
+  },
+  "evidence": {
+    "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-1.jpg",
+    "image_sha256": "ed14e8d311031e3537cc0c627eb59111328431820ac85398950b016e93aa5f09",
+    "camera_id": "CAM-04",
+    "camera_evidence": [
+      {
+        "camera_id": "CAM-01",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-1.jpg",
+        "image_sha256": "ed14e8d311031e3537cc0c627eb59111328431820ac85398950b016e93aa5f09"
+      },
+      {
+        "camera_id": "CAM-02",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-2.jpg",
+        "image_sha256": "cdde3ded209b680498e04f307f9085a9af1c0dc28917fa799223b9669c12c4a8"
+      },
+      {
+        "camera_id": "CAM-03",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-3.jpg",
+        "image_sha256": "d908765f23eff6c8bcc06a8ee4ae69cbdb0dcc6159e6ea35f826a09d785c1d23"
+      },
+      {
+        "camera_id": "CAM-04",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-4.jpg",
+        "image_sha256": "8c5d38b571b85461a85b000d90e1af2c87a101556822173520e461c9027bbbe6"
+      },
+      {
+        "camera_id": "CAM-05",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-5.jpg",
+        "image_sha256": "6435e06d4d1ef3f40c9c9511a330ca31c6d1bf197a5029b56960e2d960478448"
+      }
+    ],
+    "zone_name": "Cửa trái"
+  },
+  "model_result": {
+    "model_name": "best.pt",
+    "model_version": "ca4fc8558947",
+    "model_task": "segment",
+    "inference_ms": 6335.1,
+    "defect_detected": true,
+    "defect_type": "scratch",
+    "confidence": 0.832587,
+    "severity": "B",
+    "bbox": {
+      "x1": 384.59,
+      "y1": 646.39,
+      "x2": 517.9,
+      "y2": 679.76
+    },
+    "segmentation_result": {
+      "format": "polygon",
+      "points": [
+        [
+          386.1,
+          648.0
+        ],
+        [
+          386.1,
+          650.7
+        ],
+        [
+          394.2,
+          650.7
+        ],
+        [
+          396.9,
+          653.4
+        ],
+        [
+          402.3,
+          653.4
+        ],
+        [
+          405.0,
+          656.1
+        ],
+        [
+          410.4,
+          656.1
+        ],
+        [
+          413.1,
+          658.8
+        ],
+        [
+          423.9,
+          658.8
+        ],
+        [
+          426.6,
+          661.5
+        ],
+        [
+          437.4,
+          661.5
+        ],
+        [
+          440.1,
+          664.2
+        ],
+        [
+          448.2,
+          664.2
+        ],
+        [
+          450.9,
+          666.9
+        ],
+        [
+          456.3,
+          666.9
+        ],
+        [
+          459.0,
+          669.6
+        ],
+        [
+          467.1,
+          669.6
+        ],
+        [
+          469.8,
+          672.3
+        ],
+        [
+          480.6,
+          672.3
+        ],
+        [
+          483.3,
+          675.0
+        ],
+        [
+          488.7,
+          675.0
+        ],
+        [
+          491.4,
+          677.7
+        ],
+        [
+          515.7,
+          677.7
+        ],
+        [
+          513.0,
+          677.7
+        ],
+        [
+          510.3,
+          675.0
+        ],
+        [
+          504.9,
+          675.0
+        ],
+        [
+          499.5,
+          669.6
+        ],
+        [
+          494.1,
+          669.6
+        ],
+        [
+          491.4,
+          666.9
+        ],
+        [
+          486.0,
+          666.9
+        ],
+        [
+          483.3,
+          664.2
+        ],
+        [
+          477.9,
+          664.2
+        ],
+        [
+          475.2,
+          661.5
+        ],
+        [
+          472.5,
+          661.5
+        ],
+        [
+          469.8,
+          658.8
+        ],
+        [
+          464.4,
+          658.8
+        ],
+        [
+          461.7,
+          656.1
+        ],
+        [
+          450.9,
+          656.1
+        ],
+        [
+          448.2,
+          653.4
+        ],
+        [
+          442.8,
+          653.4
+        ],
+        [
+          440.1,
+          650.7
+        ],
+        [
+          434.7,
+          650.7
+        ],
+        [
+          432.0,
+          648.0
+        ]
+      ]
+    },
+    "detections": [
+      {
+        "detection_id": "CAM-01::0",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.27324,
+        "bbox": {
+          "x1": 1354.4,
+          "y1": 661.39,
+          "x2": 1404.72,
+          "y2": 680.43
+        },
+        "visual_measurements": {
+          "width_px": 50.32,
+          "height_px": 19.04,
+          "bbox_area_px": 958.3,
+          "mask_area_px": 703.49,
+          "image_area_ratio": 0.000481,
+          "center_x_ratio": 0.798358,
+          "center_y_ratio": 0.582389,
+          "relative_position": "middle_right",
+          "estimated_width_mm": 40.25,
+          "estimated_height_mm": 15.24,
+          "estimated_length_mm": 40.25,
+          "estimated_bbox_area_mm2": 613.31,
+          "estimated_mask_area_mm2": 450.23,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              1374.3,
+              661.5
+            ],
+            [
+              1368.9,
+              666.9
+            ],
+            [
+              1366.2,
+              666.9
+            ],
+            [
+              1363.5,
+              669.6
+            ],
+            [
+              1358.1,
+              669.6
+            ],
+            [
+              1355.4,
+              672.3
+            ],
+            [
+              1355.4,
+              680.4
+            ],
+            [
+              1371.6,
+              680.4
+            ],
+            [
+              1374.3,
+              677.7
+            ],
+            [
+              1382.4,
+              677.7
+            ],
+            [
+              1385.1,
+              680.4
+            ],
+            [
+              1387.8,
+              680.4
+            ],
+            [
+              1390.5,
+              677.7
+            ],
+            [
+              1404.0,
+              677.7
+            ],
+            [
+              1404.0,
+              666.9
+            ],
+            [
+              1401.3,
+              666.9
+            ],
+            [
+              1395.9,
+              661.5
+            ]
+          ]
+        }
+      },
+      {
+        "detection_id": "CAM-03::0",
+        "camera_id": "CAM-03",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.324843,
+        "bbox": {
+          "x1": 158.56,
+          "y1": 295.82,
+          "x2": 239.46,
+          "y2": 311.09
+        },
+        "visual_measurements": {
+          "width_px": 80.91,
+          "height_px": 15.27,
+          "bbox_area_px": 1235.67,
+          "mask_area_px": 911.25,
+          "image_area_ratio": 0.000621,
+          "center_x_ratio": 0.115168,
+          "center_y_ratio": 0.263418,
+          "relative_position": "upper_left",
+          "estimated_width_mm": 64.72,
+          "estimated_height_mm": 12.22,
+          "estimated_length_mm": 64.72,
+          "estimated_bbox_area_mm2": 790.83,
+          "estimated_mask_area_mm2": 583.2,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              159.3,
+              297.0
+            ],
+            [
+              159.3,
+              305.1
+            ],
+            [
+              162.0,
+              305.1
+            ],
+            [
+              164.7,
+              307.8
+            ],
+            [
+              186.3,
+              307.8
+            ],
+            [
+              189.0,
+              310.5
+            ],
+            [
+              237.6,
+              310.5
+            ],
+            [
+              237.6,
+              302.4
+            ],
+            [
+              232.2,
+              302.4
+            ],
+            [
+              229.5,
+              299.7
+            ],
+            [
+              224.1,
+              299.7
+            ],
+            [
+              221.4,
+              297.0
+            ]
+          ]
+        }
+      },
+      {
+        "detection_id": "CAM-04::0",
+        "camera_id": "CAM-04",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.832587,
+        "bbox": {
+          "x1": 384.59,
+          "y1": 646.39,
+          "x2": 517.9,
+          "y2": 679.76
+        },
+        "visual_measurements": {
+          "width_px": 133.31,
+          "height_px": 33.37,
+          "bbox_area_px": 4448.58,
+          "mask_area_px": 1133.6,
+          "image_area_ratio": 0.002235,
+          "center_x_ratio": 0.261138,
+          "center_y_ratio": 0.575588,
+          "relative_position": "middle_left",
+          "estimated_width_mm": 106.65,
+          "estimated_height_mm": 26.7,
+          "estimated_length_mm": 106.65,
+          "estimated_bbox_area_mm2": 2847.09,
+          "estimated_mask_area_mm2": 725.5,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              386.1,
+              648.0
+            ],
+            [
+              386.1,
+              650.7
+            ],
+            [
+              394.2,
+              650.7
+            ],
+            [
+              396.9,
+              653.4
+            ],
+            [
+              402.3,
+              653.4
+            ],
+            [
+              405.0,
+              656.1
+            ],
+            [
+              410.4,
+              656.1
+            ],
+            [
+              413.1,
+              658.8
+            ],
+            [
+              423.9,
+              658.8
+            ],
+            [
+              426.6,
+              661.5
+            ],
+            [
+              437.4,
+              661.5
+            ],
+            [
+              440.1,
+              664.2
+            ],
+            [
+              448.2,
+              664.2
+            ],
+            [
+              450.9,
+              666.9
+            ],
+            [
+              456.3,
+              666.9
+            ],
+            [
+              459.0,
+              669.6
+            ],
+            [
+              467.1,
+              669.6
+            ],
+            [
+              469.8,
+              672.3
+            ],
+            [
+              480.6,
+              672.3
+            ],
+            [
+              483.3,
+              675.0
+            ],
+            [
+              488.7,
+              675.0
+            ],
+            [
+              491.4,
+              677.7
+            ],
+            [
+              515.7,
+              677.7
+            ],
+            [
+              513.0,
+              677.7
+            ],
+            [
+              510.3,
+              675.0
+            ],
+            [
+              504.9,
+              675.0
+            ],
+            [
+              499.5,
+              669.6
+            ],
+            [
+              494.1,
+              669.6
+            ],
+            [
+              491.4,
+              666.9
+            ],
+            [
+              486.0,
+              666.9
+            ],
+            [
+              483.3,
+              664.2
+            ],
+            [
+              477.9,
+              664.2
+            ],
+            [
+              475.2,
+              661.5
+            ],
+            [
+              472.5,
+              661.5
+            ],
+            [
+              469.8,
+              658.8
+            ],
+            [
+              464.4,
+              658.8
+            ],
+            [
+              461.7,
+              656.1
+            ],
+            [
+              450.9,
+              656.1
+            ],
+            [
+              448.2,
+              653.4
+            ],
+            [
+              442.8,
+              653.4
+            ],
+            [
+              440.1,
+              650.7
+            ],
+            [
+              434.7,
+              650.7
+            ],
+            [
+              432.0,
+              648.0
+            ]
+          ]
+        }
+      },
+      {
+        "detection_id": "CAM-04::1",
+        "camera_id": "CAM-04",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.594555,
+        "bbox": {
+          "x1": 369.95,
+          "y1": 911.51,
+          "x2": 435.13,
+          "y2": 952.96
+        },
+        "visual_measurements": {
+          "width_px": 65.17,
+          "height_px": 41.45,
+          "bbox_area_px": 2701.47,
+          "mask_area_px": 710.78,
+          "image_area_ratio": 0.001357,
+          "center_x_ratio": 0.232952,
+          "center_y_ratio": 0.809233,
+          "relative_position": "lower_left",
+          "estimated_width_mm": 52.14,
+          "estimated_height_mm": 33.16,
+          "estimated_length_mm": 52.14,
+          "estimated_bbox_area_mm2": 1728.94,
+          "estimated_mask_area_mm2": 454.9,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              415.8,
+              912.6
+            ],
+            [
+              413.1,
+              915.3
+            ],
+            [
+              410.4,
+              915.3
+            ],
+            [
+              405.0,
+              920.7
+            ],
+            [
+              402.3,
+              920.7
+            ],
+            [
+              396.9,
+              926.1
+            ],
+            [
+              394.2,
+              926.1
+            ],
+            [
+              391.5,
+              928.8
+            ],
+            [
+              388.8,
+              928.8
+            ],
+            [
+              383.4,
+              934.2
+            ],
+            [
+              380.7,
+              934.2
+            ],
+            [
+              372.6,
+              942.3
+            ],
+            [
+              372.6,
+              950.4
+            ],
+            [
+              375.3,
+              950.4
+            ],
+            [
+              378.0,
+              947.7
+            ],
+            [
+              380.7,
+              947.7
+            ],
+            [
+              386.1,
+              942.3
+            ],
+            [
+              388.8,
+              942.3
+            ],
+            [
+              391.5,
+              939.6
+            ],
+            [
+              396.9,
+              939.6
+            ],
+            [
+              399.6,
+              936.9
+            ],
+            [
+              402.3,
+              936.9
+            ],
+            [
+              407.7,
+              931.5
+            ],
+            [
+              410.4,
+              931.5
+            ],
+            [
+              413.1,
+              928.8
+            ],
+            [
+              415.8,
+              928.8
+            ],
+            [
+              423.9,
+              920.7
+            ],
+            [
+              426.6,
+              920.7
+            ],
+            [
+              434.7,
+              912.6
+            ]
+          ]
+        }
+      }
+    ],
+    "enriched_defects": [
+      {
+        "detection_id": "CAM-01::0",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.27324,
+        "bbox": {
+          "x1": 1354.4,
+          "y1": 661.39,
+          "x2": 1404.72,
+          "y2": 680.43
+        },
+        "visual_measurements": {
+          "width_px": 50.32,
+          "height_px": 19.04,
+          "bbox_area_px": 958.3,
+          "mask_area_px": 703.49,
+          "image_area_ratio": 0.000481,
+          "center_x_ratio": 0.798358,
+          "center_y_ratio": 0.582389,
+          "relative_position": "middle_right",
+          "estimated_width_mm": 40.25,
+          "estimated_height_mm": 15.24,
+          "estimated_length_mm": 40.25,
+          "estimated_bbox_area_mm2": 613.31,
+          "estimated_mask_area_mm2": 450.23,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              1374.3,
+              661.5
+            ],
+            [
+              1368.9,
+              666.9
+            ],
+            [
+              1366.2,
+              666.9
+            ],
+            [
+              1363.5,
+              669.6
+            ],
+            [
+              1358.1,
+              669.6
+            ],
+            [
+              1355.4,
+              672.3
+            ],
+            [
+              1355.4,
+              680.4
+            ],
+            [
+              1371.6,
+              680.4
+            ],
+            [
+              1374.3,
+              677.7
+            ],
+            [
+              1382.4,
+              677.7
+            ],
+            [
+              1385.1,
+              680.4
+            ],
+            [
+              1387.8,
+              680.4
+            ],
+            [
+              1390.5,
+              677.7
+            ],
+            [
+              1404.0,
+              677.7
+            ],
+            [
+              1404.0,
+              666.9
+            ],
+            [
+              1401.3,
+              666.9
+            ],
+            [
+              1395.9,
+              661.5
+            ]
+          ]
+        },
+        "zone_name": "Cửa trái",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 40.25,
+        "estimated_height_mm": 15.24,
+        "surface_area_mm2": 450.23,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "UNCLASSIFIED_SECONDARY_FINDING",
+        "is_primary": false
+      },
+      {
+        "detection_id": "CAM-03::0",
+        "camera_id": "CAM-03",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.324843,
+        "bbox": {
+          "x1": 158.56,
+          "y1": 295.82,
+          "x2": 239.46,
+          "y2": 311.09
+        },
+        "visual_measurements": {
+          "width_px": 80.91,
+          "height_px": 15.27,
+          "bbox_area_px": 1235.67,
+          "mask_area_px": 911.25,
+          "image_area_ratio": 0.000621,
+          "center_x_ratio": 0.115168,
+          "center_y_ratio": 0.263418,
+          "relative_position": "upper_left",
+          "estimated_width_mm": 64.72,
+          "estimated_height_mm": 12.22,
+          "estimated_length_mm": 64.72,
+          "estimated_bbox_area_mm2": 790.83,
+          "estimated_mask_area_mm2": 583.2,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              159.3,
+              297.0
+            ],
+            [
+              159.3,
+              305.1
+            ],
+            [
+              162.0,
+              305.1
+            ],
+            [
+              164.7,
+              307.8
+            ],
+            [
+              186.3,
+              307.8
+            ],
+            [
+              189.0,
+              310.5
+            ],
+            [
+              237.6,
+              310.5
+            ],
+            [
+              237.6,
+              302.4
+            ],
+            [
+              232.2,
+              302.4
+            ],
+            [
+              229.5,
+              299.7
+            ],
+            [
+              224.1,
+              299.7
+            ],
+            [
+              221.4,
+              297.0
+            ]
+          ]
+        },
+        "zone_name": "Cửa trái",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 64.72,
+        "estimated_height_mm": 12.22,
+        "surface_area_mm2": 583.2,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "UNCLASSIFIED_SECONDARY_FINDING",
+        "is_primary": false
+      },
+      {
+        "detection_id": "CAM-04::0",
+        "camera_id": "CAM-04",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.832587,
+        "bbox": {
+          "x1": 384.59,
+          "y1": 646.39,
+          "x2": 517.9,
+          "y2": 679.76
+        },
+        "visual_measurements": {
+          "width_px": 133.31,
+          "height_px": 33.37,
+          "bbox_area_px": 4448.58,
+          "mask_area_px": 1133.6,
+          "image_area_ratio": 0.002235,
+          "center_x_ratio": 0.261138,
+          "center_y_ratio": 0.575588,
+          "relative_position": "middle_left",
+          "estimated_width_mm": 106.65,
+          "estimated_height_mm": 26.7,
+          "estimated_length_mm": 106.65,
+          "estimated_bbox_area_mm2": 2847.09,
+          "estimated_mask_area_mm2": 725.5,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              386.1,
+              648.0
+            ],
+            [
+              386.1,
+              650.7
+            ],
+            [
+              394.2,
+              650.7
+            ],
+            [
+              396.9,
+              653.4
+            ],
+            [
+              402.3,
+              653.4
+            ],
+            [
+              405.0,
+              656.1
+            ],
+            [
+              410.4,
+              656.1
+            ],
+            [
+              413.1,
+              658.8
+            ],
+            [
+              423.9,
+              658.8
+            ],
+            [
+              426.6,
+              661.5
+            ],
+            [
+              437.4,
+              661.5
+            ],
+            [
+              440.1,
+              664.2
+            ],
+            [
+              448.2,
+              664.2
+            ],
+            [
+              450.9,
+              666.9
+            ],
+            [
+              456.3,
+              666.9
+            ],
+            [
+              459.0,
+              669.6
+            ],
+            [
+              467.1,
+              669.6
+            ],
+            [
+              469.8,
+              672.3
+            ],
+            [
+              480.6,
+              672.3
+            ],
+            [
+              483.3,
+              675.0
+            ],
+            [
+              488.7,
+              675.0
+            ],
+            [
+              491.4,
+              677.7
+            ],
+            [
+              515.7,
+              677.7
+            ],
+            [
+              513.0,
+              677.7
+            ],
+            [
+              510.3,
+              675.0
+            ],
+            [
+              504.9,
+              675.0
+            ],
+            [
+              499.5,
+              669.6
+            ],
+            [
+              494.1,
+              669.6
+            ],
+            [
+              491.4,
+              666.9
+            ],
+            [
+              486.0,
+              666.9
+            ],
+            [
+              483.3,
+              664.2
+            ],
+            [
+              477.9,
+              664.2
+            ],
+            [
+              475.2,
+              661.5
+            ],
+            [
+              472.5,
+              661.5
+            ],
+            [
+              469.8,
+              658.8
+            ],
+            [
+              464.4,
+              658.8
+            ],
+            [
+              461.7,
+              656.1
+            ],
+            [
+              450.9,
+              656.1
+            ],
+            [
+              448.2,
+              653.4
+            ],
+            [
+              442.8,
+              653.4
+            ],
+            [
+              440.1,
+              650.7
+            ],
+            [
+              434.7,
+              650.7
+            ],
+            [
+              432.0,
+              648.0
+            ]
+          ]
+        },
+        "zone_name": "Cửa trái",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 106.65,
+        "estimated_height_mm": 26.7,
+        "surface_area_mm2": 725.5,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "B",
+        "is_primary": true,
+        "overlay_image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/overlay.png",
+        "crop_image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/crop.png",
+        "mask_image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/mask.png"
+      },
+      {
+        "detection_id": "CAM-04::1",
+        "camera_id": "CAM-04",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.594555,
+        "bbox": {
+          "x1": 369.95,
+          "y1": 911.51,
+          "x2": 435.13,
+          "y2": 952.96
+        },
+        "visual_measurements": {
+          "width_px": 65.17,
+          "height_px": 41.45,
+          "bbox_area_px": 2701.47,
+          "mask_area_px": 710.78,
+          "image_area_ratio": 0.001357,
+          "center_x_ratio": 0.232952,
+          "center_y_ratio": 0.809233,
+          "relative_position": "lower_left",
+          "estimated_width_mm": 52.14,
+          "estimated_height_mm": 33.16,
+          "estimated_length_mm": 52.14,
+          "estimated_bbox_area_mm2": 1728.94,
+          "estimated_mask_area_mm2": 454.9,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              415.8,
+              912.6
+            ],
+            [
+              413.1,
+              915.3
+            ],
+            [
+              410.4,
+              915.3
+            ],
+            [
+              405.0,
+              920.7
+            ],
+            [
+              402.3,
+              920.7
+            ],
+            [
+              396.9,
+              926.1
+            ],
+            [
+              394.2,
+              926.1
+            ],
+            [
+              391.5,
+              928.8
+            ],
+            [
+              388.8,
+              928.8
+            ],
+            [
+              383.4,
+              934.2
+            ],
+            [
+              380.7,
+              934.2
+            ],
+            [
+              372.6,
+              942.3
+            ],
+            [
+              372.6,
+              950.4
+            ],
+            [
+              375.3,
+              950.4
+            ],
+            [
+              378.0,
+              947.7
+            ],
+            [
+              380.7,
+              947.7
+            ],
+            [
+              386.1,
+              942.3
+            ],
+            [
+              388.8,
+              942.3
+            ],
+            [
+              391.5,
+              939.6
+            ],
+            [
+              396.9,
+              939.6
+            ],
+            [
+              399.6,
+              936.9
+            ],
+            [
+              402.3,
+              936.9
+            ],
+            [
+              407.7,
+              931.5
+            ],
+            [
+              410.4,
+              931.5
+            ],
+            [
+              413.1,
+              928.8
+            ],
+            [
+              415.8,
+              928.8
+            ],
+            [
+              423.9,
+              920.7
+            ],
+            [
+              426.6,
+              920.7
+            ],
+            [
+              434.7,
+              912.6
+            ]
+          ]
+        },
+        "zone_name": "Cửa trái",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 52.14,
+        "estimated_height_mm": 33.16,
+        "surface_area_mm2": 454.9,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "UNCLASSIFIED_SECONDARY_FINDING",
+        "is_primary": false
+      }
+    ],
+    "camera_results": [
+      {
+        "camera_id": "CAM-01",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-1.jpg",
+        "image_width": 1728,
+        "image_height": 1152,
+        "defect_detected": true,
+        "detections": [
+          {
+            "detection_id": "CAM-01::0",
+            "camera_id": "CAM-01",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "confidence": 0.27324,
+            "bbox": {
+              "x1": 1354.4,
+              "y1": 661.39,
+              "x2": 1404.72,
+              "y2": 680.43
+            },
+            "visual_measurements": {
+              "width_px": 50.32,
+              "height_px": 19.04,
+              "bbox_area_px": 958.3,
+              "mask_area_px": 703.49,
+              "image_area_ratio": 0.000481,
+              "center_x_ratio": 0.798358,
+              "center_y_ratio": 0.582389,
+              "relative_position": "middle_right",
+              "estimated_width_mm": 40.25,
+              "estimated_height_mm": 15.24,
+              "estimated_length_mm": 40.25,
+              "estimated_bbox_area_mm2": 613.31,
+              "estimated_mask_area_mm2": 450.23,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  1374.3,
+                  661.5
+                ],
+                [
+                  1368.9,
+                  666.9
+                ],
+                [
+                  1366.2,
+                  666.9
+                ],
+                [
+                  1363.5,
+                  669.6
+                ],
+                [
+                  1358.1,
+                  669.6
+                ],
+                [
+                  1355.4,
+                  672.3
+                ],
+                [
+                  1355.4,
+                  680.4
+                ],
+                [
+                  1371.6,
+                  680.4
+                ],
+                [
+                  1374.3,
+                  677.7
+                ],
+                [
+                  1382.4,
+                  677.7
+                ],
+                [
+                  1385.1,
+                  680.4
+                ],
+                [
+                  1387.8,
+                  680.4
+                ],
+                [
+                  1390.5,
+                  677.7
+                ],
+                [
+                  1404.0,
+                  677.7
+                ],
+                [
+                  1404.0,
+                  666.9
+                ],
+                [
+                  1401.3,
+                  666.9
+                ],
+                [
+                  1395.9,
+                  661.5
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "camera_id": "CAM-02",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-2.jpg",
+        "image_width": 1728,
+        "image_height": 1152,
+        "defect_detected": false,
+        "detections": []
+      },
+      {
+        "camera_id": "CAM-03",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-3.jpg",
+        "image_width": 1728,
+        "image_height": 1152,
+        "defect_detected": true,
+        "detections": [
+          {
+            "detection_id": "CAM-03::0",
+            "camera_id": "CAM-03",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "confidence": 0.324843,
+            "bbox": {
+              "x1": 158.56,
+              "y1": 295.82,
+              "x2": 239.46,
+              "y2": 311.09
+            },
+            "visual_measurements": {
+              "width_px": 80.91,
+              "height_px": 15.27,
+              "bbox_area_px": 1235.67,
+              "mask_area_px": 911.25,
+              "image_area_ratio": 0.000621,
+              "center_x_ratio": 0.115168,
+              "center_y_ratio": 0.263418,
+              "relative_position": "upper_left",
+              "estimated_width_mm": 64.72,
+              "estimated_height_mm": 12.22,
+              "estimated_length_mm": 64.72,
+              "estimated_bbox_area_mm2": 790.83,
+              "estimated_mask_area_mm2": 583.2,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  159.3,
+                  297.0
+                ],
+                [
+                  159.3,
+                  305.1
+                ],
+                [
+                  162.0,
+                  305.1
+                ],
+                [
+                  164.7,
+                  307.8
+                ],
+                [
+                  186.3,
+                  307.8
+                ],
+                [
+                  189.0,
+                  310.5
+                ],
+                [
+                  237.6,
+                  310.5
+                ],
+                [
+                  237.6,
+                  302.4
+                ],
+                [
+                  232.2,
+                  302.4
+                ],
+                [
+                  229.5,
+                  299.7
+                ],
+                [
+                  224.1,
+                  299.7
+                ],
+                [
+                  221.4,
+                  297.0
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "camera_id": "CAM-04",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-4.jpg",
+        "image_width": 1728,
+        "image_height": 1152,
+        "defect_detected": true,
+        "detections": [
+          {
+            "detection_id": "CAM-04::0",
+            "camera_id": "CAM-04",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "confidence": 0.832587,
+            "bbox": {
+              "x1": 384.59,
+              "y1": 646.39,
+              "x2": 517.9,
+              "y2": 679.76
+            },
+            "visual_measurements": {
+              "width_px": 133.31,
+              "height_px": 33.37,
+              "bbox_area_px": 4448.58,
+              "mask_area_px": 1133.6,
+              "image_area_ratio": 0.002235,
+              "center_x_ratio": 0.261138,
+              "center_y_ratio": 0.575588,
+              "relative_position": "middle_left",
+              "estimated_width_mm": 106.65,
+              "estimated_height_mm": 26.7,
+              "estimated_length_mm": 106.65,
+              "estimated_bbox_area_mm2": 2847.09,
+              "estimated_mask_area_mm2": 725.5,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  386.1,
+                  648.0
+                ],
+                [
+                  386.1,
+                  650.7
+                ],
+                [
+                  394.2,
+                  650.7
+                ],
+                [
+                  396.9,
+                  653.4
+                ],
+                [
+                  402.3,
+                  653.4
+                ],
+                [
+                  405.0,
+                  656.1
+                ],
+                [
+                  410.4,
+                  656.1
+                ],
+                [
+                  413.1,
+                  658.8
+                ],
+                [
+                  423.9,
+                  658.8
+                ],
+                [
+                  426.6,
+                  661.5
+                ],
+                [
+                  437.4,
+                  661.5
+                ],
+                [
+                  440.1,
+                  664.2
+                ],
+                [
+                  448.2,
+                  664.2
+                ],
+                [
+                  450.9,
+                  666.9
+                ],
+                [
+                  456.3,
+                  666.9
+                ],
+                [
+                  459.0,
+                  669.6
+                ],
+                [
+                  467.1,
+                  669.6
+                ],
+                [
+                  469.8,
+                  672.3
+                ],
+                [
+                  480.6,
+                  672.3
+                ],
+                [
+                  483.3,
+                  675.0
+                ],
+                [
+                  488.7,
+                  675.0
+                ],
+                [
+                  491.4,
+                  677.7
+                ],
+                [
+                  515.7,
+                  677.7
+                ],
+                [
+                  513.0,
+                  677.7
+                ],
+                [
+                  510.3,
+                  675.0
+                ],
+                [
+                  504.9,
+                  675.0
+                ],
+                [
+                  499.5,
+                  669.6
+                ],
+                [
+                  494.1,
+                  669.6
+                ],
+                [
+                  491.4,
+                  666.9
+                ],
+                [
+                  486.0,
+                  666.9
+                ],
+                [
+                  483.3,
+                  664.2
+                ],
+                [
+                  477.9,
+                  664.2
+                ],
+                [
+                  475.2,
+                  661.5
+                ],
+                [
+                  472.5,
+                  661.5
+                ],
+                [
+                  469.8,
+                  658.8
+                ],
+                [
+                  464.4,
+                  658.8
+                ],
+                [
+                  461.7,
+                  656.1
+                ],
+                [
+                  450.9,
+                  656.1
+                ],
+                [
+                  448.2,
+                  653.4
+                ],
+                [
+                  442.8,
+                  653.4
+                ],
+                [
+                  440.1,
+                  650.7
+                ],
+                [
+                  434.7,
+                  650.7
+                ],
+                [
+                  432.0,
+                  648.0
+                ]
+              ]
+            }
+          },
+          {
+            "detection_id": "CAM-04::1",
+            "camera_id": "CAM-04",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "confidence": 0.594555,
+            "bbox": {
+              "x1": 369.95,
+              "y1": 911.51,
+              "x2": 435.13,
+              "y2": 952.96
+            },
+            "visual_measurements": {
+              "width_px": 65.17,
+              "height_px": 41.45,
+              "bbox_area_px": 2701.47,
+              "mask_area_px": 710.78,
+              "image_area_ratio": 0.001357,
+              "center_x_ratio": 0.232952,
+              "center_y_ratio": 0.809233,
+              "relative_position": "lower_left",
+              "estimated_width_mm": 52.14,
+              "estimated_height_mm": 33.16,
+              "estimated_length_mm": 52.14,
+              "estimated_bbox_area_mm2": 1728.94,
+              "estimated_mask_area_mm2": 454.9,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  415.8,
+                  912.6
+                ],
+                [
+                  413.1,
+                  915.3
+                ],
+                [
+                  410.4,
+                  915.3
+                ],
+                [
+                  405.0,
+                  920.7
+                ],
+                [
+                  402.3,
+                  920.7
+                ],
+                [
+                  396.9,
+                  926.1
+                ],
+                [
+                  394.2,
+                  926.1
+                ],
+                [
+                  391.5,
+                  928.8
+                ],
+                [
+                  388.8,
+                  928.8
+                ],
+                [
+                  383.4,
+                  934.2
+                ],
+                [
+                  380.7,
+                  934.2
+                ],
+                [
+                  372.6,
+                  942.3
+                ],
+                [
+                  372.6,
+                  950.4
+                ],
+                [
+                  375.3,
+                  950.4
+                ],
+                [
+                  378.0,
+                  947.7
+                ],
+                [
+                  380.7,
+                  947.7
+                ],
+                [
+                  386.1,
+                  942.3
+                ],
+                [
+                  388.8,
+                  942.3
+                ],
+                [
+                  391.5,
+                  939.6
+                ],
+                [
+                  396.9,
+                  939.6
+                ],
+                [
+                  399.6,
+                  936.9
+                ],
+                [
+                  402.3,
+                  936.9
+                ],
+                [
+                  407.7,
+                  931.5
+                ],
+                [
+                  410.4,
+                  931.5
+                ],
+                [
+                  413.1,
+                  928.8
+                ],
+                [
+                  415.8,
+                  928.8
+                ],
+                [
+                  423.9,
+                  920.7
+                ],
+                [
+                  426.6,
+                  920.7
+                ],
+                [
+                  434.7,
+                  912.6
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "camera_id": "CAM-05",
+        "image_url": "/assets/objects/inspections/be6f2430-ac69-4b7a-b19a-29018fa6a446/camera-5.jpg",
+        "image_width": 1728,
+        "image_height": 1152,
+        "defect_detected": false,
+        "detections": []
+      }
+    ],
+    "finding_groups": [
+      {
+        "defect_type": "scratch",
+        "observation_count": 4,
+        "camera_ids": [
+          "CAM-01",
+          "CAM-03",
+          "CAM-04"
+        ],
+        "max_confidence": 0.832587,
+        "deduplication_status": "CANDIDATE_DUPLICATE_REQUIRES_CALIBRATION"
+      }
+    ],
+    "suggested_defect_codes": [
+      {
+        "defect_code": "SCRATCH01",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước nhỏ",
+        "description": "Vết xước đơn, chiều dài ước lượng đến 50 mm",
+        "classification_rule": "Chọn khi estimated_width_mm <= 50 và chỉ có một vùng xước",
+        "default_severity": "C",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-21T07:32:16.343239+00:00",
+        "updated_at": "2026-08-21T15:34:15.157224+00:00"
+      },
+      {
+        "defect_code": "SCRATCH02",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước trung bình",
+        "description": "Vết xước đơn dài trên 50 đến 150 mm",
+        "classification_rule": "Chọn khi 50 < estimated_width_mm <= 150",
+        "default_severity": "C",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-21T07:32:16.343239+00:00",
+        "updated_at": "2026-08-21T15:34:15.157224+00:00"
+      },
+      {
+        "defect_code": "SCRATCH03",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước dài",
+        "description": "Vết xước dài trên 150 mm",
+        "classification_rule": "Chọn khi estimated_width_mm > 150",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-21T07:32:16.343239+00:00",
+        "updated_at": "2026-08-21T15:34:15.157224+00:00"
+      },
+      {
+        "defect_code": "SCRATCH04",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH_CLUSTER",
+        "display_name": "Cụm nhiều vết xước",
+        "description": "Nhiều vùng xước cùng xuất hiện trên một ảnh",
+        "classification_rule": "Chọn khi có từ 2 detection scratch trở lên",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-21T07:32:16.343239+00:00",
+        "updated_at": "2026-08-21T15:34:15.157224+00:00"
+      },
+      {
+        "defect_code": "SCRATCH05",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH_EDGE",
+        "display_name": "Vết xước vùng mép",
+        "description": "Vết xước nằm gần mép vùng quan sát hoặc đường ráp",
+        "classification_rule": "Chọn khi relative_position nằm sát trái/phải",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-21T07:32:16.343239+00:00",
+        "updated_at": "2026-08-21T15:34:15.157224+00:00"
+      }
+    ],
+    "classified_defect_code": "SCRATCH04",
+    "defect_family": "SURFACE_SCRATCH_CLUSTER",
+    "defect_code_classification": {
+      "defect_code": "SCRATCH04",
+      "defect_family": "SURFACE_SCRATCH_CLUSTER",
+      "confidence": 0.7,
+      "rationale_vi": "Có 4 phát hiện vết xước trong cùng một ảnh, vì vậy áp dụng quy tắc \"Cụm nhiều vết xước\" (SCRATCH04).",
+      "candidate_codes": [
+        "SCRATCH01",
+        "SCRATCH02",
+        "SCRATCH03",
+        "SCRATCH04",
+        "SCRATCH05"
+      ],
+      "similar_observation_warning": true,
+      "provider": "groq",
+      "model": "openai/gpt-oss-20b",
+      "fallback_reason": null
+    },
+    "similar_defect_warning": true,
+    "measurements": {}
+  },
+  "workflow": {
+    "assessment_route": "HITL",
+    "verify_count": 0,
+    "verify_result": "NOT_RUN",
+    "human_required": true,
+    "hitl_status": "PENDING",
+    "human_decision": null,
+    "qc_decision_record": null,
+    "execution_trace": [
+      {
+        "node": "prepare_input",
+        "status": "COMPLETED",
+        "detail": "Đã xác thực dữ liệu đầu vào cho 5 camera."
+      },
+      {
+        "node": "detect_defect",
+        "status": "COMPLETED",
+        "detail": "best.pt trả về defect_detected=True, độ_tin_cậy=0.83, số_phát_hiện=4 trên 5 camera; khớp_danh_mục=5, mã_đã_chọn=SCRATCH04, bộ_phân_loại=groq; khung_bao=133x33px, tỉ_lệ_diện_tích_ảnh=0.2%; kích_thước_mm=cần hiệu chuẩn."
+      },
+      {
+        "node": "multimodal_verify",
+        "status": "FAILED",
+        "detail": "Vision LLM không khả dụng hoặc trả về kết quả không hợp lệ: BadRequestError."
+      },
+      {
+        "node": "assess_result",
+        "status": "COMPLETED",
+        "detail": "Định_tuyến=HITL. Tra cứu chính sách khớp 1 tài liệu kiểm soát, thiếu 3 minh chứng, và phát sinh 0 cảnh báo kiểm soát tài liệu."
+      }
+    ]
+  },
+  "outcome": {
+    "decision": "VISION_LLM_UNAVAILABLE",
+    "recommendation_code": null,
+    "recommendation": null,
+    "allow_test_drive": false,
+    "severity": "B",
+    "reason": "Vision LLM không tạo được đánh giá hình ảnh hợp lệ; bắt buộc QC xét duyệt để đảm bảo an toàn.",
+    "final_status": "WAITING_FOR_HITL"
+  },
+  "policy": {
+    "policy_id": "FNS-SURFACE-001",
+    "policy_revision": "2026.08.1",
+    "policy_status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "policy_title": "Surface defect containment and assessment",
+    "action_code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT",
+    "action_label": "Hold for controlled surface assessment and documented reinspection",
+    "final_status": "HOLD_FOR_QC",
+    "test_drive_allowed": false,
+    "human_required": false,
+    "required_evidence": [
+      "controlled_light_reinspection",
+      "defect_extent_measurement",
+      "approved_oem_acceptance_criteria"
+    ],
+    "missing_evidence": [
+      "controlled_light_reinspection",
+      "defect_extent_measurement",
+      "approved_oem_acceptance_criteria"
+    ],
+    "required_steps": [
+      "CONTAIN_VEHICLE",
+      "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+      "MEASURE_DEFECT_EXTENT",
+      "APPLY_APPROVED_OEM_CRITERIA",
+      "QC_SIGN_OFF"
+    ],
+    "references": [
+      {
+        "id": "FNS-QC-POLICY-DEMO-2026",
+        "document_family": "FNS-QC-POLICY",
+        "revision": "2026.08.1",
+        "section": "FNS-SURFACE-001 through FNS-TREND-001",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "APPROVED",
+        "authority": "CONTROLLED_POLICY",
+        "title": "Visual QC FNS baseline demonstration policy",
+        "scope": "Temporarily approved internal baseline for demonstrating document retrieval, evidence comparison, LangGraph routing, HITL, and audit behavior. Not valid for production vehicle release.",
+        "url": "/api/policies"
+      },
+      {
+        "id": "ISO-4628-1-2016",
+        "document_family": "ISO-4628-1",
+        "revision": "2016",
+        "section": "Scope and designation framework",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Paints and varnishes — Evaluation of degradation of coatings — Part 1",
+        "scope": "Designation of defect quantity, size, and intensity of appearance changes; not an OEM cosmetic acceptance limit.",
+        "url": "https://www.iso.org/standard/64877.html"
+      },
+      {
+        "id": "ISO-9001-2015",
+        "document_family": "ISO-9001",
+        "revision": "2015",
+        "section": "Documented information and operational control",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Quality management systems — Requirements",
+        "scope": "Documented information, operational control, monitoring, measurement, evaluation, and improvement.",
+        "url": "https://www.iso.org/standard/62085.html"
+      }
+    ],
+    "document_review": {
+      "query": {
+        "vehicle_model": "VIN",
+        "defect_type": "scratch"
+      },
+      "roles_completed": [
+        "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+        "EXTRACT_RELEVANT_CONDITIONS",
+        "COMPARE_EVIDENCE_TO_POLICY",
+        "DETECT_MISSING_DATA",
+        "EXPLAIN_DECISION_PLAINLY",
+        "PROPOSE_APPROVED_CHECKLIST",
+        "CITE_DOCUMENT_METADATA",
+        "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+      ],
+      "matched_document_count": 1,
+      "extracted_conditions": [
+        "Defect class is scratch or paint defect",
+        "Defect extent must be known",
+        "Approved OEM cosmetic criteria must be available before release"
+      ],
+      "evidence_comparison": [
+        {
+          "evidence": "controlled_light_reinspection",
+          "available": false
+        },
+        {
+          "evidence": "defect_extent_measurement",
+          "available": false
+        },
+        {
+          "evidence": "approved_oem_acceptance_criteria",
+          "available": false
+        }
+      ],
+      "missing_data": [
+        "controlled_light_reinspection",
+        "defect_extent_measurement",
+        "approved_oem_acceptance_criteria"
+      ],
+      "checklist_status": "APPROVED",
+      "approved_checklist": [
+        "CONTAIN_VEHICLE",
+        "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+        "MEASURE_DEFECT_EXTENT",
+        "APPLY_APPROVED_OEM_CRITERIA",
+        "QC_SIGN_OFF"
+      ],
+      "proposed_checklist": [
+        "CONTAIN_VEHICLE",
+        "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+        "MEASURE_DEFECT_EXTENT",
+        "APPLY_APPROVED_OEM_CRITERIA",
+        "QC_SIGN_OFF"
+      ],
+      "citations": [
+        {
+          "id": "FNS-QC-POLICY-DEMO-2026",
+          "document_family": "FNS-QC-POLICY",
+          "revision": "2026.08.1",
+          "section": "FNS-SURFACE-001 through FNS-TREND-001",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "APPROVED",
+          "authority": "CONTROLLED_POLICY",
+          "title": "Visual QC FNS baseline demonstration policy",
+          "scope": "Temporarily approved internal baseline for demonstrating document retrieval, evidence comparison, LangGraph routing, HITL, and audit behavior. Not valid for production vehicle release.",
+          "url": "/api/policies"
+        },
+        {
+          "id": "ISO-4628-1-2016",
+          "document_family": "ISO-4628-1",
+          "revision": "2016",
+          "section": "Scope and designation framework",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Paints and varnishes — Evaluation of degradation of coatings — Part 1",
+          "scope": "Designation of defect quantity, size, and intensity of appearance changes; not an OEM cosmetic acceptance limit.",
+          "url": "https://www.iso.org/standard/64877.html"
+        },
+        {
+          "id": "ISO-9001-2015",
+          "document_family": "ISO-9001",
+          "revision": "2015",
+          "section": "Documented information and operational control",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Quality management systems — Requirements",
+          "scope": "Documented information, operational control, monitoring, measurement, evaluation, and improvement.",
+          "url": "https://www.iso.org/standard/62085.html"
+        }
+      ],
+      "warnings": []
+    },
+    "production_eligible": false
+  },
+  "reasoning": {},
+  "agent_analysis": null
+}

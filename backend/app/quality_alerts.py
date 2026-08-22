@@ -415,7 +415,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
     subtitle_run.font.color.rgb = RGBColor.from_string("607B8D")
 
     metadata = document.add_table(rows=2, cols=4)
-    _set_table_geometry(metadata, [1350, 3330, 1350, 3330])
+    set_table_geometry(metadata, [1350, 3330, 1350, 3330])
     metadata_values = [
         ("Generated", _format_dt(summary.generated_at), "Window", f"{summary.window_hours} hours"),
         ("Inspections", str(summary.analyzed_inspections), "Open alerts", str(len(summary.alerts))),
@@ -426,7 +426,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
             cell.text = value
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             if index % 2 == 0:
-                _shade_cell(cell, "EAF1F5")
+                shade_cell(cell, "EAF1F5")
                 cell.paragraphs[0].runs[0].bold = True
             cell.paragraphs[0].runs[0].font.size = Pt(9)
 
@@ -445,13 +445,13 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
     document.add_heading("Defect summary from inspection history", level=1)
     if summary.defect_breakdown:
         defect_table = document.add_table(rows=1, cols=5)
-        _set_table_geometry(defect_table, [1500, 1000, 1000, 4000, 1860])
+        set_table_geometry(defect_table, [1500, 1000, 1000, 4000, 1860])
         for cell, value in zip(
             defect_table.rows[0].cells,
             ("Defect", "Events", "Vehicles", "Zones / cameras", "Confidence"),
         ):
             cell.text = value
-            _shade_cell(cell, "DCEAF1")
+            shade_cell(cell, "DCEAF1")
             cell.paragraphs[0].runs[0].bold = True
         for item in summary.defect_breakdown:
             row = defect_table.add_row()
@@ -473,13 +473,13 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
     document.add_heading("Inspection-level findings", level=1)
     if summary.findings:
         finding_table = document.add_table(rows=1, cols=7)
-        _set_table_geometry(finding_table, [1250, 1100, 1100, 1700, 850, 1050, 2310])
+        set_table_geometry(finding_table, [1250, 1100, 1100, 1700, 850, 1050, 2310])
         for cell, value in zip(
             finding_table.rows[0].cells,
             ("Time", "Inspection", "Vehicle", "Defect / location", "Conf.", "Severity", "Decision / route"),
         ):
             cell.text = value
-            _shade_cell(cell, "DCEAF1")
+            shade_cell(cell, "DCEAF1")
             cell.paragraphs[0].runs[0].bold = True
         for finding in summary.findings:
             row = finding_table.add_row()
@@ -503,7 +503,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
     for index, alert in enumerate(summary.alerts, start=1):
         document.add_heading(f"Alert {index}: {alert.defect_type.upper()} - {alert.zone_name}", level=2)
         alert_table = document.add_table(rows=5, cols=2)
-        _set_table_geometry(alert_table, [2160, 7200])
+        set_table_geometry(alert_table, [2160, 7200])
         rows = [
             ("Severity", alert.severity),
             ("Detection source", alert.camera_id),
@@ -514,7 +514,7 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
         for row, (label, value) in zip(alert_table.rows, rows):
             row.cells[0].text = label
             row.cells[1].text = value
-            _shade_cell(row.cells[0], "EAF1F5")
+            shade_cell(row.cells[0], "EAF1F5")
             row.cells[0].paragraphs[0].runs[0].bold = True
             for cell in row.cells:
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -522,13 +522,13 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
 
         document.add_heading("Inspections contributing to this alert", level=3)
         occurrence_table = document.add_table(rows=1, cols=6)
-        _set_table_geometry(occurrence_table, [1450, 1450, 1450, 1550, 1100, 2360])
+        set_table_geometry(occurrence_table, [1450, 1450, 1450, 1550, 1100, 2360])
         for cell, value in zip(
             occurrence_table.rows[0].cells,
             ("Time", "Inspection", "Vehicle", "Confidence", "Severity", "Final route"),
         ):
             cell.text = value
-            _shade_cell(cell, "F3E4E7")
+            shade_cell(cell, "F3E4E7")
             cell.paragraphs[0].runs[0].bold = True
         for occurrence in alert.occurrences:
             row = occurrence_table.add_row()
@@ -579,14 +579,14 @@ def build_quality_alert_report(summary: QualityAlertSummary) -> BytesIO:
 
     document.add_heading("QC sign-off", level=1)
     signoff = document.add_table(rows=3, cols=2)
-    _set_table_geometry(signoff, [2700, 6660])
+    set_table_geometry(signoff, [2700, 6660])
     for row, (label, value) in zip(
         signoff.rows,
         (("QC reviewer", ""), ("Upstream process owner", ""), ("Corrective action / release evidence", "")),
     ):
         row.cells[0].text = label
         row.cells[1].text = value
-        _shade_cell(row.cells[0], "EAF1F5")
+        shade_cell(row.cells[0], "EAF1F5")
         row.cells[0].paragraphs[0].runs[0].bold = True
 
     output = BytesIO()
@@ -599,7 +599,7 @@ def _format_dt(value: str) -> str:
     return _parse_timestamp(value).astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _shade_cell(cell: Any, fill: str) -> None:
+def shade_cell(cell: Any, fill: str) -> None:
     properties = cell._tc.get_or_add_tcPr()
     shading = properties.find(qn("w:shd"))
     if shading is None:
@@ -608,7 +608,7 @@ def _shade_cell(cell: Any, fill: str) -> None:
     shading.set(qn("w:fill"), fill)
 
 
-def _set_table_geometry(table: Any, widths: list[int]) -> None:
+def set_table_geometry(table: Any, widths: list[int]) -> None:
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
     table.autofit = False
     table.style = "Table Grid"

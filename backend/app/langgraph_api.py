@@ -13,10 +13,8 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from agent.graph.builder import build_qc_graph
 from agent.graph.state import QCState
 from agent.services.audit_export import build_audit_export
 from agent.services.image_render import render_defect_images
@@ -248,6 +246,12 @@ def resume_langgraph_inspection(
         raise HTTPException(status_code=404, detail="LangGraph thread not found")
     if not snapshot.next:
         raise HTTPException(status_code=409, detail="LangGraph thread is not waiting for HITL")
+    pending_interrupt = _snapshot_interrupt(snapshot)
+    # supervisor_review (agent/graph/nodes.py) is the second gate an OVERRIDE always routes
+    # through — only a supervisor may resolve it, mirroring the operator-only implicit gate
+    # on the first (human_review) interrupt.
+    if (pending_interrupt or {}).get("type") == "supervisor_escalation_review" and user.role != "QC_SUPERVISOR":
+        raise HTTPException(status_code=403, detail="Requires role: QC_SUPERVISOR")
     catalog_item = None
     if payload.defect_code:
         catalog_item = request.app.state.database.get_defect_code(payload.defect_code)
@@ -262,8 +266,16 @@ def resume_langgraph_inspection(
                 "severity": payload.severity or catalog_item["default_severity"],
             },
         )
-    result = graph.invoke(Command(resume=payload.model_dump()), config=_config(thread_id))
+    try:
+        result = graph.invoke(Command(resume=payload.model_dump()), config=_config(thread_id))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     response = _graph_response(graph, thread_id, result)
+    if response.status == "INTERRUPTED":
+        # An OVERRIDE resume pauses again at supervisor_review instead of completing — persist
+        # that intermediate state so GET /agent/runs (backed by qc_repository, not the graph
+        # checkpointer) reflects it as pending supervisor review rather than stale operator data.
+        _save_waiting_state(request, response.state)
     if catalog_item:
         qc_record = request.app.state.database.create_qc_decision(
             {
@@ -353,19 +365,12 @@ def export_agent_run(request: Request, thread_id: str) -> StreamingResponse:
 def clear_agent_runs(
     request: Request, user: CurrentUser = Depends(get_current_user)
 ) -> dict[str, Any]:
-    """Clear persisted traces and invalidate in-memory HITL checkpoints."""
+    """Clear persisted traces and invalidate the persisted LangGraph checkpoints."""
     deleted = request.app.state.qc_repository.clear()
-    request.app.state.qc_checkpointer = InMemorySaver()
-    request.app.state.qc_langgraph = build_qc_graph(
-        detector=request.app.state.qc_detector,
-        verifier=request.app.state.qc_verifier,
-        reasoning=request.app.state.qc_reasoning,
-        policy_catalog=request.app.state.qc_policy_catalog,
-        repository=request.app.state.qc_repository,
-        checkpointer=request.app.state.qc_checkpointer,
-        defect_catalog=request.app.state.qc_defect_catalog,
-        vision=request.app.state.qc_vision,
-    )
+    conn = request.app.state.qc_checkpointer_conn
+    conn.execute("DELETE FROM checkpoints")
+    conn.execute("DELETE FROM writes")
+    conn.commit()
     return {"deleted": deleted, "status": "CLEARED"}
 
 
@@ -381,6 +386,7 @@ def get_agent_graph(request: Request) -> AgentGraphResponse:
             "assess_result",
             "verify_defect",
             "human_review",
+            "supervisor_review",
             "generate_recommendation",
             "save_result",
         ],

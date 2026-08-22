@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DefectCodeCreate(BaseModel):
@@ -26,6 +26,134 @@ class DefectCodeCreate(BaseModel):
     @classmethod
     def normalize_type(cls, value: str) -> str:
         return value.strip().lower().replace(" ", "_")
+
+
+class ShiftCreate(BaseModel):
+    shift_id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{1,31}$")
+    name: str = Field(min_length=1, max_length=80)
+    start_time: str = Field(default="", max_length=16)
+    end_time: str = Field(default="", max_length=16)
+    active: bool = True
+
+    @field_validator("shift_id")
+    @classmethod
+    def normalize_shift_id(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class ShiftUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    start_time: str | None = Field(default=None, max_length=16)
+    end_time: str | None = Field(default=None, max_length=16)
+    active: bool | None = None
+
+
+class LotCreate(BaseModel):
+    lot_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_./-]{0,63}$")
+    note: str = Field(default="", max_length=500)
+    # A lot is produced during one shift, at one station (API_CONTRACT.md relationship: Trạm/Ca
+    # are independent catalogs, Lô references the specific Trạm+Ca it was produced under).
+    station_id: str = Field(min_length=1, max_length=64)
+    shift_id: str = Field(min_length=1, max_length=32)
+    # Vehicle type + quantity drive auto-generated per-vehicle product codes
+    # (<vehicle_type><stt>, stt from 1 to quantity) — see Database._generate_lot_products.
+    vehicle_type: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,15}$")
+    quantity: int = Field(ge=1, le=9999)
+    active: bool = True
+
+    @field_validator("lot_id")
+    @classmethod
+    def normalize_lot_id(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("station_id")
+    @classmethod
+    def normalize_station_id(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("shift_id")
+    @classmethod
+    def normalize_shift_id(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("vehicle_type")
+    @classmethod
+    def normalize_vehicle_type(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class LotUpdate(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
+    station_id: str | None = Field(default=None, min_length=1, max_length=64)
+    shift_id: str | None = Field(default=None, min_length=1, max_length=32)
+    # Quantity may only be increased (new product codes are appended) — vehicle_type is
+    # immutable after creation since changing it would orphan already-generated codes.
+    quantity: int | None = Field(default=None, ge=1, le=9999)
+    active: bool | None = None
+
+
+class StationCreate(BaseModel):
+    station_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+    name: str = Field(min_length=1, max_length=120)
+    active: bool = True
+
+    @field_validator("station_id")
+    @classmethod
+    def normalize_station_id(cls, value: str) -> str:
+        return value.strip()
+
+
+class StationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    active: bool | None = None
+
+
+class PolicyApplicability(BaseModel):
+    vehicle_models: list[str] = Field(default_factory=lambda: ["*"])
+
+
+class PolicyItemCreate(BaseModel):
+    id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{2,63}$")
+    title: str = Field(min_length=1, max_length=200)
+    applicability: PolicyApplicability = Field(default_factory=PolicyApplicability)
+    conditions: list[str] = Field(default_factory=list)
+    checklist_status: Literal["DRAFT", "APPROVED"] = "DRAFT"
+    defect_types: list[str] = Field(min_length=1)
+    action_code: str | None = None
+    action_code_by_defect: dict[str, str] | None = None
+    final_status: str = Field(min_length=1, max_length=60)
+    test_drive_allowed: bool | None = None
+    human_required: bool = False
+    required_evidence: list[str] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("id")
+    @classmethod
+    def normalize_id(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @model_validator(mode="after")
+    def require_action_mapping(self) -> "PolicyItemCreate":
+        if not self.action_code and not self.action_code_by_defect:
+            raise ValueError("Either action_code or action_code_by_defect is required")
+        return self
+
+
+class PolicyItemUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    applicability: PolicyApplicability | None = None
+    conditions: list[str] | None = None
+    checklist_status: Literal["DRAFT", "APPROVED"] | None = None
+    defect_types: list[str] | None = Field(default=None, min_length=1)
+    action_code: str | None = None
+    action_code_by_defect: dict[str, str] | None = None
+    final_status: str | None = Field(default=None, min_length=1, max_length=60)
+    test_drive_allowed: bool | None = None
+    human_required: bool | None = None
+    required_evidence: list[str] | None = None
+    steps: list[str] | None = None
+    source_ids: list[str] | None = None
 
 
 class QCDecisionCreate(BaseModel):

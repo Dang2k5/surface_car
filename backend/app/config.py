@@ -71,12 +71,23 @@ class ModelSettings:
 
 @dataclass(frozen=True)
 class AuthSettings:
+    supabase_url: str | None
     supabase_jwt_secret: str | None
     default_qc_role: str
+
+    @property
+    def jwks_url(self) -> str | None:
+        """Supabase's per-project JWKS endpoint, used to verify tokens signed with an
+        asymmetric key (ES256/RS256) — the default for projects on Supabase's newer API-key
+        system, which has no shared HS256 secret (see SUPABASE_JWT_SECRET below)."""
+        if not self.supabase_url:
+            return None
+        return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
 
     @classmethod
     def from_env(cls) -> AuthSettings:
         return cls(
+            supabase_url=os.getenv("SUPABASE_URL") or None,
             supabase_jwt_secret=os.getenv("SUPABASE_JWT_SECRET") or None,
             default_qc_role=os.getenv("DEFAULT_QC_ROLE", "QC_OPERATOR").strip(),
         )

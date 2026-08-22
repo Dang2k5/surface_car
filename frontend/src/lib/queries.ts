@@ -1,0 +1,411 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "./auth";
+import type {
+  AgentStatus,
+  GraphRun,
+  GraphSpec,
+  LotCreate,
+  LotProduct,
+  LotUpdate,
+  PolicyCatalog,
+  PolicyItemCreate,
+  PolicyItemUpdate,
+  ProductionLot,
+  QcDecision,
+  QualityAlertSummary,
+  ResumePayload,
+  Shift,
+  ShiftCreate,
+  ShiftUpdate,
+  Station,
+  StationCreate,
+  StationUpdate,
+  SubmitMultiInspection,
+  SubmitSingleInspection,
+  TrendRow,
+} from "./api-types";
+
+async function json<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || `Request failed (${response.status})`);
+  }
+  return (await response.json()) as T;
+}
+
+export function useAgentStatus() {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["agent", "status"],
+    queryFn: () => authedFetch("/agent/status").then((r) => json<AgentStatus>(r)),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useAgentGraph() {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["agent", "graph"],
+    queryFn: () => authedFetch("/agent/graph").then((r) => json<GraphSpec>(r)),
+    staleTime: 60_000,
+  });
+}
+
+export function useAgentRuns() {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["agent", "runs"],
+    queryFn: () => authedFetch("/agent/runs").then((r) => json<GraphRun[]>(r)),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useQualityAlerts() {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["quality-alerts"],
+    queryFn: () => authedFetch("/api/quality-alerts").then((r) => json<QualityAlertSummary>(r)),
+    refetchInterval: 10_000,
+  });
+}
+
+export type TrendFilters = {
+  shiftId?: string;
+  lotId?: string;
+  stationId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+function trendQueryString(groupBy: string, filters: TrendFilters = {}): string {
+  const params = new URLSearchParams({ group_by: groupBy });
+  if (filters.shiftId) params.set("shift_id", filters.shiftId);
+  if (filters.lotId) params.set("lot_id", filters.lotId);
+  if (filters.stationId) params.set("station_id", filters.stationId);
+  if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters.dateTo) params.set("date_to", filters.dateTo);
+  return params.toString();
+}
+
+export function useTrend(groupBy: "hour" | "shift" | "lot" | "day", filters: TrendFilters = {}) {
+  const { authedFetch, role } = useAuth();
+  return useQuery({
+    queryKey: ["trend", groupBy, filters],
+    queryFn: () =>
+      authedFetch(`/api/trend?${trendQueryString(groupBy, filters)}`).then((r) =>
+        json<TrendRow[]>(r),
+      ),
+    enabled: role === "QC_SUPERVISOR",
+    staleTime: 30_000,
+  });
+}
+
+export function useDownloadTrendReport() {
+  const { authedFetch } = useAuth();
+  return useMutation({
+    mutationFn: async ({
+      groupBy,
+      filters,
+    }: {
+      groupBy: "hour" | "shift" | "lot" | "day";
+      filters: TrendFilters;
+    }) => {
+      const response = await authedFetch(
+        `/api/trend/report.docx?${trendQueryString(groupBy, filters)}`,
+      );
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        throw new Error(message || `Request failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "bao-cao-chat-luong.docx";
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+  });
+}
+
+export function useSubmitInspection() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: SubmitSingleInspection | SubmitMultiInspection) => {
+      const form = new FormData();
+      const isMulti = "cameras" in payload;
+      if (isMulti) {
+        for (const cam of payload.cameras) {
+          form.append("files", cam.file);
+          form.append("camera_ids", cam.cameraId);
+        }
+      } else {
+        form.append("file", payload.file);
+        form.append("camera_id", payload.cameraId);
+      }
+      form.append("vehicle_id", payload.vehicleId);
+      form.append("vehicle_model", payload.vehicleModel);
+      if (payload.stationId) form.append("station_id", payload.stationId);
+      if (payload.lotId) form.append("lot_id", payload.lotId);
+      if (payload.shiftId) form.append("shift_id", payload.shiftId);
+      if (payload.productionDate) form.append("production_date", payload.productionDate);
+      const response = await authedFetch(
+        isMulti ? "/inspections/from-images" : "/inspections/from-image",
+        {
+          method: "POST",
+          body: form,
+        },
+        60_000,
+      );
+      return json<GraphRun>(response);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent", "runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["quality-alerts"] });
+      void queryClient.invalidateQueries({ queryKey: ["agent", "status"] });
+    },
+  });
+}
+
+export function useResumeInspection() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ threadId, payload }: { threadId: string; payload: ResumePayload }) => {
+      const response = await authedFetch(`/inspections/${threadId}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<GraphRun>(response);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent", "runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["quality-alerts"] });
+    },
+  });
+}
+
+export function usePolicyCatalog() {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["policies", "catalog"],
+    queryFn: () => authedFetch("/api/policies").then((r) => json<PolicyCatalog>(r)),
+    staleTime: 60_000,
+  });
+}
+
+export function useCreatePolicy() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: PolicyItemCreate) => {
+      const response = await authedFetch("/api/policies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<PolicyItemCreate>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["policies", "catalog"] }),
+  });
+}
+
+export function useUpdatePolicy() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ policyId, payload }: { policyId: string; payload: PolicyItemUpdate }) => {
+      const response = await authedFetch(`/api/policies/${encodeURIComponent(policyId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<PolicyItemUpdate>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["policies", "catalog"] }),
+  });
+}
+
+export function useDeletePolicy() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (policyId: string) => {
+      const response = await authedFetch(`/api/policies/${encodeURIComponent(policyId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok && response.status !== 204) {
+        const message = await response.text().catch(() => "");
+        throw new Error(message || `Request failed (${response.status})`);
+      }
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["policies", "catalog"] }),
+  });
+}
+
+export function useQcDecisions(inspectionId?: string) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["qc", "decisions", inspectionId ?? "all"],
+    queryFn: () =>
+      authedFetch(
+        `/api/qc/decisions${inspectionId ? `?inspection_id=${encodeURIComponent(inspectionId)}` : ""}`,
+      ).then((r) => json<QcDecision[]>(r)),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useShifts(activeOnly = true) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["catalog", "shifts", activeOnly],
+    queryFn: () =>
+      authedFetch(`/api/catalog/shifts?active_only=${activeOnly}`).then((r) => json<Shift[]>(r)),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateShift() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: ShiftCreate) => {
+      const response = await authedFetch("/api/catalog/shifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<Shift>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "shifts"] }),
+  });
+}
+
+export function useUpdateShift() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ shiftId, payload }: { shiftId: string; payload: ShiftUpdate }) => {
+      const response = await authedFetch(`/api/catalog/shifts/${encodeURIComponent(shiftId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<Shift>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "shifts"] }),
+  });
+}
+
+export function useLots(activeOnly = true) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["catalog", "lots", activeOnly],
+    queryFn: () =>
+      authedFetch(`/api/catalog/lots?active_only=${activeOnly}`).then((r) =>
+        json<ProductionLot[]>(r),
+      ),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateLot() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: LotCreate) => {
+      const response = await authedFetch("/api/catalog/lots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<ProductionLot>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "lots"] }),
+  });
+}
+
+export function useUpdateLot() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ lotId, payload }: { lotId: string; payload: LotUpdate }) => {
+      const response = await authedFetch(`/api/catalog/lots/${encodeURIComponent(lotId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<ProductionLot>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "lots"] }),
+  });
+}
+
+export function useLotProducts(lotId: string) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["catalog", "lots", lotId, "products"],
+    queryFn: () =>
+      authedFetch(`/api/catalog/lots/${encodeURIComponent(lotId)}/products`).then((r) =>
+        json<LotProduct[]>(r),
+      ),
+    enabled: !!lotId,
+    staleTime: 30_000,
+  });
+}
+
+export function useStations(activeOnly = true) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["catalog", "stations", activeOnly],
+    queryFn: () =>
+      authedFetch(`/api/catalog/stations?active_only=${activeOnly}`).then((r) =>
+        json<Station[]>(r),
+      ),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateStation() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: StationCreate) => {
+      const response = await authedFetch("/api/catalog/stations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<Station>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "stations"] }),
+  });
+}
+
+export function useUpdateStation() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ stationId, payload }: { stationId: string; payload: StationUpdate }) => {
+      const response = await authedFetch(`/api/catalog/stations/${encodeURIComponent(stationId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<Station>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "stations"] }),
+  });
+}
+
+export function useInspectionState(threadId: string | null) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["inspection", "state", threadId],
+    queryFn: () => authedFetch(`/inspections/${threadId}/state`).then((r) => json<GraphRun>(r)),
+    enabled: !!threadId,
+    refetchInterval: (query) => (query.state.data?.status === "INTERRUPTED" ? false : 3_000),
+  });
+}

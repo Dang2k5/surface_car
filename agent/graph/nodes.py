@@ -58,7 +58,7 @@ class QCNodes:
             "error": None,
             "execution_trace": _trace(
                 "prepare_input",
-                f"Input validated for {len(camera_evidence) or 1} camera view(s).",
+                f"Đã xác thực dữ liệu đầu vào cho {len(camera_evidence) or 1} camera.",
             ),
         }
 
@@ -77,7 +77,7 @@ class QCNodes:
                 "error": str(error),
                 "execution_trace": _trace(
                     "detect_defect",
-                    f"Model inference failed safely: {error}",
+                    f"Suy luận mô hình gặp lỗi (đã chặn an toàn): {error}",
                     "FAILED",
                 ),
             }
@@ -111,9 +111,9 @@ class QCNodes:
         )
         visual = detection.get("visual_measurements") or {}
         geometry_detail = (
-            f" bbox={float(visual.get('width_px', 0)):.0f}x"
+            f" khung_bao={float(visual.get('width_px', 0)):.0f}x"
             f"{float(visual.get('height_px', 0)):.0f}px, "
-            f"image_area={float(visual.get('image_area_ratio', 0)):.1%};"
+            f"tỉ_lệ_diện_tích_ảnh={float(visual.get('image_area_ratio', 0)):.1%};"
             if visual
             else ""
         )
@@ -133,13 +133,13 @@ class QCNodes:
             "similar_defect_warning": classification.similar_observation_warning,
             "execution_trace": _trace(
                 "detect_defect",
-                f"{model_name} returned defect_detected={detected}, "
-                f"confidence={float(detection.get('confidence', 0.0)):.2f}, "
-                f"detections={len(detection.get('detections', []))} across "
-                f"{len(detection.get('camera_results', [])) or 1} camera view(s); "
-                f"catalog_matches={len(suggested_codes)}, selected_code={classification.defect_code}, "
-                f"classifier={classification.provider};{geometry_detail} "
-                "physical_mm=requires_calibration.",
+                f"{model_name} trả về defect_detected={detected}, "
+                f"độ_tin_cậy={float(detection.get('confidence', 0.0)):.2f}, "
+                f"số_phát_hiện={len(detection.get('detections', []))} trên "
+                f"{len(detection.get('camera_results', [])) or 1} camera; "
+                f"khớp_danh_mục={len(suggested_codes)}, mã_đã_chọn={classification.defect_code}, "
+                f"bộ_phân_loại={classification.provider};{geometry_detail} "
+                "kích_thước_mm=cần hiệu chuẩn.",
             ),
         }
 
@@ -148,7 +148,7 @@ class QCNodes:
             return {
                 "agent_vision_status": "SKIPPED_NO_DEFECT",
                 "execution_trace": _trace(
-                    "multimodal_verify", "No detected defect; visual cross-check skipped."
+                    "multimodal_verify", "Không phát hiện lỗi; bỏ qua đối chiếu bằng hình ảnh."
                 ),
             }
         try:
@@ -159,7 +159,7 @@ class QCNodes:
                 "agent_vision_status": "UNAVAILABLE_REQUIRES_HITL",
                 "execution_trace": _trace(
                     "multimodal_verify",
-                    f"Vision LLM unavailable or invalid output: {error}.",
+                    f"Vision LLM không khả dụng hoặc trả về kết quả không hợp lệ: {error}.",
                     "FAILED",
                 ),
             }
@@ -168,7 +168,7 @@ class QCNodes:
                 "visual_assessment": None,
                 "agent_vision_status": "NOT_CONFIGURED",
                 "execution_trace": _trace(
-                    "multimodal_verify", "VISION_LLM_PROVIDER not configured; skipped."
+                    "multimodal_verify", "Chưa cấu hình VISION_LLM_PROVIDER; bỏ qua bước này."
                 ),
             }
         return {
@@ -176,9 +176,9 @@ class QCNodes:
             "agent_vision_status": "COMPLETED",
             "execution_trace": _trace(
                 "multimodal_verify",
-                f"verification={assessment.visual_verification}, "
-                f"uncertainty={assessment.visual_uncertainty}, "
-                f"possible_artifact={assessment.possible_artifact}.",
+                f"kết_quả_đối_chiếu={assessment.visual_verification}, "
+                f"độ_không_chắc_chắn={assessment.visual_uncertainty}, "
+                f"nghi_ngờ_nhiễu_ảnh={assessment.possible_artifact}.",
             ),
         }
 
@@ -186,19 +186,19 @@ class QCNodes:
         if state.get("inference_status") == "ERROR":
             route = "HITL"
             decision = "MODEL_ERROR_REVIEW_REQUIRED"
-            reason = "Model inference failed; fail-safe QC review is required."
+            reason = "Suy luận mô hình thất bại; bắt buộc QC xét duyệt để đảm bảo an toàn."
         elif not state.get("defect_detected", False):
             route = "PASS"
             decision = "PASS"
-            reason = "No supported visual defect was detected."
+            reason = "Không phát hiện lỗi bề mặt nào thuộc danh mục được hỗ trợ."
         elif state.get("defect_type") == "unknown" or not state.get("classified_defect_code"):
             route = "HITL"
             decision = "UNKNOWN_CLASS_REVIEW_REQUIRED"
-            reason = "A new or unmapped defect could not be classified by the Agent catalog."
+            reason = "Phát hiện một lỗi mới hoặc chưa có trong danh mục nên Agent không thể phân loại."
         else:
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
-            reason = "The Agent classified the known defect and selected an active QC code."
+            reason = "Agent đã phân loại lỗi đã biết và chọn được mã QC đang hoạt động."
 
         # Multimodal LLM visual cross-check must never let a CONFLICT/HIGH-uncertainty
         # result slip through as an automatic PASS/CONFIRMED (POLICY_GOVERNANCE.md).
@@ -206,15 +206,15 @@ class QCNodes:
         if state.get("agent_vision_status") == "UNAVAILABLE_REQUIRES_HITL":
             route = "HITL"
             decision = "VISION_LLM_UNAVAILABLE"
-            reason = "Vision LLM could not produce a validated visual assessment; fail-safe QC review is required."
+            reason = "Vision LLM không tạo được đánh giá hình ảnh hợp lệ; bắt buộc QC xét duyệt để đảm bảo an toàn."
         elif visual and visual.get("visual_verification") == "CONFLICT":
             route = "HITL"
             decision = "VISUAL_LLM_CONFLICT_REQUIRES_HITL"
-            reason = "Visual LLM cross-check conflicts with the YOLO detection; QC review is required."
+            reason = "Kết quả đối chiếu Vision LLM mâu thuẫn với phát hiện của YOLO; cần QC xét duyệt."
         elif visual and visual.get("visual_uncertainty") == "HIGH":
             route = "HITL"
             decision = "VISUAL_LLM_UNCERTAINTY_HIGH_REQUIRES_HITL"
-            reason = "Visual LLM cross-check uncertainty is HIGH; QC review is required."
+            reason = "Độ không chắc chắn khi đối chiếu Vision LLM ở mức CAO; cần QC xét duyệt."
 
         policy = self.policy_catalog.evaluate(state)
         analysis: ReasoningAnalysis | None = None
@@ -224,7 +224,7 @@ class QCNodes:
             except ReasoningUnavailableError as error:
                 route = "HITL"
                 decision = "LLM_AGENT_UNAVAILABLE"
-                reason = f"LLM Agent could not produce a validated decision: {error}."
+                reason = f"LLM Agent không thể đưa ra quyết định hợp lệ: {error}."
         review = policy.document_review
         return {
             "assessment_route": route,
@@ -240,9 +240,9 @@ class QCNodes:
             ),
             "execution_trace": _trace(
                 "assess_result",
-                f"Route={route}. Policy lookup matched {review.matched_document_count} controlled "
-                f"document(s), found {len(review.missing_data)} missing evidence item(s), and "
-                f"raised {len(review.warnings)} document-control warning(s).",
+                f"Định_tuyến={route}. Tra cứu chính sách khớp {review.matched_document_count} tài liệu "
+                f"kiểm soát, thiếu {len(review.missing_data)} minh chứng, và phát sinh "
+                f"{len(review.warnings)} cảnh báo kiểm soát tài liệu.",
             ),
         }
 
@@ -252,7 +252,7 @@ class QCNodes:
             **result,
             "execution_trace": _trace(
                 "verify_defect",
-                f"Verification pass {result['verify_count']} returned {result['verify_result']}.",
+                f"Lượt xác minh {result['verify_count']} trả về kết quả {result['verify_result']}.",
             ),
         }
 
@@ -285,16 +285,63 @@ class QCNodes:
             "human_decision": response,
             "decision": decision,
             "hitl_status": "OVERRIDDEN" if action == "OVERRIDE" else "CONFIRMED",
-            "reason": str(response.get("reason") or f"Human reviewer selected {action}."),
+            "reason": str(response.get("reason") or f"Nhân viên QC đã chọn hành động {action}."),
             "measurements": measurements,
-            "execution_trace": _trace("human_review", f"HITL resumed with action={action}."),
+            "execution_trace": _trace("human_review", f"HITL đã tiếp tục với hành động={action}."),
+        }
+
+    def supervisor_review(self, state: QCState) -> dict[str, Any]:
+        """Second HITL gate, reached only when an operator chose OVERRIDE in `human_review`.
+        A supervisor must APPROVE (keep the operator's override recommendation) or REJECT it
+        (send the vehicle back to REINSPECTION_REQUIRED) before the graph can finalize."""
+        human_decision = state.get("human_decision") or {}
+        response = interrupt(
+            {
+                "type": "supervisor_escalation_review",
+                "inspection_id": state["inspection_id"],
+                "vehicle_id": state["vehicle_id"],
+                "defect_type": state.get("defect_type"),
+                "confidence": state.get("confidence"),
+                "operator_reviewer": human_decision.get("reviewer"),
+                "operator_reason": human_decision.get("reason"),
+                "operator_recommendation": human_decision.get("recommendation"),
+                "allowed_actions": ["APPROVE", "REJECT"],
+            }
+        )
+        if not isinstance(response, dict):
+            raise ValueError("Supervisor resume payload must be an object")
+        action = str(response.get("action", "")).upper()
+        if action not in {"APPROVE", "REJECT"}:
+            raise ValueError("Supervisor action must be APPROVE or REJECT")
+        approved = action == "APPROVE"
+        updated_human_decision = {
+            **human_decision,
+            "supervisor_action": action,
+            "supervisor_reviewer": response.get("reviewer"),
+            "supervisor_reason": response.get("reason"),
+        }
+        return {
+            "human_decision": updated_human_decision,
+            "decision": "DEFECT_CONFIRMED" if approved else "REINSPECTION_REQUIRED",
+            "hitl_status": "SUPERVISOR_APPROVED" if approved else "SUPERVISOR_REJECTED",
+            "reason": str(
+                response.get("reason")
+                or f"Giám sát viên đã {'phê duyệt' if approved else 'từ chối'} yêu cầu chuyển cấp."
+            ),
+            "execution_trace": _trace(
+                "supervisor_review", f"Giám sát viên đã xét duyệt chuyển cấp với hành động={action}."
+            ),
         }
 
     def generate_recommendation(self, state: QCState) -> dict[str, Any]:
         policy = self.policy_catalog.evaluate(state)
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()
+        supervisor_action = str((state.get("human_decision") or {}).get("supervisor_action", "")).upper()
         override = (state.get("human_decision") or {}).get("recommendation")
-        if human_action == "OVERRIDE" and override:
+        # An OVERRIDE only reaches here after supervisor_review resolves it (routes.py's
+        # route_after_human_review) — only apply the operator's override once the supervisor
+        # APPROVEd it; a REJECTed override must fall through to the normal policy decision.
+        if human_action == "OVERRIDE" and supervisor_action == "APPROVE" and override:
             policy = policy.model_copy(
                 update={
                     "action_code": str(override),
@@ -310,7 +357,7 @@ class QCNodes:
             review_reason = str(
                 (state.get("human_decision") or {}).get("reason")
                 or state.get("reason")
-                or "QC completed the required manual review."
+                or "QC đã hoàn tất bước xét duyệt thủ công theo yêu cầu."
             )
             analysis = ReasoningAnalysis(
                 summary_en=review_reason,
@@ -340,7 +387,7 @@ class QCNodes:
             "recommendation": analysis.action_label,
             "final_status": analysis.final_status,
             "allow_test_drive": analysis.allow_test_drive,
-            "reason": analysis.summary_en,
+            "reason": analysis.summary_vi,
             "human_required": policy.human_required,
             "policy_decision": policy.model_dump(mode="json"),
             "ai_analysis": analysis.model_dump(mode="json"),
@@ -385,8 +432,8 @@ class QCNodes:
             },
             "execution_trace": _trace(
                 "generate_recommendation",
-                f"Policy {policy.policy_id}@{policy.policy_revision} selected "
-                f"{analysis.action_code}; decision_source={analysis.provider}.",
+                f"Chính sách {policy.policy_id}@{policy.policy_revision} chọn "
+                f"{analysis.action_code}; nguồn_quyết_định={analysis.provider}.",
             ),
         }
 
@@ -395,18 +442,18 @@ class QCNodes:
         if state.get("decision") == "PASS":
             update = {
                 "recommendation_code": "RELEASE_TO_NEXT_QUALITY_GATE",
-                "recommendation": "Release the vehicle to the next quality gate",
+                "recommendation": "Cho phép xe chuyển sang trạm kiểm tra chất lượng tiếp theo",
                 "final_status": "PASS",
                 "allow_test_drive": True,
                 "hitl_status": "CONFIRMED",
-                "reason": state.get("reason", "No defect detected."),
+                "reason": state.get("reason", "Không phát hiện lỗi."),
             }
         completed_state: QCState = {
             **state,
             **update,
             "execution_trace": [
                 *state.get("execution_trace", []),
-                *_trace("save_result", "Final state persisted through the repository adapter."),
+                *_trace("save_result", "Đã lưu trạng thái cuối cùng qua repository."),
             ],
         }
         self.repository.save(completed_state)
@@ -414,7 +461,7 @@ class QCNodes:
             **update,
             "execution_trace": _trace(
                 "save_result",
-                "Final state persisted through the repository adapter.",
+                "Đã lưu trạng thái cuối cùng qua repository.",
             ),
         }
 

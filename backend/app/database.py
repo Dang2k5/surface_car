@@ -131,7 +131,42 @@ class Database:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""",
-            "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_vehicle_updated ON agent_graph_runs(vehicle_id, updated_at DESC)",
+            """CREATE TABLE IF NOT EXISTS shifts (
+                shift_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                start_time TEXT NOT NULL DEFAULT '',
+                end_time TEXT NOT NULL DEFAULT '',
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
+            """CREATE TABLE IF NOT EXISTS production_lots (
+                lot_id TEXT PRIMARY KEY,
+                note TEXT NOT NULL DEFAULT '',
+                station_id TEXT,
+                shift_id TEXT,
+                vehicle_type TEXT NOT NULL DEFAULT '',
+                quantity INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
+            """CREATE TABLE IF NOT EXISTS lot_products (
+                product_code TEXT PRIMARY KEY,
+                lot_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                vehicle_type TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""",
+            """CREATE TABLE IF NOT EXISTS stations (
+                station_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_lot_products_lot ON lot_products(lot_id, seq)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_vehicle_updated ON agent_graph_runs(vehicle_id, updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_vehicle_created ON qc_decisions(vehicle_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_inspection ON qc_decisions(inspection_id)",
         )
@@ -147,6 +182,8 @@ class Database:
             ON agent_graph_runs(station_id, shift_id, lot_id, production_date)"""
         )
         self._seed_defect_catalog()
+        self._seed_shifts()
+        self._seed_stations()
 
     def _ensure_columns(self) -> None:
         """Apply additive baseline migrations to databases created by older MVPs."""
@@ -174,6 +211,18 @@ class Database:
             "production_date": "TEXT",
             "defect_type": "TEXT",
         }
+        lot_existing = {
+            column["name"] for column in inspect(self.engine).get_columns("production_lots")
+        }
+        lot_columns = {
+            "station_id": "TEXT",
+            "shift_id": "TEXT",
+            "vehicle_type": "TEXT NOT NULL DEFAULT ''",
+            "quantity": "INTEGER NOT NULL DEFAULT 0",
+        }
+        station_existing = {
+            column["name"] for column in inspect(self.engine).get_columns("stations")
+        }
         with self.begin() as connection:
             for name, ddl in defect_columns.items():
                 if name not in existing:
@@ -187,6 +236,11 @@ class Database:
             for name, ddl in run_columns.items():
                 if name not in run_existing:
                     connection.execute(text(f"ALTER TABLE agent_graph_runs ADD COLUMN {name} {ddl}"))
+            for name, ddl in lot_columns.items():
+                if name not in lot_existing:
+                    connection.execute(text(f"ALTER TABLE production_lots ADD COLUMN {name} {ddl}"))
+            if "zone_name" in station_existing:
+                connection.execute(text("ALTER TABLE stations DROP COLUMN zone_name"))
 
     def _seed_defect_catalog(self) -> None:
         now = datetime.now(UTC).isoformat()
@@ -247,6 +301,222 @@ class Database:
                     for item in defaults
                 ],
             )
+
+    def _seed_shifts(self) -> None:
+        """Seed the 3 standard shifts so the inspection form's dropdown isn't empty on a fresh
+        database. ON CONFLICT DO NOTHING preserves any edits a Supervisor already made."""
+        now = datetime.now(UTC).isoformat()
+        defaults = (("CA1", "Ca 1", "06:00", "14:00"), ("CA2", "Ca 2", "14:00", "22:00"), ("CA3", "Ca 3", "22:00", "06:00"))
+        statement = text(
+            """INSERT INTO shifts (shift_id, name, start_time, end_time, active, created_at, updated_at)
+            VALUES (:shift_id, :name, :start_time, :end_time, 1, :created_at, :updated_at)
+            ON CONFLICT(shift_id) DO NOTHING"""
+        )
+        with self.begin() as connection:
+            connection.execute(
+                statement,
+                [
+                    {
+                        "shift_id": shift_id,
+                        "name": name,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    for shift_id, name, start_time, end_time in defaults
+                ],
+            )
+
+    def list_shifts(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+        query = "SELECT * FROM shifts"
+        if active_only:
+            query += " WHERE active = 1"
+        query += " ORDER BY shift_id"
+        return self.fetch_all(query)
+
+    def create_shift(self, record: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """INSERT INTO shifts (shift_id, name, start_time, end_time, active, created_at, updated_at)
+            VALUES (:shift_id, :name, :start_time, :end_time, :active, :created_at, :updated_at)""",
+            {
+                **record,
+                "active": 1 if record.get("active", True) else 0,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        return self.fetch_one("SELECT * FROM shifts WHERE shift_id = :shift_id", {"shift_id": record["shift_id"]}) or {}
+
+    def update_shift(self, shift_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        existing = self.fetch_one("SELECT * FROM shifts WHERE shift_id = :shift_id", {"shift_id": shift_id})
+        if not existing:
+            return None
+        fields = {key: value for key, value in patch.items() if value is not None}
+        if "active" in patch:
+            fields["active"] = 1 if patch["active"] else 0
+        if fields:
+            fields["updated_at"] = datetime.now(UTC).isoformat()
+            assignments = ", ".join(f"{key} = :{key}" for key in fields)
+            self.execute(
+                f"UPDATE shifts SET {assignments} WHERE shift_id = :shift_id",
+                {**fields, "shift_id": shift_id},
+            )
+        return self.fetch_one("SELECT * FROM shifts WHERE shift_id = :shift_id", {"shift_id": shift_id})
+
+    def list_lots(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+        query = "SELECT * FROM production_lots"
+        if active_only:
+            query += " WHERE active = 1"
+        query += " ORDER BY created_at DESC"
+        return self.fetch_all(query)
+
+    def get_lot(self, lot_id: str) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM production_lots WHERE lot_id = :lot_id", {"lot_id": lot_id})
+
+    def get_station(self, station_id: str) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM stations WHERE station_id = :station_id", {"station_id": station_id})
+
+    def get_shift(self, shift_id: str) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM shifts WHERE shift_id = :shift_id", {"shift_id": shift_id})
+
+    def create_lot(self, record: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """INSERT INTO production_lots
+            (lot_id, note, station_id, shift_id, vehicle_type, quantity, active, created_at, updated_at)
+            VALUES (:lot_id, :note, :station_id, :shift_id, :vehicle_type, :quantity, :active,
+                    :created_at, :updated_at)""",
+            {
+                **record,
+                "active": 1 if record.get("active", True) else 0,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        quantity = int(record.get("quantity") or 0)
+        if quantity > 0:
+            self._generate_lot_products(record["lot_id"], record["vehicle_type"], 1, quantity)
+        return self.fetch_one("SELECT * FROM production_lots WHERE lot_id = :lot_id", {"lot_id": record["lot_id"]}) or {}
+
+    def update_lot(self, lot_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        existing = self.fetch_one("SELECT * FROM production_lots WHERE lot_id = :lot_id", {"lot_id": lot_id})
+        if not existing:
+            return None
+        fields = {key: value for key, value in patch.items() if value is not None}
+        if "active" in patch:
+            fields["active"] = 1 if patch["active"] else 0
+        if fields:
+            fields["updated_at"] = datetime.now(UTC).isoformat()
+            assignments = ", ".join(f"{key} = :{key}" for key in fields)
+            self.execute(
+                f"UPDATE production_lots SET {assignments} WHERE lot_id = :lot_id",
+                {**fields, "lot_id": lot_id},
+            )
+        if "quantity" in fields:
+            new_quantity = int(fields["quantity"])
+            old_quantity = int(existing.get("quantity") or 0)
+            if new_quantity > old_quantity:
+                vehicle_type = existing.get("vehicle_type") or ""
+                self._generate_lot_products(lot_id, vehicle_type, old_quantity + 1, new_quantity)
+        return self.fetch_one("SELECT * FROM production_lots WHERE lot_id = :lot_id", {"lot_id": lot_id})
+
+    def _generate_lot_products(self, lot_id: str, vehicle_type: str, start_seq: int, end_seq: int) -> None:
+        """Auto-generate per-vehicle product codes for a lot: <vehicle_type>-<stt>, stt from
+        start_seq to end_seq inclusive (stt counts 1..quantity, matching the physical vehicles
+        produced in this lot). Example: vehicle_type "VF8", quantity 3 -> VF8-1, VF8-2, VF8-3."""
+        now = datetime.now(UTC).isoformat()
+        statement = text(
+            """INSERT INTO lot_products (product_code, lot_id, seq, vehicle_type, created_at)
+            VALUES (:product_code, :lot_id, :seq, :vehicle_type, :created_at)
+            ON CONFLICT(product_code) DO NOTHING"""
+        )
+        with self.begin() as connection:
+            connection.execute(
+                statement,
+                [
+                    {
+                        "product_code": f"{vehicle_type}-{seq}",
+                        "lot_id": lot_id,
+                        "seq": seq,
+                        "vehicle_type": vehicle_type,
+                        "created_at": now,
+                    }
+                    for seq in range(start_seq, end_seq + 1)
+                ],
+            )
+
+    def list_lot_products(self, lot_id: str) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            "SELECT * FROM lot_products WHERE lot_id = :lot_id ORDER BY seq", {"lot_id": lot_id}
+        )
+
+    def _seed_stations(self) -> None:
+        """Seed the stations already referenced by default form values elsewhere in the app
+        (inspection.tsx's "QC-03", langgraph_api.py's "FNS_LINE_HA_01") so the dropdown isn't
+        empty on a fresh database. ON CONFLICT DO NOTHING preserves Supervisor edits."""
+        now = datetime.now(UTC).isoformat()
+        defaults = (("FNS_LINE_HA_01", "Trạm FNS Line HA 01"), ("QC-03", "Trạm QC 03"))
+        statement = text(
+            """INSERT INTO stations (station_id, name, active, created_at, updated_at)
+            VALUES (:station_id, :name, 1, :created_at, :updated_at)
+            ON CONFLICT(station_id) DO NOTHING"""
+        )
+        with self.begin() as connection:
+            connection.execute(
+                statement,
+                [
+                    {
+                        "station_id": station_id,
+                        "name": name,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    for station_id, name in defaults
+                ],
+            )
+
+    def list_stations(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+        query = "SELECT * FROM stations"
+        if active_only:
+            query += " WHERE active = 1"
+        query += " ORDER BY station_id"
+        return self.fetch_all(query)
+
+    def create_station(self, record: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """INSERT INTO stations (station_id, name, active, created_at, updated_at)
+            VALUES (:station_id, :name, :active, :created_at, :updated_at)""",
+            {
+                **record,
+                "active": 1 if record.get("active", True) else 0,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        return self.fetch_one(
+            "SELECT * FROM stations WHERE station_id = :station_id", {"station_id": record["station_id"]}
+        ) or {}
+
+    def update_station(self, station_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        existing = self.fetch_one(
+            "SELECT * FROM stations WHERE station_id = :station_id", {"station_id": station_id}
+        )
+        if not existing:
+            return None
+        fields = {key: value for key, value in patch.items() if value is not None}
+        if "active" in patch:
+            fields["active"] = 1 if patch["active"] else 0
+        if fields:
+            fields["updated_at"] = datetime.now(UTC).isoformat()
+            assignments = ", ".join(f"{key} = :{key}" for key in fields)
+            self.execute(
+                f"UPDATE stations SET {assignments} WHERE station_id = :station_id",
+                {**fields, "station_id": station_id},
+            )
+        return self.fetch_one("SELECT * FROM stations WHERE station_id = :station_id", {"station_id": station_id})
 
     def fetch_all(self, query: str, parameters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:

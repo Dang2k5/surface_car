@@ -93,5 +93,66 @@ update public.defect_catalog
 set active = 0, updated_at = now()::text
 where defect_code in ('PAINT01', 'CRACK01', 'GLASS01', 'LAMP01', 'TIRE01');
 
+-- RBAC: role lookup for Supabase-authenticated requests (API_CONTRACT.md §7.7,
+-- backend/app/auth.py get_or_create_profile). FastAPI provisions a row here the first time each
+-- Supabase user calls an authenticated endpoint, defaulting role to DEFAULT_QC_ROLE — this table
+-- does not need to be pre-populated, only to exist before FastAPI points at this project.
+create table if not exists public.profiles (
+  user_id text primary key,
+  email text,
+  role text not null default 'QC_OPERATOR',
+  created_at text not null,
+  updated_at text not null
+);
+
+-- Ca làm việc / Lô sản xuất / Trạm QC catalogs (backend/app/catalog_api.py). QC_SUPERVISOR
+-- manages these; the inspection form only picks from the active rows. Trạm and Ca are
+-- independent catalogs (a shift runs in parallel across multiple stations); a Lô references the
+-- specific Trạm+Ca it was produced under, not the other way around.
+create table if not exists public.shifts (
+  shift_id text primary key,
+  name text not null,
+  start_time text not null default '',
+  end_time text not null default '',
+  active integer not null default 1,
+  created_at text not null,
+  updated_at text not null
+);
+
+create table if not exists public.stations (
+  station_id text primary key,
+  name text not null,
+  active integer not null default 1,
+  created_at text not null,
+  updated_at text not null
+);
+
+create table if not exists public.production_lots (
+  lot_id text primary key,
+  note text not null default '',
+  station_id text references public.stations(station_id),
+  shift_id text references public.shifts(shift_id),
+  vehicle_type text not null default '',
+  quantity integer not null default 0,
+  active integer not null default 1,
+  created_at text not null,
+  updated_at text not null
+);
+
+alter table public.production_lots add column if not exists station_id text references public.stations(station_id);
+alter table public.production_lots add column if not exists shift_id text references public.shifts(shift_id);
+alter table public.production_lots add column if not exists vehicle_type text not null default '';
+alter table public.production_lots add column if not exists quantity integer not null default 0;
+
+-- Auto-generated per-vehicle product codes for a lot: <vehicle_type><stt>, stt from 1..quantity
+-- (see Database._generate_lot_products in backend/app/database.py).
+create table if not exists public.lot_products (
+  product_code text primary key,
+  lot_id text not null references public.production_lots(lot_id),
+  seq integer not null,
+  vehicle_type text not null,
+  created_at text not null
+);
+
 -- The browser never accesses these tables directly in this architecture.
 -- FastAPI owns database access through its server-side DATABASE_URL.

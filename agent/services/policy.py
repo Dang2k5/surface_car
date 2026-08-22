@@ -72,14 +72,14 @@ class PolicyDecision(BaseModel):
 
 
 ACTION_LABELS = {
-    "MANUAL_VISUAL_REINSPECTION": "Keep the vehicle on hold and perform a new manual visual inspection",
-    "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT": "Hold for controlled surface assessment and documented reinspection",
-    "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT": "Hold the vehicle and transfer it to Body Repair for technical assessment",
-    "ISOLATE_FOR_GLASS_REPAIR": "Hold the vehicle and transfer it for glass damage assessment",
-    "ISOLATE_FOR_LIGHTING_REPAIR": "Hold the vehicle and transfer it for lighting system repair",
-    "IMMOBILIZE_FOR_TIRE_SERVICE": "Immobilize the vehicle and transfer it for tire service",
-    "HOLD_FOR_WELD_ENGINEERING_REVIEW": "Hold for weld engineering review",
-    "HOLD_FOR_VIN_VERIFICATION": "Hold for controlled VIN verification",
+    "MANUAL_VISUAL_REINSPECTION": "Giữ xe lại và thực hiện kiểm tra bằng mắt thủ công mới",
+    "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT": "Giữ lại để đánh giá bề mặt có kiểm soát và tái kiểm tra có ghi nhận",
+    "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT": "Giữ xe lại và chuyển sang bộ phận Sửa chữa thân vỏ để đánh giá kỹ thuật",
+    "ISOLATE_FOR_GLASS_REPAIR": "Giữ xe lại và chuyển đi đánh giá hư hỏng kính",
+    "ISOLATE_FOR_LIGHTING_REPAIR": "Giữ xe lại và chuyển đi sửa chữa hệ thống đèn",
+    "IMMOBILIZE_FOR_TIRE_SERVICE": "Cố định xe và chuyển đi bảo dưỡng lốp",
+    "HOLD_FOR_WELD_ENGINEERING_REVIEW": "Giữ lại để kỹ thuật hàn xem xét",
+    "HOLD_FOR_VIN_VERIFICATION": "Giữ lại để xác minh VIN có kiểm soát",
 }
 
 
@@ -93,6 +93,40 @@ class PolicyCatalog:
 
     def public_catalog(self) -> dict[str, Any]:
         return self.document
+
+    def create_policy(self, data: dict[str, Any]) -> dict[str, Any]:
+        if any(item["id"] == data["id"] for item in self.document["policies"]):
+            raise ValueError(f"Policy already exists: {data['id']}")
+        self.document["policies"].append(data)
+        self._persist()
+        return data
+
+    def update_policy(self, policy_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
+        policies = self.document["policies"]
+        index = next((i for i, item in enumerate(policies) if item["id"] == policy_id), None)
+        if index is None:
+            return None
+        policies[index] = {**policies[index], **changes}
+        self._persist()
+        return policies[index]
+
+    def delete_policy(self, policy_id: str) -> bool:
+        policies = self.document["policies"]
+        remaining = [item for item in policies if item["id"] != policy_id]
+        if len(remaining) == len(policies):
+            return False
+        self.document["policies"] = remaining
+        self._persist()
+        return True
+
+    def _persist(self) -> None:
+        # Write to a sibling temp file first so a crash mid-write can't leave the
+        # production policy catalog (read on every inspection) truncated or corrupt.
+        tmp_path = self.path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps(self.document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        tmp_path.replace(self.path)
 
     def evaluate(self, state: QCState) -> PolicyDecision:
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()

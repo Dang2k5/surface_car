@@ -37,7 +37,7 @@ def test_no_defect_routes_to_pass_and_save():
     _, repository, thread_id, _, result = run_scenario("no_defect")
     assert result["decision"] == "PASS"
     assert result["recommendation_code"] == "RELEASE_TO_NEXT_QUALITY_GATE"
-    assert result["recommendation"] == "Release the vehicle to the next quality gate"
+    assert result["recommendation"] == "Cho phép xe chuyển sang trạm kiểm tra chất lượng tiếp theo"
     assert result["final_status"] == "PASS"
     assert repository.get(thread_id)["final_status"] == "PASS"
 

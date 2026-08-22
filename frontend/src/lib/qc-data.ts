@@ -1,0 +1,52 @@
+export type Verdict = "PASS" | "FAIL" | "HITL";
+export type Severity = "Minor" | "Medium" | "Major" | "Critical";
+export type WarningLevel = "NORMAL" | "WATCH" | "WARNING" | "CRITICAL";
+
+export type CameraId = "CAM-01" | "CAM-02" | "CAM-03" | "CAM-04" | "CAM-05";
+export const KNOWN_CAMERA_IDS: CameraId[] = ["CAM-01", "CAM-02", "CAM-03", "CAM-04", "CAM-05"];
+
+export type Camera = {
+  id: CameraId;
+  position: string;
+  captureState: "LIVE" | "CAPTURED";
+  /** Empty string when this camera has no uploaded evidence yet — render a placeholder, not a stock photo. */
+  image: string;
+  health: "OK" | "DEGRADED";
+  /**
+   * The captured photo's own pixel resolution, when known. CameraFeed needs this to size its
+   * letterbox wrapper so the % box/mask overlay (computed against these same pixel dimensions in
+   * detection-geometry.ts) lands on the real defect instead of drifting when the photo's aspect
+   * ratio doesn't match the fixed card aspect ratio.
+   */
+  imageWidth?: number | undefined;
+  imageHeight?: number | undefined;
+};
+
+export type Defect = {
+  id: string;
+  index: number;
+  type: "Scratch" | "Dent" | "Paint defect" | "Surface anomaly";
+  location: string;
+  severity: Severity;
+  confidence: number;
+  camera: CameraId;
+  measurement: string;
+  threshold: string;
+  decision: "FAIL" | "PASS";
+  /** bounding box in % of the camera frame */
+  box: { x: number; y: number; w: number; h: number };
+  /** YOLO segmentation mask outline in % of the camera frame, when the model returned one */
+  polygon?: { x: number; y: number }[] | undefined;
+};
+
+export type HistoryRow = {
+  time: string;
+  vin: string;
+  model: string;
+  result: Verdict;
+  defects: number;
+  confidence: number;
+  operator: string;
+  severity: Severity | "—";
+  defectType: string;
+};

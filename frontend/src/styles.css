@@ -1,0 +1,222 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * AUTO QC — industrial AI inspection control room design system.
+ * Dark-only, charcoal surfaces, cyan = system/AI, amber = attention,
+ * green = PASS, red = FAIL.
+ */
+
+@theme inline {
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 3px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+:root {
+  --radius: 0.375rem;
+
+  --background: oklch(0.16 0.006 250);
+  --foreground: oklch(0.95 0.004 250);
+  --surface: oklch(0.205 0.008 250);
+  --surface-2: oklch(0.245 0.009 250);
+  --card: oklch(0.205 0.008 250);
+  --card-foreground: oklch(0.95 0.004 250);
+  --popover: oklch(0.225 0.009 250);
+  --popover-foreground: oklch(0.95 0.004 250);
+
+  --primary: oklch(0.75 0.13 205);
+  --primary-foreground: oklch(0.15 0.02 240);
+  --secondary: oklch(0.28 0.01 250);
+  --secondary-foreground: oklch(0.93 0.004 250);
+  --muted: oklch(0.26 0.008 250);
+  --muted-foreground: oklch(0.66 0.012 250);
+  --accent: oklch(0.78 0.16 68);
+  --accent-foreground: oklch(0.18 0.02 60);
+
+  --destructive: oklch(0.63 0.225 25);
+  --destructive-foreground: oklch(0.98 0.005 250);
+  --success: oklch(0.72 0.17 152);
+  --success-foreground: oklch(0.16 0.02 160);
+  --warning: oklch(0.78 0.16 68);
+  --warning-foreground: oklch(0.18 0.02 60);
+  --info: oklch(0.75 0.13 205);
+
+  --border: oklch(0.3 0.01 250);
+  --border-strong: oklch(0.4 0.012 250);
+  --input: oklch(0.3 0.01 250);
+  --ring: oklch(0.75 0.13 205);
+
+  --chart-1: oklch(0.75 0.13 205);
+  --chart-2: oklch(0.78 0.16 68);
+  --chart-3: oklch(0.63 0.225 25);
+  --chart-4: oklch(0.72 0.17 152);
+  --chart-5: oklch(0.66 0.012 250);
+
+  --glow-info:
+    0 0 0 1px color-mix(in oklab, var(--info) 35%, transparent),
+    0 0 18px -6px color-mix(in oklab, var(--info) 55%, transparent);
+  --glow-warning:
+    0 0 0 1px color-mix(in oklab, var(--warning) 40%, transparent),
+    0 0 18px -6px color-mix(in oklab, var(--warning) 55%, transparent);
+  --glow-danger:
+    0 0 0 1px color-mix(in oklab, var(--destructive) 45%, transparent),
+    0 0 20px -6px color-mix(in oklab, var(--destructive) 60%, transparent);
+  --glow-success:
+    0 0 0 1px color-mix(in oklab, var(--success) 40%, transparent),
+    0 0 18px -6px color-mix(in oklab, var(--success) 55%, transparent);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in oklab, var(--border) 30%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--border) 30%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 48px 48px;
+  }
+}
+
+@utility panel {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+@utility label-caps {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@utility glow-info {
+  box-shadow: var(--glow-info);
+}
+@utility glow-warning {
+  box-shadow: var(--glow-warning);
+}
+@utility glow-danger {
+  box-shadow: var(--glow-danger);
+}
+@utility glow-success {
+  box-shadow: var(--glow-success);
+}
+
+@utility scan-lines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--background) 22%, transparent) 0px,
+    color-mix(in oklab, var(--background) 22%, transparent) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@keyframes qc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@utility live-dot {
+  animation: qc-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes scan-sweep {
+  0% {
+    top: -2%;
+    opacity: 0;
+  }
+  12%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    top: 102%;
+    opacity: 0;
+  }
+}
+
+@utility animate-scan {
+  animation: scan-sweep 6s ease-in-out infinite;
+}
+
+@keyframes frame-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@utility animate-frame-pulse {
+  animation: frame-pulse 3.2s ease-in-out infinite;
+}

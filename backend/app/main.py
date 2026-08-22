@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from langgraph.checkpoint.memory import InMemorySaver
+import psycopg
+from jwt import PyJWKClient
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
+from psycopg.rows import dict_row
 
 from agent.graph.builder import build_qc_graph
 from agent.services.audit_export import JsonAuditExporter
@@ -32,8 +38,9 @@ from agent.services.vision_verifier import (
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
 from .auth_api import router as auth_router
+from .catalog_api import router as catalog_router
 from .config import AuditExportSettings, AuthSettings, ModelSettings, ObjectStorageSettings
-from .database import DEFAULT_DATABASE_URL, Database
+from .database import DEFAULT_DATABASE_URL, Database, normalize_database_url
 from .langgraph_api import router as langgraph_router
 from .objects_api import router as objects_router
 from .policy_api import router as policy_router
@@ -137,6 +144,32 @@ def _build_object_storage(
     return LocalDiskObjectStorage(local_root)
 
 
+def _build_qc_checkpointer(database_url: str) -> tuple[Any, Any]:
+    """Build the LangGraph checkpointer on the same store as DATABASE_URL.
+
+    A checkpointer less durable/shared than app.state.qc_repository (agent_graph_runs)
+    orphans the HITL queue: the repository keeps listing an interrupted run as pending,
+    but the checkpoint needed to actually resume it lives somewhere the next request
+    can't see (in-memory, wiped by any restart; or a local-disk SQLite file another
+    instance/redeploy doesn't share) -- resuming then 404s "LangGraph thread not found"
+    while the queue still shows the case as waiting. Backing both by the same Postgres
+    database when one is configured keeps them consistent.
+    """
+    normalized = normalize_database_url(database_url)
+    if normalized.startswith("postgresql+psycopg://"):
+        pg_url = "postgresql://" + normalized.removeprefix("postgresql+psycopg://")
+        conn = psycopg.connect(pg_url, autocommit=True, prepare_threshold=0, row_factory=dict_row)
+        checkpointer = PostgresSaver(conn)
+        checkpointer.setup()
+        return checkpointer, conn
+    checkpoint_db_path = Path("./data/qc_checkpoints.db")
+    checkpoint_db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(checkpoint_db_path), check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
+    checkpointer.setup()
+    return checkpointer, conn
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.database = Database(get_database_url())
@@ -145,12 +178,21 @@ async def lifespan(app: FastAPI):
         app.state.object_storage_settings, upload_image_directory
     )
     app.state.auth_settings = AuthSettings.from_env()
-    if not app.state.auth_settings.supabase_jwt_secret:
+    # Supabase's newer API-key-system projects don't expose a shared HS256 secret at all —
+    # SUPABASE_URL (+ its JWKS endpoint) is required to verify their ES256/RS256-signed tokens.
+    app.state.supabase_jwks_client = (
+        PyJWKClient(app.state.auth_settings.jwks_url, cache_keys=True)
+        if app.state.auth_settings.jwks_url
+        else None
+    )
+    if not app.state.auth_settings.supabase_jwt_secret and not app.state.supabase_jwks_client:
         logger.warning(
-            "SUPABASE_JWT_SECRET is not set; RBAC enforcement is disabled and all "
-            "write endpoints accept unauthenticated requests (ENVIRONMENT.md)"
+            "Neither SUPABASE_JWT_SECRET nor SUPABASE_URL is set; RBAC enforcement is "
+            "disabled and all write endpoints accept unauthenticated requests (ENVIRONMENT.md)"
         )
-    app.state.qc_checkpointer = InMemorySaver()
+    app.state.qc_checkpointer, app.state.qc_checkpointer_conn = _build_qc_checkpointer(
+        get_database_url()
+    )
     app.state.audit_export_settings = AuditExportSettings.from_env()
     app.state.qc_audit_exporter = JsonAuditExporter(
         app.state.audit_export_settings.directory,
@@ -233,6 +275,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     app.state.database.close()
+    app.state.qc_checkpointer_conn.close()
 
 
 app = FastAPI(
@@ -249,6 +292,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(catalog_router)
 app.include_router(objects_router)
 app.include_router(langgraph_router)
 app.include_router(quality_alerts_router)

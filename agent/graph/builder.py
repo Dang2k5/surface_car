@@ -7,7 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from agent.graph.nodes import QCNodes
-from agent.graph.routes import route_assessment
+from agent.graph.routes import route_after_human_review, route_assessment
 from agent.graph.state import QCState
 from agent.services.defect_catalog import DefectCatalogService, StaticDefectCatalog
 from agent.services.detector import DetectorService, MockDetector
@@ -46,6 +46,7 @@ def build_qc_graph(
     builder.add_node("assess_result", nodes.assess_result)
     builder.add_node("verify_defect", nodes.verify_defect)
     builder.add_node("human_review", nodes.human_review)
+    builder.add_node("supervisor_review", nodes.supervisor_review)
     builder.add_node("generate_recommendation", nodes.generate_recommendation)
     builder.add_node("save_result", nodes.save_result)
 
@@ -64,7 +65,15 @@ def build_qc_graph(
         },
     )
     builder.add_edge("verify_defect", "assess_result")
-    builder.add_edge("human_review", "generate_recommendation")
+    builder.add_conditional_edges(
+        "human_review",
+        route_after_human_review,
+        {
+            "ESCALATE_TO_SUPERVISOR": "supervisor_review",
+            "CONTINUE": "generate_recommendation",
+        },
+    )
+    builder.add_edge("supervisor_review", "generate_recommendation")
     builder.add_edge("generate_recommendation", "save_result")
     builder.add_edge("save_result", END)
     return builder.compile(checkpointer=checkpointer or InMemorySaver())
