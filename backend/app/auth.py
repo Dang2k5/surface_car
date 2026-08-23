@@ -20,6 +20,7 @@ class CurrentUser:
     user_id: str
     email: str | None
     role: str
+    station_id: str | None = None
 
 
 def _decode_bearer_token(request: Request) -> dict:
@@ -95,7 +96,9 @@ def get_current_user(request: Request) -> CurrentUser:
     profile = request.app.state.database.get_or_create_profile(
         user_id, email, settings.default_qc_role
     )
-    return CurrentUser(user_id=user_id, email=email, role=profile["role"])
+    return CurrentUser(
+        user_id=user_id, email=email, role=profile["role"], station_id=profile.get("station_id")
+    )
 
 
 def require_role(*roles: str):

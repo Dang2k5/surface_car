@@ -76,8 +76,7 @@ def _initial_state(
     thread_id: str,
     settings: Any,
 ) -> QCState:
-    is_mock = settings.detector_provider == "mock"
-    state: QCState = {
+    return {
         "thread_id": thread_id,
         "inspection_id": payload.inspection_id or str(uuid4()),
         "vehicle_id": payload.vehicle_id,
@@ -93,26 +92,11 @@ def _initial_state(
         "verify_count": 0,
         "retry_count": 0,
         "max_retries": 2,
-        "auto_pass_enabled": True if is_mock else settings.auto_pass_enabled,
-        "confirmed_threshold": 0.85 if is_mock else settings.confirmed_threshold,
-        "verify_threshold": 0.50 if is_mock else settings.verify_threshold,
+        "auto_pass_enabled": settings.auto_pass_enabled,
+        "confirmed_threshold": settings.confirmed_threshold,
+        "verify_threshold": settings.verify_threshold,
         "execution_trace": [],
     }
-    if is_mock:
-        marker = (payload.image_url or "").lower()
-        scenarios = (
-            "no_defect",
-            "high_confidence",
-            "medium_confirmed",
-            "verify_uncertain",
-            "low_confidence",
-            "unknown_defect",
-        )
-        state["mock_scenario"] = next(
-            (scenario for scenario in scenarios if scenario in marker),
-            "high_confidence",
-        )
-    return state
 
 
 def _save_waiting_state(request: Request, state: dict[str, Any]) -> None:
@@ -140,35 +124,40 @@ def _attach_rendered_defect_images(
     inspection_id: str,
     scratch_path_by_camera: dict[str, Path],
 ) -> None:
-    """Render overlay/crop/mask PNGs for the primary detection and store them
-    in object storage (FR-17, API_CONTRACT.md). No-op when there is nothing
-    to render, and never fails the inspection response if rendering fails."""
+    """Render overlay/crop/mask PNGs for every detection (not just the primary one) and store
+    them in object storage (FR-17, API_CONTRACT.md), so a secondary-camera finding gets its own
+    real crop instead of the UI falling back to that camera's uncropped full photo. Skips a
+    detection when there is nothing to render for it, and never fails the inspection response
+    if rendering one detection fails — the rest still get rendered."""
     primary_detection_id = state.get("primary_detection_id")
-    if not primary_detection_id:
-        return
-    detection = next(
-        (item for item in state.get("detections") or [] if item.get("detection_id") == primary_detection_id),
-        None,
-    )
-    if detection is None:
-        return
-    scratch_path = scratch_path_by_camera.get(str(detection.get("camera_id")))
-    if scratch_path is None:
-        return
-    try:
-        rendered = render_defect_images(scratch_path, detection)
-    except Exception:
-        logger.warning("Could not render overlay/crop/mask images for inspection %s", inspection_id, exc_info=True)
-        return
-    urls = {}
-    for name, content in rendered.items():
-        object_key = f"inspections/{inspection_id}/{name}.png"
-        request.app.state.object_storage.put(object_key, content, "image/png")
-        urls[f"{name}_image_url"] = f"/assets/objects/{object_key}"
-    state.update(urls)
-    for item in state.get("enriched_defects") or []:
-        if item.get("detection_id") == primary_detection_id:
-            item.update(urls)
+    enriched_by_id = {
+        item.get("detection_id"): item for item in state.get("enriched_defects") or []
+    }
+    for detection in state.get("detections") or []:
+        detection_id = detection.get("detection_id")
+        scratch_path = scratch_path_by_camera.get(str(detection.get("camera_id")))
+        if scratch_path is None:
+            continue
+        try:
+            rendered = render_defect_images(scratch_path, detection)
+        except Exception:
+            logger.warning(
+                "Could not render overlay/crop/mask images for inspection %s detection %s",
+                inspection_id,
+                detection_id,
+                exc_info=True,
+            )
+            continue
+        urls = {}
+        for name, content in rendered.items():
+            object_key = f"inspections/{inspection_id}/{detection_id}/{name}.png"
+            request.app.state.object_storage.put(object_key, content, "image/png")
+            urls[f"{name}_image_url"] = f"/assets/objects/{object_key}"
+        enriched_item = enriched_by_id.get(detection_id)
+        if enriched_item is not None:
+            enriched_item.update(urls)
+        if detection_id == primary_detection_id:
+            state.update(urls)
 
 
 @router.post("/inspections", response_model=LangGraphRunResponse, status_code=201)
@@ -289,7 +278,7 @@ def resume_langgraph_inspection(
                 "severity": payload.severity or response.state.get("severity", "UNASSESSED"),
                 "action": payload.action,
                 "disposition": payload.disposition or (
-                    "REINSPECT" if payload.action == "REJECT" else "HOLD"
+                    "PASS" if payload.action == "REJECT" else "HOLD"
                 ),
                 "reviewer": payload.reviewer,
                 "reason": payload.reason,

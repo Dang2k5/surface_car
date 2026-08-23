@@ -14,6 +14,8 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from pydantic import BaseModel
 
+from agent.services.reasoning import DeterministicReasoningService
+
 
 class InspectionFinding(BaseModel):
     inspection_id: str
@@ -99,6 +101,12 @@ class RepetitionAlertService:
         self.repository = repository
         self.policy_catalog = policy_catalog
         self.reasoning = reasoning
+        # Trend cards must stay low-latency and can't afford one Groq call per trend per poll
+        # (dashboard refetches every 10s — see SupervisorShell) — a real deterministic instance,
+        # not a hopeful getattr(self.reasoning, "fallback", ...) that always missed since no
+        # reasoning backend ever set that attribute, silently routing every trend card through
+        # Groq and exhausting the daily token quota.
+        self._trend_reasoning = DeterministicReasoningService()
 
     def analyze(
         self,
@@ -188,8 +196,7 @@ class RepetitionAlertService:
             # Dashboard trend aggregation must remain low-latency. LLM reasoning
             # is reserved for an explicit inspection; trend cards use the same
             # deterministic policy fallback instead of issuing N sequential API calls.
-            trend_reasoning = getattr(self.reasoning, "fallback", self.reasoning)
-            analysis = trend_reasoning.analyze(trend_state, policy)
+            analysis = self._trend_reasoning.analyze(trend_state, policy)
             alerts.append(
                 QualityAlert(
                     id=alert_id,

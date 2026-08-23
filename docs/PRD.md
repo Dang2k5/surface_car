@@ -3,10 +3,10 @@
 
 - **Mã dự án:** P-235 (Team 235)
 - **Tên sản phẩm:** Visual QC Agent (Hệ thống Kiểm định Ngoại quan Thông minh & Điều hướng Xe)
-- **Trọng tâm kỹ thuật:** Nhận dạng chuyên sâu khuyết tật **Xước (Scratch)** & **Lõm/Móp (Dent)** bằng **YOLO Segmentation**, trích xuất hình học deterministic (**Geometry Extraction**), xác minh và giải thích thị giác bằng **Multimodal LLM**, điều phối quyết định bằng **LangGraph Agent** (`detect → classify → decide → HITL`), và **Phát hiện Bất thường Chuỗi tránh Dừng Dây chuyền (Line Stoppage Prevention)**.
+- **Trọng tâm kỹ thuật:** Nhận dạng chuyên sâu khuyết tật **Xước (Scratch)** & **Lõm/Móp (Dent)** bằng **YOLO Segmentation**, trích xuất hình học deterministic (**Geometry Extraction**), giải thích quyết định bằng **reasoning LLM**, điều phối quyết định bằng **LangGraph Agent** (`detect → classify → decide → HITL`), và **Phát hiện Bất thường Chuỗi tránh Dừng Dây chuyền (Line Stoppage Prevention)**.
 - **Vị trí áp dụng:** Trạm FNS (Finish Line - Trạm Hoàn thiện Cuối Dây chuyền Lắp ráp Ô tô) — Line HA
 - **Tác giả:** PM & PO Team 235
-- **Phiên bản:** v1.2 (Chuẩn hóa kiến trúc Visual QC Agent: YOLO Segmentation, Geometry Extraction, Multimodal LLM, LangGraph, Object Storage, RBAC)
+- **Phiên bản:** v1.4 (Đồng bộ tài liệu với runtime hiện tại: xác nhận bỏ hẳn Visual Verification bằng Multimodal LLM khỏi §7.3/§7.4/§7.6; rút gọn `final_status` còn đúng hai giá trị `PASS`/`FAIL` — không còn `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/trạng thái tái kiểm tra riêng, mọi FAIL đều chuyển Rework; mô tả HITL hai cấp Inspector→Supervisor đang chạy thật trong `agent/graph/nodes.py`)
 
 ---
 
@@ -31,7 +31,7 @@ Hai loại khuyết tật ngoại quan phổ biến và gây thiệt hại kinh 
 
 ## 2. Kiến trúc Tổng thể Hệ thống (System Architecture)
 
-> **Visual QC Agent là toàn bộ workflow end-to-end dưới đây, không phải riêng một Multimodal LLM.** LLM chỉ là một node xác minh/giải thích thị giác trong LangGraph Agent; việc phát hiện lỗi (YOLO), đo hình học (Geometry Processor) và quyết định PASS/FAIL cuối cùng (LangGraph + QC Rules) đều là các thành phần deterministic hoặc controlled riêng biệt.
+> **Visual QC Agent là toàn bộ workflow end-to-end dưới đây, không phải riêng một LLM.** Việc phát hiện lỗi (YOLO), đo hình học (Geometry Processor) và quyết định PASS/FAIL cuối cùng (LangGraph + QC Rules) đều là các thành phần deterministic hoặc controlled riêng biệt; một reasoning LLM chỉ giải thích kết quả sau khi đã có quyết định.
 
 ```text
 Camera / Image / Video Upload
@@ -42,16 +42,15 @@ Image bytes ──────────────┬───────�
         ↓                 │                            (evidence persistence:
 LangGraph Agent           │                             original/overlay/crop/mask)
 detect → extract_geometry │
-  → multimodal_verify     │
   → classify → decide     │
         ↓                 │
 QC Rules (decision_gate)  │
    ├─ đủ evidence ────────┼──→ final_decide
-   └─ mơ hồ/nghiêm trọng ─┼──→ HITL → human review → resume → final_decide
+   └─ mơ hồ/nghiêm trọng ─┼──→ HITL → human review → [supervisor review] → resume → final_decide
         ↓                 │
-Multimodal LLM Explanation (chỉ sau final_decide)
+Reasoning LLM Explanation (chỉ sau final_decide)
         ↓                 │
-PASS / HOLD_FOR_REWORK / HOLD_FOR_QC (final_status — mục 5.3, API_CONTRACT.md §4)
+PASS / FAIL (final_status — mục 5.3, API_CONTRACT.md §3)
         ↓                 ↓
 PostgreSQL / Supabase (metadata, decision, object key)
         ↓
@@ -62,7 +61,7 @@ Dashboard / History / Alerts
 
 `S3/MinIO` là **persistence branch song song** — backend không bắt buộc phải
 tải ảnh ngược lại từ object storage rồi mới chạy YOLO khi đã có sẵn image
-bytes trong request; xem mục 7.6 (FR-17) và `API_CONTRACT.md` §5.
+bytes trong request; xem mục 7.6 (FR-17) và `API_CONTRACT.md` §4.
 
 Vai trò từng thành phần (chi tiết I/O ở mục 7 và `API_CONTRACT.md`):
 
@@ -70,7 +69,6 @@ Vai trò từng thành phần (chi tiết I/O ở mục 7 và `API_CONTRACT.md`)
 | :--- | :--- | :--- |
 | **YOLO Segmentation** | Có lỗi gì và lỗi nằm ở đâu? | `source = yolo` |
 | **Geometry Processor** | Mask có đặc trưng hình học deterministic nào? | `source = geometry_processor` |
-| **Multimodal LLM** | Vùng lỗi nhìn như thế nào, có phù hợp detection không, có phải artifact không, uncertainty ra sao? Sau decision: vì sao Agent kết luận vậy? | `source = multimodal_llm` |
 | **QC Rules** | Theo controlled QC criteria hiện tại, evidence này phải xử lý thế nào? | `source = qc_policy` |
 | **LangGraph Agent** | Workflow tiếp theo là PASS, FAIL hay HITL? | điều phối toàn bộ node trên |
 | **Human-In-The-Loop** | Khi evidence chưa đủ hoặc model conflict, con người xác nhận thế nào? | `source = human_qc` |
@@ -83,15 +81,14 @@ Vai trò từng thành phần (chi tiết I/O ở mục 7 và `API_CONTRACT.md`)
 
 ## 3. Định vị Sản phẩm & Giá trị Đột phá (Core Value Proposition)
 
-> **Visual QC Agent = YOLO Segmentation (Scratch & Dent) + Geometry Extraction + Multimodal LLM Visual Verification/Explanation + LangGraph QC Rules Reasoning + Hệ thống Cảnh báo Bất thường Chuỗi Tránh Dừng Line (Systemic Anomaly & Line Stoppage Prevention)**
+> **Visual QC Agent = YOLO Segmentation (Scratch & Dent) + Geometry Extraction + LangGraph QC Rules Reasoning + Hệ thống Cảnh báo Bất thường Chuỗi Tránh Dừng Line (Systemic Anomaly & Line Stoppage Prevention)**
 
 ```mermaid
 graph LR
     Input[Ảnh/Video Camera Trạm FNS] --> Storage[S3/MinIO Object Storage]
     Storage --> CV[YOLO Segmentation: Bắt chính xác Xước & Lõm]
     CV --> Geo[Geometry Processor: area/centroid/orientation]
-    Geo --> MLLM[Multimodal LLM: Visual Verification & Description]
-    MLLM --> Agent[LangGraph Agent: detect to classify to decide to HITL]
+    Geo --> Agent[LangGraph Agent: detect to classify to decide to HITL]
     Agent --> SingleCar[1. Phán quyết Xe Đơn lẻ: PASS / FAIL / HITL]
     Agent --> TrendMonitor[2. Giám sát Bất thường Chuỗi: Pattern / Spike Detection]
     TrendMonitor --> EarlyWarning[Cảnh báo sớm Thượng nguồn: Xưởng Dập/Hàn]
@@ -129,17 +126,22 @@ Baseline MVP **không** dùng thuộc tính vật liệu (Mild Steel / Hot Stamp
 | :--- | :--- | :--- | :--- | :--- |
 | **Xước nông / Xước dăm (Scratch)** | Cánh cửa / Cột (Group 2–4) | **Rank C / D** | **PASS** | Đánh bóng (Buffing) 3 phút tại trạm $\rightarrow$ **CHO PHÉP CHẠY THỬ** |
 | **Vết móp nông ($\le 0.7\text{mm}$, demo tolerance)** | Mui xe / Tai xe (Group 2–3) | **Rank C** | **PASS** | Hút chân không/Xử lý nhanh $\rightarrow$ **CHO PHÉP CHẠY THỬ** |
-| **Vết móp sâu ($> 0.7\text{mm}$, demo tolerance)** | Cánh cửa Class A (Group 1) | **Rank A / B** | **FAIL / HOLD** | **GẮN NHÃN HOLD $\rightarrow$ CẤM CHẠY THỬ** (Tránh bụi bẩn) $\rightarrow$ Chuyển Rework |
-| **Vết móp biến dạng, nghi vật liệu cứng** | Khung cửa Class A (Group 1) | **Rank A** | **FAIL / HOLD** | **GẮN NHÃN HOLD $\rightarrow$ CẤM CHẠY THỬ**, chuyển Rework để QC/kỹ thuật xác minh vật liệu và phương án xử lý |
-| **Xước sâu chạm kim loại** | Nắp capo Class A (Group 1) | **Rank A / B** | **FAIL / HOLD** | **GẮN NHÃN HOLD $\rightarrow$ CẤM CHẠY THỬ**, chuyển xưởng Sơn |
+| **Vết móp sâu ($> 0.7\text{mm}$, demo tolerance)** | Cánh cửa Class A (Group 1) | **Rank A / B** | **FAIL** | **CẤM CHẠY THỬ** (tránh bụi bẩn) $\rightarrow$ chuyển Rework |
+| **Vết móp biến dạng, nghi vật liệu cứng** | Khung cửa Class A (Group 1) | **Rank A** | **FAIL** | **CẤM CHẠY THỬ**, chuyển Rework để QC/kỹ thuật xác minh vật liệu và phương án xử lý |
+| **Xước sâu chạm kim loại** | Nắp capo Class A (Group 1) | **Rank A / B** | **FAIL** | **CẤM CHẠY THỬ**, chuyển xưởng Sơn |
 
-Bất kỳ trường hợp nào có `YOLO/LLM conflict`, `LLM uncertainty HIGH`, thiếu evidence hình học/measurement bắt buộc, hoặc `LLM provider unavailable/invalid` đều route sang **HITL** trước khi có PASS/FAIL tự động — xem mục 7.6 và `POLICY_GOVERNANCE.md`.
+Bất kỳ trường hợp nào thiếu evidence hình học/measurement bắt buộc, `LLM
+provider unavailable/invalid`, hoặc Agent không phân loại được lỗi đều route
+sang **HITL** trước khi có PASS/FAIL tự động — xem mục 7.6 và
+`POLICY_GOVERNANCE.md`.
 
-Cột "Phán quyết Agent" dùng nhãn nghiệp vụ dễ đọc (`PASS`, `FAIL / HOLD`);
-giá trị `final_status` chuẩn trả về trong `QCState`/API tương ứng là `PASS`,
-`HOLD_FOR_REWORK` (lỗi xác nhận vượt tolerance, chuyển rework) hoặc
-`HOLD_FOR_QC` (evidence/vật liệu/vị trí chưa đủ rõ, cần QC thẩm định thêm
-trước khi xác nhận rework) — xem `API_CONTRACT.md` §4.
+Cột "Phán quyết Agent" và giá trị `final_status` chuẩn trả về trong
+`QCState`/API **là cùng một cặp giá trị**: `PASS` hoặc `FAIL`. Không còn phân
+biệt `HOLD_FOR_REWORK` / `HOLD_FOR_QC` / trạng thái tái kiểm tra riêng —
+**mọi trường hợp FAIL đều đi thẳng đến Rework**, không chia nhỏ theo lý do.
+Khi QC Inspector xử lý HITL và bác bỏ (REJECT) lỗi mà AI gắn cờ (không phải
+lỗi thật), xe được quyết định `PASS` ngay lập tức, không có bước "tái kiểm
+tra" (reinspect) riêng biệt nào khác — xem mục 7.6, `API_CONTRACT.md` §4.
 
 ---
 
@@ -190,22 +192,23 @@ với các chỉ số nghiệp vụ như `defects per lot`, `defects per shift`,
 - **FR-02b:** Sau khi có mask/polygon từ YOLO, một **Geometry Processor** deterministic (OpenCV/NumPy) tính các đặc trưng hình học có thể tính trực tiếp từ mask: `area_px`, `bbox_width_px`, `bbox_height_px`, `centroid`, `orientation_deg`, `aspect_ratio`, và `perimeter_px` nếu cần. Multimodal LLM **không** được dùng để tính các giá trị hình học deterministic này.
 - **FR-02c:** Chỉ khi có camera calibration hợp lệ (`FIXED_CAMERA_CALIBRATION_ENABLED`) mới chuyển đổi pixel sang đơn vị vật lý (mm). Giá trị mm từ camera cố định (pilot) phải gắn trạng thái `PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED` và không được trình bày như phép đo QC chính thức.
 
-### 7.3. Module 3: Multimodal LLM (Visual Verification, Description, Semantic Attributes, Explainability)
+### 7.3. Module 3: Multimodal LLM (Description, Semantic Attributes, Explainability)
 
-Multimodal LLM nhận **visual input thực sự** (ảnh gốc, crop vùng lỗi, overlay/mask hoặc polygon, YOLO class/confidence, zone/camera metadata) — không chỉ JSON/text từ YOLO — và thực hiện 4 nhiệm vụ:
+> **Cập nhật (2026-08-23):** MVP đã **bỏ bước Visual Verification** (Multimodal LLM đối chiếu YOLO,
+> output `SUPPORTED|CONFLICT|UNCERTAIN`) khỏi runtime — không còn node `multimodal_verify`,
+> không còn field `visual_assessment` trong `QCState`. Lý do: YOLO segmentation + Geometry
+> Processor deterministic đã đủ evidence cho baseline demo; một bước cross-check thị giác thứ hai
+> bằng LLM chỉ làm tăng độ trễ và một điểm lỗi (provider unavailable) mà không đổi quyết định
+> cuối trong phần lớn trường hợp. Việc này là **Future Extension** nếu cần khôi phục (mục 11).
+> Multimodal LLM trong MVP hiện tại chỉ còn nhiệm vụ giải trình sau quyết định (FR-03d, dưới đây).
 
-- **FR-03a. Visual Verification:** Đánh giá evidence thị giác có phù hợp detection của YOLO không; output chuẩn hóa `SUPPORTED | CONFLICT | UNCERTAIN` kèm `possible_artifact` và `visual_uncertainty` (`LOW|MEDIUM|HIGH`). Đây chỉ là **visual cross-check**, không thay thế YOLO, không phải ground truth tuyệt đối.
-- **FR-03b. Visual Description:** Mô tả bằng ngôn ngữ tự nhiên đặc điểm quan sát được trong vùng lỗi, dựa trên evidence hình ảnh; không suy diễn thông tin vật lý không quan sát/đo được.
-- **FR-03c. Semantic Visual Attributes:** Bổ sung thuộc tính thị giác (`shape_pattern`, `continuity`, `distribution`, `visibility`, `possible_artifact`, `visual_uncertainty`) — đây là **semantic visual attributes**, không phải physical measurement.
-- **FR-03d. Explainability:** Sau khi LangGraph + QC Rules đã xác định quyết định, Multimodal LLM tạo explanation dễ hiểu cho QC. LLM **không được** tự thay đổi PASS/FAIL/HOLD/final status/test-drive gate/recommendation code/tolerance/measurement (xem `POLICY_GOVERNANCE.md`).
+- **FR-03d. Explainability:** Sau khi LangGraph + QC Rules đã xác định quyết định, Multimodal LLM (hoặc `DeterministicReasoningService` khi chạy rule-based) tạo explanation dễ hiểu cho QC. LLM **không được** tự thay đổi PASS/FAIL/final status/test-drive gate/recommendation code/tolerance/measurement (xem `POLICY_GOVERNANCE.md`).
 
 Provenance dữ liệu bắt buộc phải rõ ràng:
 
 ```text
 class / confidence / bbox / mask       → YOLO
 area / orientation / centroid          → Geometry Processor
-shape_pattern / continuity /
-  distribution / visibility            → Multimodal LLM
 depth_mm                               → Depth Sensor hoặc QC Measurement
 physical size mm                       → Calibration
 QC tolerance                           → Controlled QC Policy
@@ -214,10 +217,10 @@ PASS / FAIL                            → LangGraph + QC Rules
 
 ### 7.4. Module 4: LangGraph Agent — Industrial Domain Reasoning & Routing
 - **FR-04:** Tra cứu quy chuẩn dung sai demo (Group 1–5) theo vị trí lỗi (`DEMO_BASELINE_ONLY`, xem mục 5.1).
-- **FR-05:** Đối chiếu loại lỗi, mã lỗi, kích thước pilot/geometry và visual assessment với **QC Rules** đang có hiệu lực — QC Rules là controlled decision tool (rule-based logic/decision table/JSON/database policy table) **thuộc LangGraph Agent**, không phải microservice `Policy Engine` riêng. Baseline không dùng thuộc tính vật liệu làm input.
+- **FR-05:** Đối chiếu loại lỗi, mã lỗi và kích thước pilot/geometry với **QC Rules** đang có hiệu lực — QC Rules là controlled decision tool (rule-based logic/decision table/JSON/database policy table) **thuộc LangGraph Agent**, không phải microservice `Policy Engine` riêng. Baseline không dùng thuộc tính vật liệu làm input.
 - **FR-06:** Phân loại Rank nghiêm trọng (PSLAWBCD) và sinh mã hành động vận hành cụ thể trong `recommendation_code`.
 - **FR-07:** Tạo giải trình kỹ thuật (Explainable AI, do Multimodal LLM sinh sau khi có **final decision** — FR-03d) giải thích nguyên do vì sao xe bị giữ hoặc được phép chạy thử. Explanation không được sinh trước khi HITL (nếu có) hoàn tất, vì kết luận có thể đổi sau khi con người xác nhận/override.
-- Workflow LangGraph chuẩn hóa gồm các node: `ingest → detect → extract_visual_geometry → multimodal_verify → classify → decide → decision_gate → (final_decide | HITL → human_review → resume → final_decide) → explain → complete → update_trend`, luôn thể hiện rõ trục chính `detect → classify → decide → HITL` theo yêu cầu đề tài; các node còn lại là bước hỗ trợ. `decision_gate` (QC Rules) chọn `final_decide` ngay khi evidence đủ rõ, hoặc route sang `HITL` khi mơ hồ/nghiêm trọng/conflict (mục 5.3, `FR-15`); `explain` luôn chạy **sau** khi có final decision, không bao giờ trước HITL. Trạng thái triển khai runtime hiện tại của node graph (`prepare_input → detect_defect → assess_result → [verify_defect] → human_review → generate_recommendation → save_result`, trong đó `human_review` cũng chạy trước `generate_recommendation`) được ghi chi tiết tại `AGENT_FLOW.md`.
+- Workflow LangGraph chuẩn hóa gồm các node: `ingest → detect → extract_geometry → classify → decide → decision_gate → (final_decide | HITL → human_review → [supervisor_review] → resume → final_decide) → explain → complete → update_trend`, luôn thể hiện rõ trục chính `detect → classify → decide → HITL` theo yêu cầu đề tài; các node còn lại là bước hỗ trợ. `decision_gate` (QC Rules) chọn `final_decide` ngay khi evidence đủ rõ, hoặc route sang `HITL` khi mơ hồ/nghiêm trọng (mục 5.3, `FR-15`); `explain` luôn chạy **sau** khi có final decision, không bao giờ trước HITL. Trạng thái triển khai runtime hiện tại của node graph (`prepare_input → detect_defect → assess_result → [verify_defect] → human_review → [supervisor_review] → generate_recommendation → save_result`) được ghi chi tiết tại `AGENT_FLOW.md`.
 
 ### 7.5. Module 5: Sliding-Window Anomaly, Line Stoppage Prevention & Historical Trend
 - **FR-08:** Cập nhật liên tục trạng thái $N=10$ xe gần nhất. Baseline MVP dùng PostgreSQL/Supabase làm nguồn dữ liệu bền vững; Redis là adapter tối ưu realtime khi triển khai quy mô line.
@@ -228,9 +231,11 @@ PASS / FAIL                            → LangGraph + QC Rules
 ### 7.6. Module 6: QC Workstation Touch UI, HITL & RBAC
 - **FR-11:** Hiển thị trực quan hành động vận hành, trạng thái cho phép test drive và yêu cầu HITL của từng xe, bao gồm original image, segmentation mask overlay, polygon/bounding region, defect label, confidence.
 - **FR-12:** Cảnh báo lỗi lặp phải hiển thị mã lỗi, ảnh đại diện của các lần phát hiện, số xe ảnh hưởng, hành động ngay, bộ phận xử lý và điều kiện đóng cảnh báo.
-- **FR-13:** Hàng đợi QC phải hiển thị ảnh evidence, crop, segmentation mask, mã lỗi, YOLO confidence, geometry, Multimodal LLM visual verification/possible artifact/uncertainty, kích thước/vị trí và lý do checkpoint trước khi QC mở kiểm duyệt; hỗ trợ Confirm/Reject/Change class/Request recapture bằng cơ chế resume của LangGraph.
+- **FR-13:** Hàng đợi QC phải hiển thị ảnh evidence, crop, segmentation mask, mã lỗi, YOLO confidence, geometry, kích thước/vị trí và lý do checkpoint trước khi QC mở kiểm duyệt. HITL dùng cơ chế resume hai cấp của LangGraph (`human_review` → `supervisor_review`):
+  - **QC Inspector** (`human_review`, role `QC_OPERATOR`) chỉ có 3 lựa chọn: **PASS** (bác bỏ lỗi AI gắn cờ — xe đạt ngay, không có bước "tái kiểm tra" riêng), **FAIL** (xác nhận lỗi thật — xe chuyển Rework), hoặc **chuyển cấp xét duyệt cho QC Supervisor** (khi cần một mã hành động/khuyến nghị tùy biến ngoài quyết định PASS/FAIL thông thường).
+  - **QC Supervisor** (`supervisor_review`, role `QC_SUPERVISOR`) chỉ xử lý case đã được chuyển cấp, và cũng chỉ có 2 lựa chọn: **PASS** (giữ đề xuất tùy biến của Inspector) hoặc **FAIL** (bác bỏ đề xuất, case quay lại quyết định policy chuẩn).
 - **FR-14:** Lịch sử phải hiển thị inspection summary gồm ảnh, mã xe, inspection ID, mã lỗi, confidence, camera, kích thước/vị trí, trạng thái và hành động cuối.
-- **FR-15 (HITL trigger tối thiểu):** HITL phải được kích hoạt khi: YOLO confidence thấp; YOLO và Multimodal LLM conflict; Multimodal LLM uncertainty HIGH; thiếu evidence cần thiết; QC Rule không đủ dữ liệu để quyết định; LLM provider unavailable; LLM output invalid. Multimodal LLM không được tự chuyển trường hợp conflict thành PASS.
+- **FR-15 (HITL trigger tối thiểu):** HITL phải được kích hoạt khi: YOLO confidence thấp; Agent không phân loại được lỗi (`unknown`/chưa có mã QC hoạt động); thiếu evidence cần thiết; QC Rule không đủ dữ liệu để quyết định; suy luận LLM thất bại (provider unavailable/invalid). Không có nhánh nào được tự động chuyển thành PASS ngoài quyết định PASS/FAIL chuẩn ở trên.
 - **FR-16 (RBAC):** Hệ thống có hai role: `QC_OPERATOR` (inspection, upload, xem segmentation/geometry/visual assessment/PASS-FAIL/explanation, xử lý HITL được phân công, xem history) và `QC_SUPERVISOR` (toàn bộ quyền Operator + dashboard toàn ca/lô, anomaly alert, historical trend, approve override, quản lý QC Rules trong phạm vi dự án cho phép). Đăng nhập/session dùng **Supabase Auth** (frontend đăng nhập trực tiếp với Supabase, backend chỉ verify access token); role lưu ở bảng `profiles` (PostgreSQL/Supabase), backend tra cứu để enforce RBAC authorization và current-user context (`GET /api/auth/me`) — xem `API_CONTRACT.md` §7.7, `ENVIRONMENT.md`. Chủ đích dùng nền tảng Auth có sẵn thay vì tự xây IAM, đúng tinh thần "không thiết kế IAM phức tạp" của MVP.
 - **FR-17 (Object Storage):** Ảnh gốc, ảnh overlay, defect crop và segmentation mask lưu trên S3/MinIO; PostgreSQL/Supabase chỉ lưu metadata/object key (`original_image_key`, `overlay_image_key`, `crop_image_key`, `mask_image_key`). Frontend truy cập qua backend hoặc presigned URL.
 - **FR-18 (Lot/Shift metadata):** Bổ sung `lot_id`, `shift_id`, `production_date`, `station_id` vào schema/workflow cần thiết để hỗ trợ thống kê defects per lot/shift, scratch/dent rate, PASS/FAIL rate (mục 6.3). `vehicle_id` vẫn là identifier bắt buộc của từng xe.
@@ -241,7 +246,8 @@ PASS / FAIL                            → LangGraph + QC Rules
 - Taxonomy CV chính thức chỉ gồm `scratch` và `dent`; `paint_defect` và subtype chỉ ghi ở Future Extension (mục 11).
 - Hành động vận hành cụ thể là nguồn dữ liệu authoritative; `PLAN_A_BUFFING` và `PLAN_B_HOLD` chỉ là mã tương thích cho API/báo cáo.
 - `QCState` dùng `recommendation_code` làm mã quyết định duy nhất; không lưu `recommended_plan` hoặc `final_action` trong state.
-- `QCState` dùng `detections` cho output YOLO, `geometry` cho output Geometry Processor, `visual_assessment` cho output Multimodal LLM, và `severity` cho mức độ tổng thể; không lưu các alias `raw_defects` hoặc `overall_severity_rank`.
+- `QCState` dùng `detections` cho output YOLO, `geometry` cho output Geometry Processor, và `severity` cho mức độ tổng thể; không lưu các alias `raw_defects` hoặc `overall_severity_rank`. Không còn field `visual_assessment` — bước Visual Verification bằng Multimodal LLM đã bị bỏ khỏi runtime (mục 7.3).
+- `final_status` chỉ có hai giá trị chuẩn: `PASS` hoặc `FAIL`. Không còn `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/trạng thái tái kiểm tra riêng — mọi FAIL đều là "chuyển Rework", không phân loại lý do giữ xe ở cấp `final_status` (mục 5.3).
 - `vehicle_id` là khóa vận hành bắt buộc; `zone_name` mô tả vùng kiểm tra tương đối.
 - `vin_code`, `panel` và `material` không thuộc state, request API, form UI hoặc bảng quyết định QC của baseline. Dữ liệu cũ được lọc khi đọc và cột legacy được loại qua migration tương thích.
 - Không suy diễn độ sâu hoặc kích thước mm từ một ảnh RGB chưa calibration; giá trị pilot luôn gắn `PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED`.

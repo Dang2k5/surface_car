@@ -16,11 +16,30 @@ from agent.services.reasoning import (
 )
 from agent.services.repository import QCRepository
 from agent.services.verifier import VerifierService
-from agent.services.vision_verifier import VisionUnavailableError, VisionVerifierService
 
 
 def _trace(node: str, detail: str, status: str = "COMPLETED") -> list[TraceEvent]:
     return [{"node": node, "status": status, "detail": detail}]
+
+
+# Static position labels for the 5 fixed camera mounts, mirroring the frontend's
+# CAMERA_POSITION_LABELS (frontend/src/lib/detection-geometry.ts) — there's no backend camera
+# catalog to derive this from, so the mount layout is duplicated here on purpose.
+_CAMERA_ZONE_NAMES: dict[str, str] = {
+    "CAM-01": "truoc",
+    "CAM-02": "sau",
+    "CAM-03": "trai",
+    "CAM-04": "phai",
+    "CAM-05": "tren_toan_canh",
+}
+
+
+def _zone_name_for_camera(camera_id: Any, fallback: str) -> str:
+    """A caller never explicitly picks a zone in the upload form (there's no such field), so
+    the request always arrives with the Pydantic default "unknown_zone" — derive a real zone
+    from which camera mount actually saw the finding instead of leaving it unknown."""
+    zone = _CAMERA_ZONE_NAMES.get(str(camera_id or "").strip().upper())
+    return zone or fallback
 
 
 class QCNodes:
@@ -32,7 +51,6 @@ class QCNodes:
         policy_catalog: PolicyCatalog,
         repository: QCRepository,
         defect_catalog: DefectCatalogService,
-        vision: VisionVerifierService,
     ) -> None:
         self.detector = detector
         self.verifier = verifier
@@ -40,7 +58,6 @@ class QCNodes:
         self.policy_catalog = policy_catalog
         self.repository = repository
         self.defect_catalog = defect_catalog
-        self.vision = vision
 
     def prepare_input(self, state: QCState) -> dict[str, Any]:
         camera_evidence = state.get("camera_evidence", [])
@@ -117,9 +134,15 @@ class QCNodes:
             if visual
             else ""
         )
+        raw_zone_name = str(state.get("zone_name") or "unknown_zone")
+        zone_name = (
+            _zone_name_for_camera(state.get("camera_id"), raw_zone_name)
+            if raw_zone_name == "unknown_zone"
+            else raw_zone_name
+        )
         return {
             **detection,
-            "zone_name": str(state.get("zone_name") or "unknown_zone"),
+            "zone_name": zone_name,
             "suggested_defect_codes": suggested_codes,
             "defect_code_classification": classification.model_dump(mode="json"),
             "agent_reasoning_status": reasoning_status,
@@ -143,45 +166,6 @@ class QCNodes:
             ),
         }
 
-    def multimodal_verify(self, state: QCState) -> dict[str, Any]:
-        if not state.get("defect_detected", False):
-            return {
-                "agent_vision_status": "SKIPPED_NO_DEFECT",
-                "execution_trace": _trace(
-                    "multimodal_verify", "Không phát hiện lỗi; bỏ qua đối chiếu bằng hình ảnh."
-                ),
-            }
-        try:
-            assessment = self.vision.verify_visual(state)
-        except VisionUnavailableError as error:
-            return {
-                "visual_assessment": None,
-                "agent_vision_status": "UNAVAILABLE_REQUIRES_HITL",
-                "execution_trace": _trace(
-                    "multimodal_verify",
-                    f"Vision LLM không khả dụng hoặc trả về kết quả không hợp lệ: {error}.",
-                    "FAILED",
-                ),
-            }
-        if assessment is None:
-            return {
-                "visual_assessment": None,
-                "agent_vision_status": "NOT_CONFIGURED",
-                "execution_trace": _trace(
-                    "multimodal_verify", "Chưa cấu hình VISION_LLM_PROVIDER; bỏ qua bước này."
-                ),
-            }
-        return {
-            "visual_assessment": assessment.model_dump(mode="json"),
-            "agent_vision_status": "COMPLETED",
-            "execution_trace": _trace(
-                "multimodal_verify",
-                f"kết_quả_đối_chiếu={assessment.visual_verification}, "
-                f"độ_không_chắc_chắn={assessment.visual_uncertainty}, "
-                f"nghi_ngờ_nhiễu_ảnh={assessment.possible_artifact}.",
-            ),
-        }
-
     def assess_result(self, state: QCState) -> dict[str, Any]:
         if state.get("inference_status") == "ERROR":
             route = "HITL"
@@ -199,22 +183,6 @@ class QCNodes:
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
             reason = "Agent đã phân loại lỗi đã biết và chọn được mã QC đang hoạt động."
-
-        # Multimodal LLM visual cross-check must never let a CONFLICT/HIGH-uncertainty
-        # result slip through as an automatic PASS/CONFIRMED (POLICY_GOVERNANCE.md).
-        visual = state.get("visual_assessment")
-        if state.get("agent_vision_status") == "UNAVAILABLE_REQUIRES_HITL":
-            route = "HITL"
-            decision = "VISION_LLM_UNAVAILABLE"
-            reason = "Vision LLM không tạo được đánh giá hình ảnh hợp lệ; bắt buộc QC xét duyệt để đảm bảo an toàn."
-        elif visual and visual.get("visual_verification") == "CONFLICT":
-            route = "HITL"
-            decision = "VISUAL_LLM_CONFLICT_REQUIRES_HITL"
-            reason = "Kết quả đối chiếu Vision LLM mâu thuẫn với phát hiện của YOLO; cần QC xét duyệt."
-        elif visual and visual.get("visual_uncertainty") == "HIGH":
-            route = "HITL"
-            decision = "VISUAL_LLM_UNCERTAINTY_HIGH_REQUIRES_HITL"
-            reason = "Độ không chắc chắn khi đối chiếu Vision LLM ở mức CAO; cần QC xét duyệt."
 
         policy = self.policy_catalog.evaluate(state)
         analysis: ReasoningAnalysis | None = None
@@ -274,7 +242,7 @@ class QCNodes:
         action = str(response.get("action", "")).upper()
         if action not in {"APPROVE", "REJECT", "OVERRIDE"}:
             raise ValueError("HITL action must be APPROVE, REJECT, or OVERRIDE")
-        decision = "DEFECT_CONFIRMED" if action in {"APPROVE", "OVERRIDE"} else "REINSPECTION_REQUIRED"
+        decision = "DEFECT_CONFIRMED" if action in {"APPROVE", "OVERRIDE"} else "DEFECT_REJECTED_BY_QC"
         measurements = dict(state.get("measurements") or {})
         if response.get("length_mm") is not None:
             measurements["defect_length_mm"] = float(response["length_mm"])
@@ -293,7 +261,7 @@ class QCNodes:
     def supervisor_review(self, state: QCState) -> dict[str, Any]:
         """Second HITL gate, reached only when an operator chose OVERRIDE in `human_review`.
         A supervisor must APPROVE (keep the operator's override recommendation) or REJECT it
-        (send the vehicle back to REINSPECTION_REQUIRED) before the graph can finalize."""
+        (fall back to the normal catalog policy decision) before the graph can finalize."""
         human_decision = state.get("human_decision") or {}
         response = interrupt(
             {
@@ -322,7 +290,7 @@ class QCNodes:
         }
         return {
             "human_decision": updated_human_decision,
-            "decision": "DEFECT_CONFIRMED" if approved else "REINSPECTION_REQUIRED",
+            "decision": "DEFECT_CONFIRMED" if approved else "OVERRIDE_REJECTED_BY_SUPERVISOR",
             "hitl_status": "SUPERVISOR_APPROVED" if approved else "SUPERVISOR_REJECTED",
             "reason": str(
                 response.get("reason")
@@ -346,7 +314,7 @@ class QCNodes:
                 update={
                     "action_code": str(override),
                     "action_label": str(override).replace("_", " ").strip().title(),
-                    "final_status": "HUMAN_OVERRIDE_APPLIED",
+                    "final_status": "FAIL",
                     "production_eligible": False,
                 }
             )
@@ -381,8 +349,16 @@ class QCNodes:
         warnings = list(analysis.risk_flags)
         if state.get("similar_defect_warning"):
             warnings.append("MULTIPLE_SIMILAR_DEFECT_REGIONS")
+        primary_detection_id = state.get("primary_detection_id")
+        enriched_defects = [
+            {**item, "severity_rank": analysis.severity}
+            if item.get("detection_id") == primary_detection_id
+            else item
+            for item in state.get("enriched_defects") or []
+        ]
         return {
             "severity": analysis.severity,
+            "enriched_defects": enriched_defects,
             "recommendation_code": analysis.action_code,
             "recommendation": analysis.action_label,
             "final_status": analysis.final_status,
@@ -473,12 +449,15 @@ def _enrich_defects(state: QCState) -> list[dict[str, Any]]:
     classified into a QC severity; a fabricated severity must never be
     attributed to the other camera views' findings.
     """
-    zone_name = str(state.get("zone_name") or "unknown_zone")
+    fallback_zone_name = str(state.get("zone_name") or "unknown_zone")
     primary_detection_id = state.get("primary_detection_id")
     return [
         {
             **item,
-            "zone_name": zone_name,
+            # Each detection may come from a different camera than the primary one (e.g. a
+            # secondary finding on CAM-03 while the primary is CAM-01) — zone must reflect that
+            # detection's own camera, not be a single value copied across every finding.
+            "zone_name": _zone_name_for_camera(item.get("camera_id"), fallback_zone_name),
             "estimated_depth_mm": None,
             "estimated_width_mm": item.get("visual_measurements", {}).get(
                 "estimated_width_mm"

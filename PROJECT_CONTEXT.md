@@ -69,8 +69,9 @@ Phạm vi MVP ưu tiên:
 
 - Hai loại lỗi chính: `scratch` và `dent`.
 - Dữ liệu ảnh production phải do QC upload; kết quả CV do model trả về.
-- Có các trạng thái cuối `PASS`, `HOLD_FOR_QC`, `HOLD_FOR_REWORK` và
-  `WAITING_FOR_HITL`; hành động cụ thể nằm trong `recommendation_code`.
+- Có đúng hai trạng thái cuối `PASS`/`FAIL` (`WAITING_FOR_HITL` chỉ là
+  trạng thái tạm trong lúc chờ người xét duyệt); hành động cụ thể nằm trong
+  `recommendation_code`.
 - Có rule engine đánh giá lỗi.
 - Có LangGraph điều phối `detect → classify → decide → HITL`.
 - Có QC xác nhận hoặc override.

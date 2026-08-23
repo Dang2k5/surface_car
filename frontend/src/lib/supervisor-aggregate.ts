@@ -46,24 +46,27 @@ export function defectMixFromRuns(runs: GraphRun[]) {
     }));
 }
 
+// Real severity_rank values are the QC catalog's A/B/C grades (agent/services/defect_catalog.py's
+// default_severity), plus UNASSESSED before an AI/human decision has run — not "critical/major/minor".
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: "var(--destructive)",
-  major: "var(--warning)",
-  minor: "var(--info)",
+  a: "var(--destructive)",
+  b: "var(--warning)",
+  c: "var(--info)",
+  unassessed: "var(--muted-foreground)",
 };
 
 export function severityMixFromRuns(runs: GraphRun[]) {
   const counts = new Map<string, number>();
   for (const run of runs) {
-    let hasDetections = false;
-    for (const result of run.state.camera_results ?? []) {
-      for (const d of result.detections ?? []) {
-        hasDetections = true;
-        const key = (d.severity_rank || "unassessed").toLowerCase();
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-    }
-    if (!hasDetections && run.state.severity) {
+    // Only the primary detection carries a real QC-graded severity_rank — secondary camera
+    // findings are always stamped UNCLASSIFIED_SECONDARY_FINDING by design (agent/graph/nodes.py's
+    // _enrich_defects: "a fabricated severity must never be attributed to the other camera views'
+    // findings"). Counting those here would dilute the true A/B/C distribution with camera noise.
+    const primary = (run.state.enriched_defects ?? []).find((d) => d.is_primary);
+    if (primary) {
+      const key = (primary.severity_rank || "unassessed").toLowerCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    } else if (run.state.severity) {
       const key = run.state.severity.toLowerCase();
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }

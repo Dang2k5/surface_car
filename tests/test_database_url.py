@@ -1,5 +1,4 @@
 from backend.app.database import normalize_database_url
-from scripts.migrate_sqlite_to_postgres import normalize_target_url
 
 
 def test_database_url_encodes_reserved_password_characters() -> None:
@@ -13,7 +12,6 @@ def test_database_url_encodes_reserved_password_characters() -> None:
     )
 
     assert normalize_database_url(raw_url) == expected
-    assert normalize_target_url(raw_url) == expected
 
 
 def test_database_url_preserves_existing_percent_encoding() -> None:
@@ -23,7 +21,6 @@ def test_database_url_preserves_existing_percent_encoding() -> None:
     )
 
     assert "%2540" not in normalize_database_url(encoded_url)
-    assert "%2540" not in normalize_target_url(encoded_url)
 
 
 def test_database_url_encodes_literal_percent_in_plaintext_password() -> None:

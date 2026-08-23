@@ -101,6 +101,7 @@ create table if not exists public.profiles (
   user_id text primary key,
   email text,
   role text not null default 'QC_OPERATOR',
+  station_id text,
   created_at text not null,
   updated_at text not null
 );
@@ -129,10 +130,11 @@ create table if not exists public.stations (
 
 create table if not exists public.production_lots (
   lot_id text primary key,
+  name text not null default '',
   note text not null default '',
   station_id text references public.stations(station_id),
   shift_id text references public.shifts(shift_id),
-  vehicle_type text not null default '',
+  product_model text not null default '',
   quantity integer not null default 0,
   active integer not null default 1,
   created_at text not null,
@@ -141,18 +143,24 @@ create table if not exists public.production_lots (
 
 alter table public.production_lots add column if not exists station_id text references public.stations(station_id);
 alter table public.production_lots add column if not exists shift_id text references public.shifts(shift_id);
-alter table public.production_lots add column if not exists vehicle_type text not null default '';
+alter table public.production_lots add column if not exists name text not null default '';
+alter table public.production_lots add column if not exists product_model text not null default '';
 alter table public.production_lots add column if not exists quantity integer not null default 0;
+alter table public.production_lots drop column if exists vehicle_type;
 
--- Auto-generated per-vehicle product codes for a lot: <vehicle_type><stt>, stt from 1..quantity
--- (see Database._generate_lot_products in backend/app/database.py).
+-- Product codes are allocated one at a time as a vehicle passes the camera during an inspection
+-- (see Database.allocate_lot_product in backend/app/database.py), format:
+-- <Mã Lô>-<Model sản phẩm>-<STT>, STT starting at 1 and counting up until the lot's quantity is used.
 create table if not exists public.lot_products (
   product_code text primary key,
   lot_id text not null references public.production_lots(lot_id),
   seq integer not null,
-  vehicle_type text not null,
+  vehicle_model text not null,
   created_at text not null
 );
+
+alter table public.lot_products add column if not exists vehicle_model text not null default '';
+alter table public.lot_products drop column if exists vehicle_type;
 
 -- The browser never accesses these tables directly in this architecture.
 -- FastAPI owns database access through its server-side DATABASE_URL.

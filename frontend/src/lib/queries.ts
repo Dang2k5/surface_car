@@ -6,10 +6,13 @@ import type {
   GraphSpec,
   LotCreate,
   LotProduct,
+  LotProductAllocate,
   LotUpdate,
   PolicyCatalog,
   PolicyItemCreate,
   PolicyItemUpdate,
+  Profile,
+  ProfileUpdate,
   ProductionLot,
   QcDecision,
   QualityAlertSummary,
@@ -25,10 +28,22 @@ import type {
   TrendRow,
 } from "./api-types";
 
+async function errorMessage(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  try {
+    const body: unknown = JSON.parse(text);
+    if (body && typeof body === "object" && "detail" in body && typeof body.detail === "string") {
+      return body.detail;
+    }
+  } catch {
+    // Not JSON — fall through to the raw text.
+  }
+  return text || `Yêu cầu thất bại (${response.status}).`;
+}
+
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(message || `Request failed (${response.status})`);
+    throw new Error(await errorMessage(response));
   }
   return (await response.json()) as T;
 }
@@ -114,8 +129,7 @@ export function useDownloadTrendReport() {
         `/api/trend/report.docx?${trendQueryString(groupBy, filters)}`,
       );
       if (!response.ok) {
-        const message = await response.text().catch(() => "");
-        throw new Error(message || `Request failed (${response.status})`);
+        throw new Error(await errorMessage(response));
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -237,8 +251,7 @@ export function useDeletePolicy() {
         method: "DELETE",
       });
       if (!response.ok && response.status !== 204) {
-        const message = await response.text().catch(() => "");
-        throw new Error(message || `Request failed (${response.status})`);
+        throw new Error(await errorMessage(response));
       }
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["policies", "catalog"] }),
@@ -356,6 +369,26 @@ export function useLotProducts(lotId: string) {
   });
 }
 
+export function useAllocateLotProduct() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ lotId, payload }: { lotId: string; payload: LotProductAllocate }) => {
+      const response = await authedFetch(
+        `/api/catalog/lots/${encodeURIComponent(lotId)}/products`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      return json<LotProduct>(response);
+    },
+    onSuccess: (_, { lotId }) =>
+      void queryClient.invalidateQueries({ queryKey: ["catalog", "lots", lotId, "products"] }),
+  });
+}
+
 export function useStations(activeOnly = true) {
   const { authedFetch } = useAuth();
   return useQuery({
@@ -397,6 +430,32 @@ export function useUpdateStation() {
       return json<Station>(response);
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "stations"] }),
+  });
+}
+
+export function useProfiles() {
+  const { authedFetch, role } = useAuth();
+  return useQuery({
+    queryKey: ["auth", "profiles"],
+    queryFn: () => authedFetch("/api/auth/profiles").then((r) => json<Profile[]>(r)),
+    enabled: role === "QC_SUPERVISOR",
+    staleTime: 15_000,
+  });
+}
+
+export function useUpdateProfile() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, payload }: { userId: string; payload: ProfileUpdate }) => {
+      const response = await authedFetch(`/api/auth/profiles/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<Profile>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["auth", "profiles"] }),
   });
 }
 

@@ -28,6 +28,11 @@ class DefectCodeCreate(BaseModel):
         return value.strip().lower().replace(" ", "_")
 
 
+class ProfileUpdate(BaseModel):
+    role: Literal["QC_OPERATOR", "QC_SUPERVISOR"] | None = None
+    station_id: str | None = None
+
+
 class ShiftCreate(BaseModel):
     shift_id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{1,31}$")
     name: str = Field(min_length=1, max_length=80)
@@ -50,20 +55,33 @@ class ShiftUpdate(BaseModel):
 
 class LotCreate(BaseModel):
     lot_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_./-]{0,63}$")
+    name: str = Field(min_length=1, max_length=200)
     note: str = Field(default="", max_length=500)
     # A lot is produced during one shift, at one station (API_CONTRACT.md relationship: Trạm/Ca
     # are independent catalogs, Lô references the specific Trạm+Ca it was produced under).
     station_id: str = Field(min_length=1, max_length=64)
     shift_id: str = Field(min_length=1, max_length=32)
-    # Vehicle type + quantity drive auto-generated per-vehicle product codes
-    # (<vehicle_type><stt>, stt from 1 to quantity) — see Database._generate_lot_products.
-    vehicle_type: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,15}$")
+    # Default model used to pre-fill the Inspector's "Model sản phẩm" field and to generate
+    # product codes (<Mã Lô>-<Model sản phẩm>-<STT>) — see Database.allocate_lot_product.
+    # It's a default, not immutable: an inspection can still submit a different model.
+    product_model: str = Field(min_length=1, max_length=100)
+    # Caps how many product codes can be allocated to this lot (see Database.allocate_lot_product).
     quantity: int = Field(ge=1, le=9999)
     active: bool = True
 
     @field_validator("lot_id")
     @classmethod
     def normalize_lot_id(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("product_model")
+    @classmethod
+    def normalize_product_model(cls, value: str) -> str:
         return value.strip()
 
     @field_validator("station_id")
@@ -76,20 +94,28 @@ class LotCreate(BaseModel):
     def normalize_shift_id(cls, value: str) -> str:
         return value.strip().upper()
 
-    @field_validator("vehicle_type")
-    @classmethod
-    def normalize_vehicle_type(cls, value: str) -> str:
-        return value.strip().upper()
-
 
 class LotUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=500)
     station_id: str | None = Field(default=None, min_length=1, max_length=64)
     shift_id: str | None = Field(default=None, min_length=1, max_length=32)
-    # Quantity may only be increased (new product codes are appended) — vehicle_type is
-    # immutable after creation since changing it would orphan already-generated codes.
+    product_model: str | None = Field(default=None, min_length=1, max_length=100)
+    # Quantity may only be increased — decreasing below the number of product codes already
+    # allocated to this lot would orphan those codes.
     quantity: int | None = Field(default=None, ge=1, le=9999)
     active: bool | None = None
+
+
+class LotProductAllocate(BaseModel):
+    """Allocates the next sequential product code for a lot: <Mã Lô>-<Model sản phẩm>-<STT>."""
+
+    vehicle_model: str = Field(min_length=1, max_length=100)
+
+    @field_validator("vehicle_model")
+    @classmethod
+    def normalize_vehicle_model(cls, value: str) -> str:
+        return value.strip()
 
 
 class StationCreate(BaseModel):
@@ -166,7 +192,7 @@ class QCDecisionCreate(BaseModel):
     length_mm: float | None = Field(default=None, ge=0, le=10000)
     severity: str = Field(min_length=1, max_length=30)
     action: Literal["APPROVE", "REJECT", "OVERRIDE"]
-    disposition: Literal["PASS", "HOLD", "REWORK", "REINSPECT"]
+    disposition: Literal["PASS", "HOLD", "REPAIR"]
     reviewer: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=3, max_length=2000)
     notes: str = Field(default="", max_length=4000)

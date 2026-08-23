@@ -12,6 +12,7 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -37,6 +38,7 @@ const NAV = [
   { to: "/supervisor/inspections", label: "Tra cứu inspection", icon: Search, group: "Điều tra" },
   { to: "/supervisor/rules", label: "Chính sách QC", icon: SlidersHorizontal, group: "Quản trị" },
   { to: "/supervisor/catalogs", label: "Ca, Lô & Trạm QC", icon: CalendarClock, group: "Quản trị" },
+  { to: "/supervisor/accounts", label: "Quản lý tài khoản", icon: Users, group: "Quản trị" },
   { to: "/supervisor/audit", label: "Nhật ký & Override", icon: ScrollText, group: "Quản trị" },
 ] as const;
 

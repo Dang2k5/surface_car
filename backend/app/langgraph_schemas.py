@@ -34,7 +34,7 @@ class LangGraphResumeRequest(BaseModel):
     severity: str | None = Field(default=None, max_length=30)
     location: str | None = Field(default=None, max_length=200)
     length_mm: float | None = Field(default=None, ge=0, le=10000)
-    disposition: Literal["PASS", "HOLD", "REWORK", "REINSPECT"] | None = None
+    disposition: Literal["PASS", "HOLD", "REPAIR"] | None = None
     notes: str = Field(default="", max_length=4000)
 
     @model_validator(mode="after")

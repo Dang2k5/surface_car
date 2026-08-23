@@ -99,7 +99,7 @@ function ShiftsPanel() {
         <input
           value={shiftId}
           onChange={(e) => setShiftId(e.target.value)}
-          placeholder="Mã ca (VD: CA4)"
+          placeholder="Mã ca"
           className="h-8 rounded-sm border border-border bg-surface-2 px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground"
         />
         <input
@@ -244,17 +244,20 @@ function LotsPanel() {
   const updateLot = useUpdateLot();
 
   const [lotId, setLotId] = useState("");
+  const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const [stationId, setStationId] = useState("");
   const [shiftId, setShiftId] = useState("");
-  const [vehicleType, setVehicleType] = useState("");
+  const [productModel, setProductModel] = useState("");
   const [quantity, setQuantity] = useState("");
   const [error, setError] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editStationId, setEditStationId] = useState("");
   const [editShiftId, setEditShiftId] = useState("");
+  const [editProductModel, setEditProductModel] = useState("");
   const [editQuantity, setEditQuantity] = useState("");
 
   const lots = lotsQuery.data ?? [];
@@ -266,26 +269,32 @@ function LotsPanel() {
   async function handleCreate() {
     setError("");
     const quantityNum = Number(quantity);
-    if (!lotId.trim() || !stationId || !shiftId) {
-      setError("Cần nhập mã lô và chọn Trạm + Ca sản xuất ra lô này.");
+    if (!lotId.trim() || !name.trim() || !stationId || !shiftId) {
+      setError("Cần nhập mã lô, tên lô và chọn Trạm + Ca sản xuất ra lô này.");
       return;
     }
-    if (!vehicleType.trim() || !quantity || !Number.isInteger(quantityNum) || quantityNum < 1) {
-      setError("Cần nhập Loại xe và Số lượng (số nguyên >= 1).");
+    if (!productModel.trim()) {
+      setError("Cần nhập Model sản phẩm.");
+      return;
+    }
+    if (!quantity || !Number.isInteger(quantityNum) || quantityNum < 1) {
+      setError("Cần nhập Số lượng (số nguyên >= 1).");
       return;
     }
     try {
       await createLot.mutateAsync({
         lot_id: lotId.trim(),
+        name: name.trim(),
         station_id: stationId,
         shift_id: shiftId,
-        vehicle_type: vehicleType.trim(),
+        product_model: productModel.trim(),
         quantity: quantityNum,
         ...(note.trim() ? { note: note.trim() } : {}),
       });
       setLotId("");
+      setName("");
       setNote("");
-      setVehicleType("");
+      setProductModel("");
       setQuantity("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tạo lô thất bại.");
@@ -294,21 +303,25 @@ function LotsPanel() {
 
   function startEdit(l: (typeof lots)[number]) {
     setEditingId(l.lot_id);
+    setEditName(l.name);
     setEditNote(l.note);
     setEditStationId(l.station_id ?? "");
     setEditShiftId(l.shift_id ?? "");
+    setEditProductModel(l.product_model);
     setEditQuantity(String(l.quantity ?? 0));
   }
 
   async function saveEdit(lotIdToSave: string) {
-    if (!editStationId || !editShiftId) return;
+    if (!editStationId || !editShiftId || !editName.trim() || !editProductModel.trim()) return;
     const quantityNum = Number(editQuantity);
     await updateLot.mutateAsync({
       lotId: lotIdToSave,
       payload: {
+        name: editName.trim(),
         note: editNote,
         station_id: editStationId,
         shift_id: editShiftId,
+        product_model: editProductModel.trim(),
         ...(Number.isInteger(quantityNum) && quantityNum >= 1 ? { quantity: quantityNum } : {}),
       },
     });
@@ -321,8 +334,14 @@ function LotsPanel() {
         <input
           value={lotId}
           onChange={(e) => setLotId(e.target.value)}
-          placeholder="Mã lô (VD: LOT-2026-08-22-A)"
+          placeholder="Mã lô"
           className="h-8 rounded-sm border border-border bg-surface-2 px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground"
+        />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Tên lô"
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
         />
         <select
           value={stationId}
@@ -349,16 +368,16 @@ function LotsPanel() {
           ))}
         </select>
         <input
+          value={productModel}
+          onChange={(e) => setProductModel(e.target.value)}
+          placeholder="Model sản phẩm"
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground"
+        />
+        <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Ghi chú (tùy chọn)"
           className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
-        />
-        <input
-          value={vehicleType}
-          onChange={(e) => setVehicleType(e.target.value)}
-          placeholder="Loại xe (VD: VF8)"
-          className="h-8 rounded-sm border border-border bg-surface-2 px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground"
         />
         <input
           type="number"
@@ -372,10 +391,6 @@ function LotsPanel() {
           {createLot.isPending ? "Đang thêm…" : "+ Thêm lô"}
         </Btn>
       </div>
-      <p className="mb-4 text-[11px] text-muted-foreground">
-        Hệ thống tự sinh mã sản phẩm cho từng xe trong lô theo cú pháp Loại xe + STT (1..Số lượng),
-        VD: VF8 + số lượng 3 → VF81, VF82, VF83.
-      </p>
       {error ? <p className="mb-3 text-[11px] text-destructive">{error}</p> : null}
 
       {lotsQuery.isPending ? (
@@ -389,9 +404,10 @@ function LotsPanel() {
           <thead>
             <tr>
               <Th>Mã lô</Th>
+              <Th>Tên lô</Th>
               <Th>Trạm</Th>
               <Th>Ca</Th>
-              <Th>Loại xe</Th>
+              <Th>Model sản phẩm</Th>
               <Th>Số lượng</Th>
               <Th>Ghi chú</Th>
               <Th>Trạng thái</Th>
@@ -404,6 +420,17 @@ function LotsPanel() {
               return (
                 <Tr key={l.lot_id}>
                   <Td className="num">{l.lot_id}</Td>
+                  <Td>
+                    {editing ? (
+                      <input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className={editableInputClass}
+                      />
+                    ) : (
+                      l.name || "—"
+                    )}
+                  </Td>
                   <Td>
                     {editing ? (
                       <select
@@ -442,7 +469,17 @@ function LotsPanel() {
                       "—"
                     )}
                   </Td>
-                  <Td className="num">{l.vehicle_type || "—"}</Td>
+                  <Td className="num">
+                    {editing ? (
+                      <input
+                        value={editProductModel}
+                        onChange={(e) => setEditProductModel(e.target.value)}
+                        className={editableInputClass}
+                      />
+                    ) : (
+                      l.product_model || "—"
+                    )}
+                  </Td>
                   <Td className="num">
                     {editing ? (
                       <input
@@ -570,7 +607,7 @@ function StationsPanel() {
         <input
           value={stationId}
           onChange={(e) => setStationId(e.target.value)}
-          placeholder="Mã trạm (VD: QC-05)"
+          placeholder="Mã trạm"
           className="h-8 rounded-sm border border-border bg-surface-2 px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground"
         />
         <input
@@ -672,10 +709,7 @@ function StationsPanel() {
 function Catalogs() {
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Ca, Lô & Trạm QC"
-        description="Danh mục Ca làm việc, Lô sản xuất và Trạm QC dùng khi QC Inspector tạo inspection — chỉ mục đang bật mới hiện trong form kiểm tra."
-      />
+      <PageHeader title="Ca, Lô & Trạm QC" />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <StationsPanel />
         <ShiftsPanel />

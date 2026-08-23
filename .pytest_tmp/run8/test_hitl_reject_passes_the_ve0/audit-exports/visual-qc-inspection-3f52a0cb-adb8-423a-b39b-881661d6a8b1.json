@@ -1,0 +1,285 @@
+{
+  "schema": "visual-qc-agent-audit/v1",
+  "exported_at": "2026-08-23T11:11:57.451627+00:00",
+  "identity": {
+    "thread_id": "3f52a0cb-adb8-423a-b39b-881661d6a8b1",
+    "inspection_id": "bc0a071c-3198-4749-b26a-793a8081c9fd",
+    "vehicle_id": "CAR-LG-REJECT",
+    "vehicle_model": "unknown_model",
+    "status": "PASS"
+  },
+  "evidence": {
+    "image_url": "/test-fixtures/unknown_defect.jpg",
+    "image_sha256": null,
+    "camera_id": "cam-fns-01",
+    "camera_evidence": [],
+    "zone_name": "unknown_zone"
+  },
+  "model_result": {
+    "model_name": null,
+    "model_version": null,
+    "model_task": null,
+    "inference_ms": null,
+    "defect_detected": false,
+    "defect_type": "unknown",
+    "confidence": 0.0,
+    "severity": "UNASSESSED",
+    "bbox": null,
+    "segmentation_result": null,
+    "detections": [],
+    "enriched_defects": [],
+    "camera_results": [],
+    "finding_groups": [],
+    "suggested_defect_codes": [],
+    "classified_defect_code": null,
+    "defect_family": null,
+    "defect_code_classification": null,
+    "similar_defect_warning": false,
+    "measurements": {}
+  },
+  "workflow": {
+    "assessment_route": "HITL",
+    "verify_count": 0,
+    "verify_result": "NOT_RUN",
+    "human_required": false,
+    "hitl_status": "CONFIRMED",
+    "human_decision": {
+      "action": "REJECT",
+      "reviewer": "qc-test",
+      "reason": "Không có lỗi thực sự; đây là phản chiếu ánh sáng.",
+      "recommendation": null,
+      "defect_code": null,
+      "severity": null,
+      "location": null,
+      "length_mm": null,
+      "disposition": null,
+      "notes": ""
+    },
+    "qc_decision_record": null,
+    "execution_trace": [
+      {
+        "node": "prepare_input",
+        "status": "COMPLETED",
+        "detail": "Đã xác thực dữ liệu đầu vào cho 1 camera."
+      },
+      {
+        "node": "detect_defect",
+        "status": "FAILED",
+        "detail": "Suy luận mô hình gặp lỗi (đã chặn an toàn): Unsupported image source: /test-fixtures/unknown_defect.jpg"
+      },
+      {
+        "node": "assess_result",
+        "status": "COMPLETED",
+        "detail": "Định_tuyến=HITL. Tra cứu chính sách khớp 1 tài liệu kiểm soát, thiếu 1 minh chứng, và phát sinh 1 cảnh báo kiểm soát tài liệu."
+      },
+      {
+        "node": "human_review",
+        "status": "COMPLETED",
+        "detail": "HITL đã tiếp tục với hành động=REJECT."
+      },
+      {
+        "node": "generate_recommendation",
+        "status": "COMPLETED",
+        "detail": "Chính sách FNS-QC-REJECTED-001@2026.08.1 chọn PASS_QC_REJECTED_DEFECT_FLAG; nguồn_quyết_định=human_review."
+      },
+      {
+        "node": "save_result",
+        "status": "COMPLETED",
+        "detail": "Đã lưu trạng thái cuối cùng qua repository."
+      }
+    ]
+  },
+  "outcome": {
+    "decision": "DEFECT_REJECTED_BY_QC",
+    "recommendation_code": "PASS_QC_REJECTED_DEFECT_FLAG",
+    "recommendation": "QC xác nhận không phải lỗi — cho phép chạy thử",
+    "allow_test_drive": true,
+    "severity": "UNASSESSED",
+    "reason": "Không có lỗi thực sự; đây là phản chiếu ánh sáng.",
+    "final_status": "PASS"
+  },
+  "policy": {
+    "policy_id": "FNS-QC-REJECTED-001",
+    "policy_revision": "2026.08.1",
+    "policy_status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "policy_title": "QC operator rejected the AI-flagged defect",
+    "action_code": "PASS_QC_REJECTED_DEFECT_FLAG",
+    "action_label": "QC xác nhận không phải lỗi — cho phép chạy thử",
+    "final_status": "PASS",
+    "test_drive_allowed": true,
+    "human_required": false,
+    "required_evidence": [
+      "qc_reinspection"
+    ],
+    "missing_evidence": [],
+    "required_steps": [
+      "QC_SIGN_OFF"
+    ],
+    "references": [
+      {
+        "id": "FNS-QC-POLICY-DEMO-2026",
+        "document_family": "FNS-QC-POLICY",
+        "revision": "2026.08.1",
+        "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "APPROVED",
+        "authority": "CONTROLLED_POLICY",
+        "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+        "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+        "url": "/api/policies"
+      },
+      {
+        "id": "ISO-9001-2015",
+        "document_family": "ISO-9001",
+        "revision": "2015",
+        "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+        "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+        "url": "https://www.iso.org/standard/62085.html"
+      }
+    ],
+    "document_review": {
+      "query": {
+        "vehicle_model": "unknown_model",
+        "defect_type": "unknown"
+      },
+      "roles_completed": [
+        "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+        "EXTRACT_RELEVANT_CONDITIONS",
+        "COMPARE_EVIDENCE_TO_POLICY",
+        "DETECT_MISSING_DATA",
+        "EXPLAIN_DECISION_PLAINLY",
+        "PROPOSE_APPROVED_CHECKLIST",
+        "CITE_DOCUMENT_METADATA",
+        "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+      ],
+      "matched_document_count": 1,
+      "extracted_conditions": [
+        "QC Inspector reviewed the flagged region and confirmed no qualifying defect is present"
+      ],
+      "evidence_comparison": [
+        {
+          "evidence": "qc_reinspection",
+          "available": true
+        }
+      ],
+      "missing_data": [],
+      "checklist_status": "APPROVED",
+      "approved_checklist": [
+        "QC_SIGN_OFF"
+      ],
+      "proposed_checklist": [
+        "QC_SIGN_OFF"
+      ],
+      "citations": [
+        {
+          "id": "FNS-QC-POLICY-DEMO-2026",
+          "document_family": "FNS-QC-POLICY",
+          "revision": "2026.08.1",
+          "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "APPROVED",
+          "authority": "CONTROLLED_POLICY",
+          "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+          "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+          "url": "/api/policies"
+        },
+        {
+          "id": "ISO-9001-2015",
+          "document_family": "ISO-9001",
+          "revision": "2015",
+          "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+          "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+          "url": "https://www.iso.org/standard/62085.html"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "POLICY_QUERY_CONTEXT_INCOMPLETE",
+          "severity": "BLOCKING",
+          "message": "Missing policy lookup context: vehicle_model, defect_type.",
+          "document_id": null
+        }
+      ]
+    },
+    "production_eligible": false
+  },
+  "reasoning": {
+    "summary_en": "Không có lỗi thực sự; đây là phản chiếu ánh sáng.",
+    "summary_vi": "Không có lỗi thực sự; đây là phản chiếu ánh sáng.",
+    "risk_flags": [
+      "HUMAN_REVIEW_DECISION"
+    ],
+    "recommended_checks": [
+      "QC_SIGN_OFF"
+    ],
+    "cited_source_ids": [
+      "FNS-QC-POLICY-DEMO-2026",
+      "ISO-9001-2015"
+    ],
+    "provider": "human_review",
+    "model": "qc-resume",
+    "severity": "UNASSESSED",
+    "action_code": "PASS_QC_REJECTED_DEFECT_FLAG",
+    "action_label": "QC xác nhận không phải lỗi — cho phép chạy thử",
+    "final_status": "PASS",
+    "allow_test_drive": true,
+    "decision_rationale_vi": "Không có lỗi thực sự; đây là phản chiếu ánh sáng.",
+    "fallback_reason": null
+  },
+  "agent_analysis": {
+    "reasoning_source": "human_review",
+    "reasoning_model": "qc-resume",
+    "llm_used": false,
+    "defect": {
+      "type": "unknown",
+      "code": null,
+      "family": null,
+      "confidence": 0.0,
+      "classification_confidence": null,
+      "classification_reason_vi": null
+    },
+    "geometry": {
+      "length_mm": null,
+      "width_mm": null,
+      "height_mm": null,
+      "surface_area_mm2": null,
+      "width_px": null,
+      "height_px": null,
+      "image_area_ratio": null,
+      "measurement_status": null,
+      "calibration_profile_id": null
+    },
+    "location": {
+      "zone_name": "unknown_zone",
+      "relative_position": null,
+      "camera_id": "cam-fns-01",
+      "bbox": null
+    },
+    "plan": {
+      "code": "PASS_QC_REJECTED_DEFECT_FLAG",
+      "label": "QC xác nhận không phải lỗi — cho phép chạy thử",
+      "final_status": "PASS",
+      "allow_test_drive": true,
+      "required_steps": [
+        "QC_SIGN_OFF"
+      ]
+    },
+    "warnings": [
+      "HUMAN_REVIEW_DECISION"
+    ],
+    "missing_evidence": []
+  }
+}

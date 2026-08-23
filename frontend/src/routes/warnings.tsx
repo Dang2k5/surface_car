@@ -1,22 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { Images, Search, TrendingUp, Wrench } from "lucide-react";
+import { CheckSquare, Images, Search, Square, TrendingUp, Wrench } from "lucide-react";
 import type { WarningLevel } from "@/lib/qc-data";
 import { LevelBadge, Panel } from "@/components/qc/primitives";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth";
-import { useQualityAlerts, useTrend } from "@/lib/queries";
+import { useQualityAlerts } from "@/lib/queries";
 import type { QualityAlert } from "@/lib/api-types";
 
 type DisplayPattern = {
@@ -54,13 +43,13 @@ export const Route = createFileRoute("/warnings")({
       {
         name: "description",
         content:
-          "Realtime detection of repeated surface defect patterns across consecutive vehicles with severity levels and trend charts.",
+          "Realtime detection of repeated surface defect patterns across consecutive vehicles with severity levels and an inspector action checklist.",
       },
       { property: "og:title", content: "Early Defect Warning — AUTO QC Station 03" },
       {
         property: "og:description",
         content:
-          "Repeated defect pattern detection with realtime frequency charts and escalation actions.",
+          "Repeated defect pattern detection with an immediate inspector checklist and escalation actions.",
       },
     ],
   }),
@@ -68,18 +57,27 @@ export const Route = createFileRoute("/warnings")({
 });
 
 function EarlyWarnings() {
-  const { role } = useAuth();
   const { data: alertSummary, isLoading, isError } = useQualityAlerts();
-  const { data: trendRows } = useTrend("hour");
   const [investigating, setInvestigating] = useState<string[]>([]);
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
 
-  const patterns = useMemo(() => (alertSummary?.alerts ?? []).map(toPattern), [alertSummary]);
+  const alerts = useMemo(() => alertSummary?.alerts ?? [], [alertSummary]);
+  const patterns = useMemo(() => alerts.map(toPattern), [alerts]);
   const criticalCount = patterns.filter((p) => p.level === "CRITICAL").length;
   const levelCounts = useMemo(() => {
     const counts: Record<WarningLevel, number> = { NORMAL: 0, WATCH: 0, WARNING: 0, CRITICAL: 0 };
     for (const p of patterns) counts[p.level] += 1;
     return counts;
   }, [patterns]);
+
+  function toggleCheck(key: string) {
+    setCheckedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -106,72 +104,57 @@ function EarlyWarnings() {
 
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <Panel
-          title="Tần suất / xu hướng lỗi (theo giờ)"
-          right={<span className="label-caps">supervisor</span>}
+          title="Việc cần kiểm tra ngay"
+          right={<span className="label-caps">inspector</span>}
         >
-          {role !== "QC_SUPERVISOR" ? (
-            <div className="flex h-[300px] items-center justify-center px-4 text-center text-sm text-muted-foreground">
-              Đăng nhập với tài khoản QC_SUPERVISOR để xem biểu đồ xu hướng lịch sử.
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Đang tải cảnh báo chất lượng…</p>
+          ) : alerts.filter((a) => a.upstream_checks_vi.length > 0).length === 0 ? (
+            <div className="flex h-[200px] items-center justify-center px-4 text-center text-sm text-muted-foreground">
+              Không có việc kiểm tra nào cần thực hiện lúc này.
             </div>
           ) : (
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={trendRows ?? []}
-                  margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
-                >
-                  <defs>
-                    {[
-                      ["scratch", "var(--color-chart-3)"],
-                      ["dent", "var(--color-chart-2)"],
-                    ].map(([id, color]) => (
-                      <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={color} stopOpacity={0.45} />
-                        <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid stroke="var(--color-border)" vertical={false} />
-                  <XAxis
-                    dataKey="group_value"
-                    stroke="var(--color-muted-foreground)"
-                    tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
-                  />
-                  <YAxis
-                    stroke="var(--color-muted-foreground)"
-                    tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
-                    allowDecimals={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--color-popover)",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: 6,
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontFamily: "var(--font-mono)", fontSize: 11 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="scratch_count"
-                    name="Scratch"
-                    stroke="var(--color-chart-3)"
-                    fill="url(#scratch)"
-                    strokeWidth={2}
-                    animationDuration={700}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="dent_count"
-                    name="Dent"
-                    stroke="var(--color-chart-2)"
-                    fill="url(#dent)"
-                    strokeWidth={2}
-                    animationDuration={700}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="max-h-[420px] space-y-4 overflow-y-auto pr-1">
+              {alerts
+                .filter((a) => a.upstream_checks_vi.length > 0)
+                .map((alert) => (
+                  <div key={alert.id} className="rounded-sm border border-border bg-surface-2 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs font-bold tracking-[0.1em] text-foreground">
+                        {alert.defect_type.toUpperCase()} · {alert.zone_name.toUpperCase()} ·{" "}
+                        {alert.camera_id}
+                      </span>
+                      <LevelBadge level={levelFromSeverity(alert.severity)} />
+                    </div>
+                    <ul className="mt-2 space-y-1.5">
+                      {alert.upstream_checks_vi.map((check, i) => {
+                        const key = `${alert.id}:${i}`;
+                        const checked = checkedItems.has(key);
+                        return (
+                          <li key={key}>
+                            <button
+                              type="button"
+                              onClick={() => toggleCheck(key)}
+                              className={cn(
+                                "flex w-full items-start gap-2 rounded-sm border border-transparent px-1.5 py-1 text-left text-sm transition-colors hover:border-border",
+                                checked
+                                  ? "text-muted-foreground line-through"
+                                  : "text-foreground",
+                              )}
+                            >
+                              {checked ? (
+                                <CheckSquare className="mt-0.5 size-4 shrink-0 text-info" />
+                              ) : (
+                                <Square className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                              )}
+                              {check}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
             </div>
           )}
         </Panel>

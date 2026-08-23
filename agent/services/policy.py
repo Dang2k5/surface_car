@@ -131,7 +131,7 @@ class PolicyCatalog:
     def evaluate(self, state: QCState) -> PolicyDecision:
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()
         if human_action == "REJECT":
-            return self._manual_reinspection(state)
+            return self._operator_rejected_defect(state)
 
         defect_type = str(state.get("defect_type") or "unknown")
         policy = next(
@@ -206,6 +206,49 @@ class PolicyCatalog:
             ),
         )
 
+    def _operator_rejected_defect(self, state: QCState) -> PolicyDecision:
+        """QC Inspector reviewed the AI-flagged region and rejected it as a false positive.
+
+        There is no separate reinspection sub-state: the vehicle passes immediately
+        (PASS/FAIL are the only two terminal outcomes — POLICY_GOVERNANCE.md)."""
+        sources = [
+            PolicyReference.model_validate(self.sources[source_id])
+            for source_id in ("FNS-QC-POLICY-DEMO-2026", "ISO-9001-2015")
+            if source_id in self.sources
+        ]
+        policy = {
+            "id": "FNS-QC-REJECTED-001",
+            "title": "QC operator rejected the AI-flagged defect",
+            "conditions": ["QC Inspector reviewed the flagged region and confirmed no qualifying defect is present"],
+            "checklist_status": self.document["status"],
+            "steps": ["QC_SIGN_OFF"],
+        }
+        review = self._review_documents(
+            policy=policy,
+            state=state,
+            required_evidence=["qc_reinspection"],
+            provided_evidence=self._provided_evidence(state),
+            references=sources,
+        )
+        return PolicyDecision(
+            policy_id="FNS-QC-REJECTED-001",
+            policy_revision=self.document["revision"],
+            policy_status=self.document["status"],
+            approval_scope=str(self.document.get("approval_scope") or "UNSPECIFIED"),
+            policy_title="QC operator rejected the AI-flagged defect",
+            action_code="PASS_QC_REJECTED_DEFECT_FLAG",
+            action_label="QC xác nhận không phải lỗi — cho phép chạy thử",
+            final_status="PASS",
+            test_drive_allowed=True,
+            human_required=False,
+            required_evidence=["qc_reinspection"],
+            missing_evidence=[],
+            required_steps=["QC_SIGN_OFF"],
+            references=sources,
+            document_review=review,
+            production_eligible=False,
+        )
+
     def _manual_reinspection(self, state: QCState) -> PolicyDecision:
         sources = [
             PolicyReference.model_validate(self.sources[source_id])
@@ -234,7 +277,7 @@ class PolicyCatalog:
             policy_title="Fail-safe manual visual reinspection",
             action_code="MANUAL_VISUAL_REINSPECTION",
             action_label=ACTION_LABELS["MANUAL_VISUAL_REINSPECTION"],
-            final_status="HOLD_FOR_QC",
+            final_status="FAIL",
             test_drive_allowed=False,
             human_required=True,
             required_evidence=["qc_reinspection"],

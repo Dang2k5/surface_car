@@ -100,7 +100,7 @@ function HitlQueue() {
   const [reason, setReason] = useState("");
   const [defectCode, setDefectCode] = useState("");
   const [severity, setSeverity] = useState("");
-  const [disposition, setDisposition] = useState<"PASS" | "HOLD" | "REWORK" | "REINSPECT">("HOLD");
+  const [disposition, setDisposition] = useState<"PASS" | "HOLD" | "REPAIR">("REPAIR");
   const [location, setLocation] = useState("");
   const [lengthMm, setLengthMm] = useState("");
   const [notes, setNotes] = useState("");
@@ -134,7 +134,7 @@ function HitlQueue() {
         ? active.state.visual_measurements.estimated_length_mm.toFixed(1)
         : "",
     );
-    setDisposition("HOLD");
+    setDisposition("REPAIR");
     setNotes("");
     setReason("");
     setOverrideRecommendation("");
@@ -226,9 +226,9 @@ function HitlQueue() {
           action,
           reviewer: reviewer.trim(),
           reason: reason.trim(),
-          // Mirrors the legacy frontend: a human "confirm pass" (REJECT) always forces
-          // REINSPECT regardless of the disposition dropdown.
-          disposition: action === "REJECT" ? "REINSPECT" : disposition,
+          // REJECT means the QC Inspector found no qualifying defect in the flagged region —
+          // the vehicle passes immediately, there is no separate reinspection state anymore.
+          disposition: action === "REJECT" ? "PASS" : disposition,
           ...(defectCode ? { defect_code: defectCode } : {}),
           ...(severity ? { severity } : {}),
           ...(location ? { location } : {}),
@@ -393,7 +393,6 @@ function HitlQueue() {
                 <Field label="Loại lỗi" value={state.defect_type || "—"} />
                 <Field label="Lý do AI" value={state.reason || "—"} tone="warning" />
                 <Field label="Model xe" value={state.vehicle_model} />
-                <Field label="Vị trí" value={state.zone_name} />
                 <Field label="Mức ưu tiên" value={derivePriority(state.severity)} tone="danger" />
                 <Field label="Camera" value={state.camera_id} tone="info" />
               </div>
@@ -448,8 +447,7 @@ function HitlQueue() {
                     >
                       <option value="PASS">PASS</option>
                       <option value="HOLD">HOLD</option>
-                      <option value="REWORK">REWORK</option>
-                      <option value="REINSPECT">REINSPECT</option>
+                      <option value="REPAIR">REPAIR</option>
                     </select>
                   </label>
                   <label className="block">

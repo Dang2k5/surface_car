@@ -187,7 +187,10 @@ class LocalYoloSegmentationDetector:
                     )
                     camera_detections.append(
                         {
-                            "detection_id": f"{camera['camera_id']}::{index}",
+                            # Used verbatim as an object-storage path segment
+                            # (backend/app/langgraph_api.py's _attach_rendered_defect_images) —
+                            # avoid ":" since it's an illegal filename character on Windows.
+                            "detection_id": f"{camera['camera_id']}_{index}",
                             "camera_id": camera["camera_id"],
                             "class_id": class_id,
                             "raw_class_name": raw_name,

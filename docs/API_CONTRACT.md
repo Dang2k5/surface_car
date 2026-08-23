@@ -4,14 +4,13 @@
 Tài liệu quy chuẩn giao tiếp (Data Contracts) giữa:
 1. **YOLO Segmentation (Vision Engine: Scratch & Dent Detection)**
 2. **Geometry Processor (Deterministic Geometry Extraction)**
-3. **Multimodal LLM (Visual Verification, Description, Explainability)**
-4. **LangGraph Agent (Industrial Domain Reasoning & Anomaly Engine)**
-5. **Backend API (FastAPI Gateway) + S3/MinIO Object Storage + PostgreSQL/Supabase**
-6. **Workstation UI (Next.js Touch Dashboard)**
+3. **LangGraph Agent (Industrial Domain Reasoning & Anomaly Engine)**
+4. **Backend API (FastAPI Gateway) + S3/MinIO Object Storage + PostgreSQL/Supabase**
+5. **Workstation UI (Next.js Touch Dashboard)**
 
 Xem `PRD.md` §2 cho sơ đồ kiến trúc tổng thể và `POLICY_GOVERNANCE.md` cho ranh
 giới thẩm quyền của từng thành phần. Mỗi nhóm field dưới đây ghi rõ provenance
-(`source = yolo | geometry_processor | multimodal_llm | camera_calibration |
+(`source = yolo | geometry_processor | camera_calibration |
 depth_sensor | human_qc | qc_policy`).
 
 ---
@@ -90,43 +89,9 @@ false` và không có giá trị mm nào được suy diễn.
 
 ---
 
-## 3. Multimodal LLM Output Schema (`VisualAssessment`)
+## 3. LangGraph Agent State Schema (`QCState`)
 
-Multimodal LLM nhận ảnh gốc, crop vùng lỗi, overlay/mask hoặc polygon, YOLO
-class/confidence và zone/camera metadata — không chỉ text/JSON (`source =
-multimodal_llm`). Output là **visual cross-check và semantic description**,
-không phải physical measurement và không phải quyết định PASS/FAIL — xem
-`POLICY_GOVERNANCE.md` (Multimodal LLM governance boundaries).
-
-```json
-{
-  "defect_id": "DEF-001",
-  "visual_verification": "SUPPORTED",
-  "shape_pattern": "thin_linear",
-  "continuity": "continuous",
-  "distribution": "localized",
-  "visibility": "clear",
-  "possible_artifact": "none",
-  "visual_uncertainty": "LOW",
-  "description": "Vùng được đánh dấu có dạng tuyến tính mảnh, liên tục và có độ tương phản rõ với bề mặt sơn xung quanh."
-}
-```
-
-`visual_verification` chỉ nhận `SUPPORTED | CONFLICT | UNCERTAIN`.
-`visual_uncertainty` chỉ nhận `LOW | MEDIUM | HIGH`. Một `VisualAssessment`
-với `visual_verification=CONFLICT` hoặc `visual_uncertainty=HIGH` phải kích
-hoạt HITL (mục 4.1, `FR-15` trong `PRD.md`) và không được tự chuyển thành
-PASS.
-
-Sau khi LangGraph + QC Rules có quyết định, Multimodal LLM sinh thêm
-`explanation` (text) gắn vào response cuối (mục 4.1) — trường này chỉ diễn
-giải kết quả bất biến, không chứa giá trị PASS/FAIL/tolerance mới.
-
----
-
-## 4. LangGraph Agent State Schema (`QCState`)
-
-Được định nghĩa tại `agent/graph/state.py`. Schema quản lý cả luồng phán quyết xe đơn lẻ lẫn cơ chế phát hiện bất thường lặp lại (Systemic Anomaly). Node graph chuẩn hóa: `ingest → detect → extract_visual_geometry → multimodal_verify → classify → decide → decision_gate → (final_decide | HITL → human_review → resume → final_decide) → explain → complete → update_trend` (trục chính `detect → classify → decide → HITL`). `explain` luôn chạy sau final decision, không bao giờ trước HITL, vì kết luận có thể đổi sau khi QC xác nhận/override — xem `POLICY_GOVERNANCE.md`. Trạng thái triển khai runtime tại `AGENT_FLOW.md`.
+Được định nghĩa tại `agent/graph/state.py`. Schema quản lý cả luồng phán quyết xe đơn lẻ lẫn cơ chế phát hiện bất thường lặp lại (Systemic Anomaly). Node graph chuẩn hóa: `ingest → detect → extract_geometry → classify → decide → decision_gate → (final_decide | HITL → human_review → [supervisor_review] → resume → final_decide) → explain → complete → update_trend` (trục chính `detect → classify → decide → HITL`). `explain` luôn chạy sau final decision, không bao giờ trước HITL, vì kết luận có thể đổi sau khi QC xác nhận/override — xem `POLICY_GOVERNANCE.md`. Trạng thái triển khai runtime tại `AGENT_FLOW.md`.
 
 ```python
 from typing import List, Optional, Literal, Dict, Any
@@ -143,17 +108,6 @@ class GeometryFeatures(BaseModel):
     aspect_ratio: Optional[float] = None
     perimeter_px: Optional[float] = None
 
-class VisualAssessment(BaseModel):
-    # source = multimodal_llm — visual cross-check, không phải ground truth
-    visual_verification: Literal["SUPPORTED", "CONFLICT", "UNCERTAIN"]
-    shape_pattern: Optional[str] = None
-    continuity: Optional[str] = None
-    distribution: Optional[str] = None
-    visibility: Optional[str] = None
-    possible_artifact: Optional[str] = None
-    visual_uncertainty: Literal["LOW", "MEDIUM", "HIGH"] = "LOW"
-    description: Optional[str] = None
-
 class DefectItem(BaseModel):
     defect_id: str
     type: Literal["dent", "scratch"]
@@ -162,7 +116,6 @@ class DefectItem(BaseModel):
     mask_image_key: Optional[str] = None
     crop_image_key: Optional[str] = None
     geometry: Optional[GeometryFeatures] = None
-    visual_assessment: Optional[VisualAssessment] = None
     # Chỉ có giá trị khi camera đã calibration/depth-enabled hoặc QC đo xác nhận.
     estimated_depth_mm: Optional[float] = None
     surface_area_mm2: Optional[float] = None
@@ -198,7 +151,7 @@ class QCState(TypedDict):
     camera_id: str
     zone_name: str
     detections: List[Dict[str, Any]]  # source = yolo
-    enriched_defects: List[DefectItem]  # detections + geometry + visual_assessment + operational metadata
+    enriched_defects: List[DefectItem]  # detections + geometry + operational metadata
     suggested_defect_codes: List[Dict[str, Any]]
     classified_defect_code: Optional[str]
     defect_family: Optional[str]
@@ -213,13 +166,13 @@ class QCState(TypedDict):
     allow_test_drive: bool
     decision: str  # mã trạng thái nội bộ ở bước assessment, KHÔNG phải business decision cuối
     reason: str
-    final_status: str  # business decision chuẩn: PASS | HOLD_FOR_QC | HOLD_FOR_REWORK | HUMAN_OVERRIDE_APPLIED
+    final_status: str  # business decision chuẩn, chỉ hai giá trị: PASS | FAIL
 
     # 2. Cảnh báo Bất thường Chuỗi & Chống Dừng Line (Systemic Anomaly, realtime sliding window)
     anomaly_alert: Optional[SystemicAnomalyAlert]
 
     # 3. Human-In-The-Loop
-    hitl_status: Literal["PENDING", "CONFIRMED", "OVERRIDDEN"]
+    hitl_status: Literal["PENDING", "CONFIRMED", "OVERRIDDEN", "SUPERVISOR_APPROVED", "SUPERVISOR_REJECTED"]
     human_required: bool
     human_decision: Optional[Dict[str, Any]]
 
@@ -233,17 +186,17 @@ class QCState(TypedDict):
 - `vehicle_id`: mã kỹ thuật bắt buộc để theo dõi một xe/phiên trong hệ thống.
 - `lot_id`, `shift_id`, `production_date`, `station_id`: metadata nghiệp vụ cho Historical Trend (`PRD.md` §6.3); `lot_id`/`shift_id` là tùy chọn ở các luồng chưa gắn lô/ca.
 - `zone_name`: vùng kiểm tra tương đối hoặc khu vực camera quan sát.
-- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), `visual_assessment` (Multimodal LLM), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` xác định finding nào dẫn dắt `assess_result`/policy/vision cross-check. Các finding không phải primary có `severity_rank = "UNCLASSIFIED_SECONDARY_FINDING"` vì chưa được QC Rules phân loại — không suy diễn severity của primary sang các finding khác.
+- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` xác định finding nào dẫn dắt `assess_result`/policy. Các finding không phải primary có `severity_rank = "UNCLASSIFIED_SECONDARY_FINDING"` vì chưa được QC Rules phân loại — không suy diễn severity của primary sang các finding khác.
 - `severity` là mức độ tổng thể duy nhất; không tạo thêm alias `overall_severity_rank`.
 - `recommendation_code`: mã hành động chuẩn duy nhất trong `QCState`; `recommendation` là mô tả dễ đọc.
 - `recommended_plan` chỉ tồn tại ở response `/api/v1/inspect` để tương thích client cũ. `final_action` không còn thuộc contract.
-- **`decision` vs `final_status` — không được dùng lẫn nhau:** `decision` là mã trạng thái nội bộ do node `assess_result`/`human_review` sinh ra để mô tả *vì sao* graph chọn nhánh này (ví dụ `DEFECT_CONFIRMED`, `UNKNOWN_CLASS_REVIEW_REQUIRED`, `MODEL_ERROR_REVIEW_REQUIRED`, `LLM_AGENT_UNAVAILABLE`, `REINSPECTION_REQUIRED`) — đây là lý do vận hành/chẩn đoán, không phải phán quyết QC cuối cùng. **`final_status` mới là business decision chuẩn** hiển thị cho QC và đối chiếu với đề bài (PASS/FAIL/cần người kiểm — mục 5.3 `PRD.md`), do QC Rules (`agent/services/policy.py` + `agent/policies/qc_policy_catalog.json`) quyết định; giá trị hiện có trong controlled catalog: `PASS` (release), `HOLD_FOR_QC` (evidence chưa đủ rõ, cần QC thẩm định thêm — tương đương REVIEW), `HOLD_FOR_REWORK` (lỗi xác nhận vượt tolerance, giữ xe chuyển rework — tương đương FAIL), `HUMAN_OVERRIDE_APPLIED` (QC override qua HITL). UI chỉ hiển thị `final_status`, không hiển thị `decision` thô cho QC (xem `UI_WORKFLOWS.md`).
-- `hitl_status` chỉ có 3 giá trị thật (`PENDING`, `CONFIRMED`, `OVERRIDDEN`); không có trạng thái `NOT_REQUIRED` riêng — khi HITL không cần thiết, `hitl_status` được gán thẳng `CONFIRMED` (đã xác nhận tự động qua QC Rules, không cần người), không phải một literal khác.
-- `original_image_key`/`overlay_image_key`/`mask_image_key`/`crop_image_key`: S3/MinIO object key, không phải binary; xem mục 5.
+- **`decision` vs `final_status` — không được dùng lẫn nhau:** `decision` là mã trạng thái nội bộ do node `assess_result`/`human_review`/`supervisor_review` sinh ra để mô tả *vì sao* graph chọn nhánh này (ví dụ `DEFECT_CONFIRMED`, `UNKNOWN_CLASS_REVIEW_REQUIRED`, `MODEL_ERROR_REVIEW_REQUIRED`, `LLM_AGENT_UNAVAILABLE`, `DEFECT_REJECTED_BY_QC`, `OVERRIDE_REJECTED_BY_SUPERVISOR`) — đây là lý do vận hành/chẩn đoán, không phải phán quyết QC cuối cùng. **`final_status` mới là business decision chuẩn** hiển thị cho QC và đối chiếu với đề bài (PASS/FAIL/cần người kiểm — mục 5.3 `PRD.md`), do QC Rules (`agent/services/policy.py` + `agent/policies/qc_policy_catalog.json`) quyết định; **chỉ hai giá trị**: `PASS` (release, cho phép chạy thử) hoặc `FAIL` (giữ xe, chuyển Rework). Không còn phân biệt `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/`HUMAN_OVERRIDE_APPLIED` — mọi FAIL, dù tự động hay qua HITL/override, đều là cùng một giá trị `FAIL`. UI chỉ hiển thị `final_status`, không hiển thị `decision` thô cho QC (xem `UI_WORKFLOWS.md`).
+- `hitl_status` có 5 giá trị: `PENDING` (đang chờ `human_review`), `CONFIRMED` (không cần HITL, hoặc Inspector đã PASS/FAIL), `OVERRIDDEN` (Inspector chuyển cấp, đang chờ `supervisor_review`), `SUPERVISOR_APPROVED`/`SUPERVISOR_REJECTED` (Supervisor đã xử lý case chuyển cấp). Không có trạng thái `NOT_REQUIRED` riêng — khi HITL không cần thiết, `hitl_status` được gán thẳng `CONFIRMED`.
+- `original_image_key`/`overlay_image_key`/`mask_image_key`/`crop_image_key`: S3/MinIO object key, không phải binary; xem mục 4.
 
 ---
 
-## 5. Object Storage (S3/MinIO) Layout
+## 4. Object Storage (S3/MinIO) Layout
 
 Ảnh/mask/crop không lưu binary trong PostgreSQL. Cấu trúc key:
 
@@ -265,7 +218,7 @@ secret key. Xem `ENVIRONMENT.md` cho biến cấu hình `S3_*`/`OBJECT_STORAGE_*
 
 ---
 
-## 6. Tool Interfaces & Domain Engines
+## 5. Tool Interfaces & Domain Engines
 
 ### Tool 1: `lookup_gdt_standard(zone_name: str, vehicle_model: str)`
 - **Input:** `zone_name` (ví dụ: `"door_front_left_class_a"`), `vehicle_model` (`"SUV_EV"`)
@@ -303,10 +256,10 @@ secret key. Xem `ENVIRONMENT.md` cho biến cấu hình `S3_*`/`OBJECT_STORAGE_*
 
 ---
 
-## 7. FastAPI REST & Realtime Streaming Endpoints
+## 6. FastAPI REST & Realtime Streaming Endpoints
 
-### 7.1. `POST /api/v1/inspect`
-Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất thường hệ thống. Yêu cầu request đã xác thực bằng Supabase access token hợp lệ (xem §7.7); role `QC_OPERATOR` hoặc `QC_SUPERVISOR`.
+### 6.1. `POST /api/v1/inspect`
+Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất thường hệ thống. Yêu cầu request đã xác thực bằng Supabase access token hợp lệ (xem §6.7); role `QC_OPERATOR` hoặc `QC_SUPERVISOR`.
 
 **Request:** `multipart/form-data`
 - `file`: Ảnh chụp trạm FNS (`image/jpeg` hoặc `image/png`)
@@ -322,7 +275,7 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
   "inspection_id": "INSP-20260816-001",
   "vehicle_id": "CAR-20260816-001",
   "result": {
-    "status": "HOLD_FOR_REWORK",
+    "status": "FAIL",
     "recommended_plan": "PLAN_B_HOLD",
     "allow_test_drive": false,
     "rework_destination": "Rework Shop (Body & Paint)",
@@ -343,15 +296,6 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
           "orientation_deg": 4.7,
           "centroid": [575, 255]
         },
-        "visual_assessment": {
-          "visual_verification": "SUPPORTED",
-          "shape_pattern": "thin_linear",
-          "continuity": "continuous",
-          "distribution": "localized",
-          "visibility": "clear",
-          "possible_artifact": "none",
-          "visual_uncertainty": "LOW"
-        },
         "severity_rank": "A",
         "action": "Hold for Rework"
       }
@@ -370,7 +314,7 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
 
 ---
 
-### 7.2. `GET /api/v1/station/stream-alerts` (Server-Sent Events / SSE)
+### 6.2. `GET /api/v1/station/stream-alerts` (Server-Sent Events / SSE)
 Stream trực tiếp các cảnh báo bất thường chuỗi (Sliding Window realtime) và trạng thái line tới Dashboard Trưởng ca và Màn hình trạm FNS.
 
 **SSE Event:**
@@ -387,16 +331,16 @@ data: {
 }
 ```
 
-### 7.3. Quy tắc tương thích
-- `POST /api/v1/inspect` là facade contract; bên trong chạy cùng LangGraph workflow với `/inspections/from-image`. `result.status` trong response §7.1 là chính giá trị `QCState.final_status` (`PASS | HOLD_FOR_QC | HOLD_FOR_REWORK | HUMAN_OVERRIDE_APPLIED` — mục 4), không phải một enum riêng cho endpoint này.
-- `recommended_plan` phục vụ tương thích client cũ, ánh xạ nhiều-về-một từ `final_status`: `PLAN_A_BUFFING` ⇐ `PASS`; `PLAN_B_HOLD` ⇐ `HOLD_FOR_REWORK` hoặc `HOLD_FOR_QC` (client cũ không phân biệt hai loại HOLD; client mới phải đọc `final_status` để phân biệt). `concrete_action` được ánh xạ trực tiếp từ `QCState.recommendation_code`, là mã hành động vận hành chuẩn.
+### 6.3. Quy tắc tương thích
+- `POST /api/v1/inspect` là facade contract; bên trong chạy cùng LangGraph workflow với `/inspections/from-image`. `result.status` trong response §6.1 là chính giá trị `QCState.final_status` (`PASS | FAIL` — mục 3), không phải một enum riêng cho endpoint này.
+- `recommended_plan` phục vụ tương thích client cũ, ánh xạ một-một từ `final_status`: `PLAN_A_BUFFING` ⇐ `PASS`; `PLAN_B_HOLD` ⇐ `FAIL`. `concrete_action` được ánh xạ trực tiếp từ `QCState.recommendation_code`, là mã hành động vận hành chuẩn (dùng để phân biệt lý do FAIL chi tiết hơn, khi cần).
 - `estimated_depth_mm` phải là `null` nếu không có depth sensor hoặc phép đo QC. `surface_area_mm2` có thể là ước lượng khi có profile camera cố định, nhưng phải kèm `physical_measurement_status=PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED` và `calibration_profile_id`.
-- `geometry` và `visual_assessment` là các trường mới, additive; client cũ không đọc các trường này vẫn tương thích ngược vì chúng optional.
+- `geometry` là trường mới, additive; client cũ không đọc trường này vẫn tương thích ngược vì nó optional.
 - SSE dùng sliding window 10 xe từ repository. Baseline dùng Supabase/PostgreSQL; Redis có thể thay adapter mà không đổi contract.
 - Contract baseline không nhận hoặc trả `vin_code`, `panel`, `material`. Dùng
   `vehicle_id` để định danh vận hành và `zone_name` cho vùng quan sát tương đối.
 
-### 7.4. `GET /api/quality-alerts`
+### 6.4. `GET /api/quality-alerts`
 
 Trả summary dùng cho trang Cảnh báo lặp lỗi (Sliding Window realtime). UI sử dụng các trường chính:
 
@@ -409,28 +353,46 @@ Trả summary dùng cho trang Cảnh báo lặp lỗi (Sliding Window realtime).
 Frontend loại `image_url` trùng và hiển thị tối đa bốn ảnh trên mỗi cảnh báo.
 Nếu không có ảnh, UI phải hiện trạng thái rỗng rõ ràng thay vì placeholder giả.
 
-### 7.5. `GET /api/trend` (Historical Trend)
+### 6.5. `GET /api/trend` (Historical Trend)
 
-Trả aggregation theo `group_by=hour|shift|lot|day` (Tool 3, mục 6), dùng cho
+Trả aggregation theo `group_by=hour|shift|lot|day` (Tool 3, mục 5), dùng cho
 `QC_SUPERVISOR` dashboard. Không dùng chung endpoint với `GET
 /api/v1/station/stream-alerts` (SSE realtime) để giữ tách biệt Sliding Window
 vs Historical Trend (`PRD.md` §6.3).
 
-### 7.6. Dữ liệu Hàng đợi QC và Lịch sử
+### 6.6. Dữ liệu Hàng đợi QC và Lịch sử
 
 `GET /agent/runs` là nguồn chung cho hai màn hình:
 
 - run `INTERRUPTED` đi vào Hàng đợi QC, kèm `interrupt.reason` để giải thích vì
-  sao cần kiểm duyệt (bao gồm các lý do HITL ở `PRD.md` §7.6/FR-15: low
-  confidence, YOLO/LLM conflict, uncertainty HIGH, missing evidence, LLM
+  sao cần kiểm duyệt (bao gồm các lý do HITL ở `PRD.md` §7.6: low
+  confidence, unknown defect class, missing evidence, reasoning LLM
   unavailable/invalid);
 - run `COMPLETED` đi vào Lịch sử, hiển thị `state.image_url`,
-  `classified_defect_code`, `confidence`, `geometry`, `visual_assessment`,
+  `classified_defect_code`, `confidence`, `geometry`,
   `camera_id`, `recommendation` và `final_status`;
 - nhấn bản ghi mở lại inspection state đầy đủ; `DELETE /agent/runs` chỉ xóa
   trace/state, không xóa file evidence đã upload trên object storage.
 
-### 7.7. Authentication & RBAC (Supabase Auth)
+### 6.6b. HITL Resume (`POST /inspections/{thread_id}/resume`)
+
+LangGraph có **hai cấp HITL** (`agent/graph/nodes.py`): `human_review` (QC Inspector) và, chỉ khi Inspector chọn chuyển cấp, `supervisor_review` (QC Supervisor). Cùng một request schema (`LangGraphResumeRequest`) dùng cho cả hai cấp:
+
+```python
+action: Literal["APPROVE", "REJECT", "OVERRIDE"]
+reviewer: str
+reason: str
+defect_code: str | None       # sửa lại mã lỗi (tùy chọn)
+severity: str | None
+disposition: Literal["PASS", "HOLD", "REPAIR"] | None  # ghi vào qc_decision_record khi có defect_code
+recommendation: str | None     # bắt buộc khi action = OVERRIDE
+```
+
+- **Ở `human_review` (Inspector):** `APPROVE` xác nhận lỗi AI gắn cờ là thật → `final_status = FAIL` (chuyển Rework). `REJECT` bác bỏ lỗi AI gắn cờ (không phải lỗi thật) → `final_status = PASS` ngay lập tức — **không có bước tái kiểm tra (reinspect) riêng nào khác**. `OVERRIDE` chuyển case sang cấp `supervisor_review` (`hitl_status = OVERRIDDEN`); bắt buộc kèm `recommendation` mô tả đề xuất tùy biến.
+- **Ở `supervisor_review` (chỉ role `QC_SUPERVISOR` mới gọi được, 403 nếu không đúng role):** chỉ nhận `action = APPROVE | REJECT`. `APPROVE` giữ đề xuất `recommendation` của Inspector → `final_status = FAIL` (đề xuất tùy biến luôn áp dụng lên một xe đã bị giữ). `REJECT` bỏ đề xuất, case quay lại quyết định QC Rules chuẩn (theo `defect_type` hiện tại).
+- `disposition` chỉ là nhãn audit ghi vào `qc_decision_record` khi request có kèm `defect_code` (sửa mã lỗi) — không điều khiển `final_status`. Ba giá trị: `PASS`, `HOLD` (đang chờ xử lý tiếp, ví dụ khi vừa `OVERRIDE`), `REPAIR` (xác nhận chuyển sửa chữa). Không còn giá trị `REWORK`/`REINSPECT` cũ.
+
+### 6.7. Authentication & RBAC (Supabase Auth)
 
 Đăng nhập baseline dùng **Supabase Auth**; FastAPI backend không tự phát
 hành hay lưu mật khẩu — nó chỉ **xác thực (verify)** access token do

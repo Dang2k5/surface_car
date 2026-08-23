@@ -18,6 +18,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SupervisorRouteRouteImport } from './routes/supervisor/route'
 import { Route as WarningsRouteImport } from './routes/warnings'
 import { Route as SupervisorIndexRouteImport } from './routes/supervisor/index'
+import { Route as SupervisorAccountsRouteImport } from './routes/supervisor/accounts'
 import { Route as SupervisorAnomaliesRouteImport } from './routes/supervisor/anomalies'
 import { Route as SupervisorAuditRouteImport } from './routes/supervisor/audit'
 import { Route as SupervisorCatalogsRouteImport } from './routes/supervisor/catalogs'
@@ -70,6 +71,11 @@ const SupervisorIndexRoute = SupervisorIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SupervisorRouteRoute,
 } as any)
+const SupervisorAccountsRoute = SupervisorAccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => SupervisorRouteRoute,
+} as any)
 const SupervisorAnomaliesRoute = SupervisorAnomaliesRouteImport.update({
   id: '/anomalies',
   path: '/anomalies',
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/warnings': typeof WarningsRoute
+  '/supervisor/accounts': typeof SupervisorAccountsRoute
   '/supervisor/anomalies': typeof SupervisorAnomaliesRoute
   '/supervisor/audit': typeof SupervisorAuditRoute
   '/supervisor/catalogs': typeof SupervisorCatalogsRoute
@@ -126,6 +133,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/warnings': typeof WarningsRoute
+  '/supervisor/accounts': typeof SupervisorAccountsRoute
   '/supervisor/anomalies': typeof SupervisorAnomaliesRoute
   '/supervisor/audit': typeof SupervisorAuditRoute
   '/supervisor/catalogs': typeof SupervisorCatalogsRoute
@@ -144,6 +152,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/warnings': typeof WarningsRoute
+  '/supervisor/accounts': typeof SupervisorAccountsRoute
   '/supervisor/anomalies': typeof SupervisorAnomaliesRoute
   '/supervisor/audit': typeof SupervisorAuditRoute
   '/supervisor/catalogs': typeof SupervisorCatalogsRoute
@@ -163,6 +172,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/warnings'
+    | '/supervisor/accounts'
     | '/supervisor/anomalies'
     | '/supervisor/audit'
     | '/supervisor/catalogs'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/warnings'
+    | '/supervisor/accounts'
     | '/supervisor/anomalies'
     | '/supervisor/audit'
     | '/supervisor/catalogs'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/warnings'
+    | '/supervisor/accounts'
     | '/supervisor/anomalies'
     | '/supervisor/audit'
     | '/supervisor/catalogs'
@@ -281,6 +293,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SupervisorIndexRouteImport
       parentRoute: typeof SupervisorRouteRoute
     }
+    '/supervisor/accounts': {
+      id: '/supervisor/accounts'
+      path: '/accounts'
+      fullPath: '/supervisor/accounts'
+      preLoaderRoute: typeof SupervisorAccountsRouteImport
+      parentRoute: typeof SupervisorRouteRoute
+    }
     '/supervisor/anomalies': {
       id: '/supervisor/anomalies'
       path: '/anomalies'
@@ -327,6 +346,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface SupervisorRouteRouteChildren {
+  SupervisorAccountsRoute: typeof SupervisorAccountsRoute
   SupervisorAnomaliesRoute: typeof SupervisorAnomaliesRoute
   SupervisorAuditRoute: typeof SupervisorAuditRoute
   SupervisorCatalogsRoute: typeof SupervisorCatalogsRoute
@@ -337,6 +357,7 @@ interface SupervisorRouteRouteChildren {
 }
 
 const SupervisorRouteRouteChildren: SupervisorRouteRouteChildren = {
+  SupervisorAccountsRoute: SupervisorAccountsRoute,
   SupervisorAnomaliesRoute: SupervisorAnomaliesRoute,
   SupervisorAuditRoute: SupervisorAuditRoute,
   SupervisorCatalogsRoute: SupervisorCatalogsRoute,

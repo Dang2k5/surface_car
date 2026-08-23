@@ -49,13 +49,8 @@ single model. Each component has a bounded responsibility:
    `centroid`, `orientation_deg`, `aspect_ratio`, ...) with OpenCV/NumPy. It
    never calls an LLM and never guesses a value it cannot compute from the
    mask.
-3. **Multimodal LLM** performs visual verification (`SUPPORTED | CONFLICT |
-   UNCERTAIN`), visual description, semantic visual attributes, and — only
-   after LangGraph + QC Rules have produced a decision — explanation. It
-   receives image input (original, crop, overlay/mask) directly; it is not
-   limited to YOLO's JSON/text output.
-4. **LangGraph Agent** (node graph `ingest → detect →
-   extract_visual_geometry → multimodal_verify → classify → decide →
+3. **LangGraph Agent** (node graph `ingest → detect →
+   extract_visual_geometry → classify → decide →
    decision_gate → (final_decide | HITL → human_review → resume →
    final_decide) → explain → complete → update_trend`) decides whether the
    evidence is confirmed, requires verification, or must stop at HITL.
@@ -63,61 +58,19 @@ single model. Each component has a bounded responsibility:
    is triggered) — never before, since a human confirm/override can change
    the outcome. See `PRD.md` §7.4 and `AGENT_FLOW.md` for the current
    runtime node names.
-5. **QC Rules** is a controlled decision tool (rule-based logic / decision
+4. **QC Rules** is a controlled decision tool (rule-based logic / decision
    table / JSON / database policy table) that runs **inside** the LangGraph
    Agent — it is not a standalone `Policy Engine` microservice in this MVP.
    It selects only a controlled action code and identifies missing evidence.
    QC Rules must come from controlled project policy or approved plant
    policy in production, never from free-form LLM inference.
-6. The reasoning/explanation LLM may explain the immutable result. It cannot
+5. The reasoning/explanation LLM may explain the immutable result. It cannot
    change the action, final status, test-drive gate, references, or
    measurements.
-7. A catalog that is not `APPROVED`, or a decision with missing evidence, has
+6. A catalog that is not `APPROVED`, or a decision with missing evidence, has
    `production_eligible=false`.
-8. Production release requires an approved plant policy and accountable QC
+7. Production release requires an approved plant policy and accountable QC
    sign-off.
-
-## Multimodal LLM governance boundaries
-
-The Multimodal LLM node (visual verification, description, semantic
-attributes, explainability — `PRD.md` §7.3) must **not** self-generate or
-assert, without evidence from a valid source:
-
-```text
-dent_depth_mm
-scratch_depth_mm
-paint_layer_depth
-material
-GD&T tolerance
-physical_size_mm
-PASS/FAIL threshold
-OEM acceptance criteria
-```
-
-The Multimodal LLM must **not**:
-
-- create a new QC rule;
-- change a controlled rule;
-- set its own acceptance threshold;
-- override the final operational decision (PASS/FAIL/HOLD/test-drive gate);
-- present a visual assessment (`shape_pattern`, `continuity`, `distribution`,
-  `visibility`, `visual_uncertainty`, description text) as a physical
-  measurement.
-
-If any of the following occurs, the workflow must route to HITL, or the LLM
-output must be rejected for automatic-decision purposes:
-
-```text
-YOLO vs Multimodal LLM conflict (visual_verification = CONFLICT)
-Multimodal LLM uncertainty HIGH
-missing required evidence (geometry, measurement, or visual assessment)
-unsupported physical claim from the LLM
-LLM provider unavailable
-LLM output invalid / outside catalog or policy context
-```
-
-The Multimodal LLM must never turn a `CONFLICT` or `UNCERTAIN` verification
-into an automatic PASS.
 
 ## Data provenance
 
@@ -129,9 +82,6 @@ group's provenance must be documented explicitly:
 ```text
 source = yolo                 → class, confidence, bbox, mask/polygon
 source = geometry_processor   → area_px, centroid, orientation_deg, aspect_ratio
-source = multimodal_llm       → visual_verification, shape_pattern, continuity,
-                                 distribution, visibility, possible_artifact,
-                                 visual_uncertainty, description
 source = camera_calibration   → mm conversion, calibration_profile_id
 source = depth_sensor         → depth_mm (when a depth sensor is present)
 source = human_qc             → HITL confirm/reject/change/recapture decisions
@@ -146,7 +96,7 @@ is not a native Supabase Auth attribute; it is stored in a `profiles` table
 (PostgreSQL/Supabase, `profiles.user_id → auth.users.id`, column `role`).
 FastAPI backend never issues its own session token; it only verifies the
 Supabase-issued access token (`SUPABASE_JWT_SECRET`) and looks up
-`profiles.role` to authorize each request — see `API_CONTRACT.md` §7.7 and
+`profiles.role` to authorize each request — see `API_CONTRACT.md` §6.7 and
 `ENVIRONMENT.md`.
 
 - `QC_OPERATOR`: performs inspection, uploads image/video, views

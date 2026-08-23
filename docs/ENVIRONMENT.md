@@ -20,7 +20,8 @@ Không commit `.env`, `frontend/.env.local`, database password hoặc API key.
 
 | Biến | Mặc định | Mục đích |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./data/visual_qc.db` | SQLite local hoặc PostgreSQL/Supabase — lưu inspection metadata, decision, history, lot/shift, alert (không lưu binary ảnh) |
+| `DATABASE_URL` | *(bắt buộc)* | PostgreSQL/Supabase — lưu inspection metadata, decision, history, lot/shift, alert (không lưu binary ảnh). Backend raise lỗi ngay lúc khởi động nếu thiếu hoặc không phải URL PostgreSQL — không còn fallback SQLite |
+| `DATABASE_SCHEMA` | rỗng | Chỉ dùng cho test (`tests/conftest.py` tự set) — cô lập mỗi lần chạy test trong 1 schema PostgreSQL riêng trên cùng project Supabase, không đụng dữ liệu thật. Không set thủ công khi chạy backend |
 
 Supabase sử dụng Session pooler và driver psycopg:
 
@@ -53,7 +54,7 @@ backend proxy hoặc presigned URL do backend cấp.
 
 | Biến | Mặc định | Mục đích |
 |---|---|---|
-| `DETECTOR_PROVIDER` | `local_yolo` | `local_yolo` cho runtime, `mock` chỉ dành cho test |
+| `DETECTOR_PROVIDER` | `local_yolo` | Chỉ hỗ trợ `local_yolo` — hệ thống luôn chạy model YOLO thật, không còn chế độ mock |
 | `MODEL_PATH` | `./data/best.pt` | Đường dẫn model Ultralytics (YOLO Segmentation) |
 | `MODEL_DEVICE` | `cpu` | `cpu`, CUDA device hoặc cấu hình Ultralytics hợp lệ |
 | `MODEL_CONFIDENCE` | `0.25` | Ngưỡng detection ban đầu |
@@ -74,14 +75,12 @@ hiệu chuẩn. `area_px`, `centroid`, `orientation_deg`, `aspect_ratio` và cá
 đặc trưng pixel khác được Geometry Processor tính deterministic bằng
 OpenCV/NumPy độc lập với các biến calibration này.
 
-### LangGraph reasoning (text) and Multimodal LLM (vision)
+### LangGraph reasoning (text)
 
-Reasoning/explanation hiện dùng Groq. Nếu model được gọi với image input
-trong node `multimodal_verify` (Visual Verification/Description) là **cùng
-provider/model** với reasoning, giữ nguyên cấu hình `GROQ_*` bên dưới và ghi
-rõ trong tài liệu rằng model đó nhận image input ở node đó. Nếu dùng một
-multimodal provider/model riêng cho verification, khai báo thêm nhóm biến
-`VISION_LLM_*`.
+Reasoning/explanation hiện dùng Groq. MVP **không còn** bước Visual
+Verification bằng Multimodal LLM (node `multimodal_verify` đã bị bỏ khỏi
+runtime — `PRD.md` §7.3, v1.4); các biến `VISION_LLM_*` không còn được code
+đọc và **không cần khai báo**.
 
 | Biến | Mặc định | Mục đích |
 |---|---|---|
@@ -91,14 +90,11 @@ multimodal provider/model riêng cho verification, khai báo thêm nhóm biến
 | `QC_REASONING_PROVIDER` | `groq` | `groq` cho runtime; `deterministic` chỉ dành cho test/offline diagnostics |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Model reasoning (text) tùy chọn |
 | `GROQ_API_KEY` | rỗng | Secret server-side; bắt buộc khi provider là `groq` |
-| `VISION_LLM_PROVIDER` | rỗng | Chỉ khai báo nếu multimodal verification dùng provider riêng khác `QC_REASONING_PROVIDER` |
-| `VISION_LLM_MODEL` | rỗng | Model multimodal nhận ảnh gốc/crop/overlay cho node `multimodal_verify` |
-| `VISION_LLM_API_KEY` | rỗng | Secret server-side cho `VISION_LLM_PROVIDER` |
 
-Thiếu API key (Groq hoặc Vision LLM khi được cấu hình riêng) hoặc LLM trả
-output không hợp lệ sẽ chuyển inspection sang HITL; runtime không tạo
-deterministic reasoning/visual assessment thay thế (`POLICY_GOVERNANCE.md`).
-Trạng thái `/agent/status` cho biết LLM đã được gọi thành công hay chưa.
+Thiếu `GROQ_API_KEY` hoặc LLM trả output không hợp lệ sẽ chuyển inspection
+sang HITL; runtime không tạo deterministic reasoning thay thế khi provider là
+`groq` (`POLICY_GOVERNANCE.md`). Trạng thái `/agent/status` cho biết LLM đã
+được gọi thành công hay chưa.
 
 ### Authentication and RBAC (Supabase Auth)
 

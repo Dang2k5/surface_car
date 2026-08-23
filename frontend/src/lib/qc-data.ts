@@ -37,6 +37,10 @@ export type Defect = {
   box: { x: number; y: number; w: number; h: number };
   /** YOLO segmentation mask outline in % of the camera frame, when the model returned one */
   polygon?: { x: number; y: number }[] | undefined;
+  /** Rendered PNGs for THIS detection specifically (FR-17) — undefined when rendering hasn't
+   * run yet or failed for this detection, not just for the run's primary finding. */
+  cropImageUrl?: string | undefined;
+  overlayImageUrl?: string | undefined;
 };
 
 export type HistoryRow = {

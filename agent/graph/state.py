@@ -59,9 +59,6 @@ class QCState(TypedDict, total=False):
     evidence_tags: list[str]
     decision: str
     reason: str
-    visual_assessment: dict[str, Any] | None
-    agent_vision_status: str
-    mock_vision_scenario: str
     assessment_route: Literal["PASS", "CONFIRMED", "VERIFY", "HITL"]
     verify_count: int
     verify_result: str
@@ -84,5 +81,4 @@ class QCState(TypedDict, total=False):
     auto_pass_enabled: bool
     confirmed_threshold: float
     verify_threshold: float
-    mock_scenario: str
     execution_trace: Annotated[list[TraceEvent], operator.add]

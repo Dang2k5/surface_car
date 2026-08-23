@@ -21,8 +21,8 @@ const CHECKLIST_STATUS_LABELS: Record<string, string> = {
 };
 
 const FINAL_STATUS_LABELS: Record<string, string> = {
-  HOLD_FOR_QC: "Giữ chờ QC",
-  HOLD_FOR_REWORK: "Giữ chờ sửa chữa",
+  PASS: "Đạt — cho phép chạy thử",
+  FAIL: "Không đạt — chuyển sửa chữa (Rework)",
   QUALITY_ALERT_OPEN: "Đang mở cảnh báo chất lượng",
 };
 

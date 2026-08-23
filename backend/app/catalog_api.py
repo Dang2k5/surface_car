@@ -6,7 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 
 from .auth import CurrentUser, get_current_user, require_role
-from .qc_schemas import LotCreate, LotUpdate, ShiftCreate, ShiftUpdate, StationCreate, StationUpdate
+from .qc_schemas import (
+    LotCreate,
+    LotProductAllocate,
+    LotUpdate,
+    ShiftCreate,
+    ShiftUpdate,
+    StationCreate,
+    StationUpdate,
+)
 
 router = APIRouter(prefix="/api/catalog", tags=["Shift & lot catalog"])
 
@@ -29,7 +37,7 @@ def create_shift(
     try:
         return request.app.state.database.create_shift(payload.model_dump())
     except IntegrityError as error:
-        raise HTTPException(status_code=409, detail="Shift already exists") from error
+        raise HTTPException(status_code=409, detail="Ca làm việc đã tồn tại.") from error
 
 
 @router.patch("/shifts/{shift_id}", response_model=dict[str, Any])
@@ -43,7 +51,7 @@ def update_shift(
         shift_id.strip().upper(), payload.model_dump(exclude_unset=True)
     )
     if updated is None:
-        raise HTTPException(status_code=404, detail="Shift not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy ca làm việc.")
     return updated
 
 
@@ -67,13 +75,13 @@ def create_lot(
 ) -> dict[str, Any]:
     database = request.app.state.database
     if database.get_station(payload.station_id) is None:
-        raise HTTPException(status_code=422, detail=f"Unknown station: {payload.station_id}")
+        raise HTTPException(status_code=422, detail=f"Không tìm thấy trạm: {payload.station_id}")
     if database.get_shift(payload.shift_id) is None:
-        raise HTTPException(status_code=422, detail=f"Unknown shift: {payload.shift_id}")
+        raise HTTPException(status_code=422, detail=f"Không tìm thấy ca: {payload.shift_id}")
     try:
         return database.create_lot(payload.model_dump())
     except IntegrityError as error:
-        raise HTTPException(status_code=409, detail="Lot already exists") from error
+        raise HTTPException(status_code=409, detail="Lô sản xuất đã tồn tại.") from error
 
 
 @router.patch("/lots/{lot_id}", response_model=dict[str, Any])
@@ -85,19 +93,19 @@ def update_lot(
 ) -> dict[str, Any]:
     database = request.app.state.database
     if payload.station_id is not None and database.get_station(payload.station_id) is None:
-        raise HTTPException(status_code=422, detail=f"Unknown station: {payload.station_id}")
+        raise HTTPException(status_code=422, detail=f"Không tìm thấy trạm: {payload.station_id}")
     if payload.shift_id is not None and database.get_shift(payload.shift_id) is None:
-        raise HTTPException(status_code=422, detail=f"Unknown shift: {payload.shift_id}")
+        raise HTTPException(status_code=422, detail=f"Không tìm thấy ca: {payload.shift_id}")
     if payload.quantity is not None:
-        current = database.get_lot(lot_id.strip())
-        if current is not None and payload.quantity < int(current.get("quantity") or 0):
+        used = database.count_lot_products(lot_id.strip())
+        if payload.quantity < used:
             raise HTTPException(
                 status_code=422,
-                detail="Không thể giảm số lượng lô đã tạo (đã sinh mã sản phẩm).",
+                detail=f"Không thể giảm số lượng xuống dưới {used} (đã sinh {used} mã sản phẩm).",
             )
     updated = database.update_lot(lot_id.strip(), payload.model_dump(exclude_unset=True))
     if updated is None:
-        raise HTTPException(status_code=404, detail="Lot not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy lô sản xuất.")
     return updated
 
 
@@ -108,6 +116,30 @@ def list_lot_products(
     user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     return request.app.state.database.list_lot_products(lot_id.strip())
+
+
+@router.post("/lots/{lot_id}/products", response_model=dict[str, Any], status_code=201)
+def create_lot_product(
+    lot_id: str,
+    request: Request,
+    payload: LotProductAllocate,
+    # Same rationale as create_lot: the Inspector allocates the next product code themselves
+    # while filling out the inspection form, as the vehicle passes the camera.
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    database = request.app.state.database
+    lot = database.get_lot(lot_id.strip())
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lô sản xuất.")
+    if not lot.get("active"):
+        raise HTTPException(status_code=422, detail="Lô đã đóng, không thể sinh thêm mã sản phẩm.")
+    used = database.count_lot_products(lot_id.strip())
+    quantity = int(lot.get("quantity") or 0)
+    if used >= quantity:
+        raise HTTPException(
+            status_code=422, detail="Lô đã đủ số lượng, không thể sinh thêm mã sản phẩm."
+        )
+    return database.allocate_lot_product(lot_id.strip(), payload.vehicle_model)
 
 
 @router.get("/stations", response_model=list[dict[str, Any]])
@@ -128,7 +160,7 @@ def create_station(
     try:
         return request.app.state.database.create_station(payload.model_dump())
     except IntegrityError as error:
-        raise HTTPException(status_code=409, detail="Station already exists") from error
+        raise HTTPException(status_code=409, detail="Trạm đã tồn tại.") from error
 
 
 @router.patch("/stations/{station_id}", response_model=dict[str, Any])
@@ -142,5 +174,5 @@ def update_station(
         station_id.strip(), payload.model_dump(exclude_unset=True)
     )
     if updated is None:
-        raise HTTPException(status_code=404, detail="Station not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy trạm.")
     return updated

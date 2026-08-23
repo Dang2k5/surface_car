@@ -3,33 +3,27 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 from uuid import uuid4
 
 from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.engine import Connection
-
-DEFAULT_DATABASE_URL = "sqlite:///./data/visual_qc.db"
+from sqlalchemy.exc import IntegrityError
 
 
 def normalize_database_url(database_url: str) -> str:
-    """Normalize cloud URLs while preserving the local SQLite default."""
+    """Normalize a PostgreSQL connection URL (Supabase or self-hosted) for psycopg."""
     value = database_url.strip()
-    if value == ":memory:":
-        return "sqlite+pysqlite:///:memory:"
-    if value.startswith("sqlite:///"):
-        path = Path(value.removeprefix("sqlite:///"))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return f"sqlite+pysqlite:///{path.as_posix()}"
     if value.startswith("postgres://"):
         value = "postgresql+psycopg://" + value.removeprefix("postgres://")
     elif value.startswith("postgresql://"):
         value = "postgresql+psycopg://" + value.removeprefix("postgresql://")
-    if value.startswith("postgresql+psycopg://"):
-        return _encode_connection_password(value)
-    return value
+    if not value.startswith("postgresql+psycopg://"):
+        raise ValueError(
+            f"Unsupported DATABASE_URL scheme: {value!r}; only PostgreSQL is supported"
+        )
+    return _encode_connection_password(value)
 
 
 def _encode_connection_password(url: str) -> str:
@@ -54,13 +48,24 @@ def _encode_connection_password(url: str) -> str:
 
 
 class Database:
-    """Small SQLAlchemy Core adapter shared by SQLite and Supabase PostgreSQL."""
+    """SQLAlchemy Core adapter over the shared Supabase PostgreSQL database.
 
-    def __init__(self, database_url: str = DEFAULT_DATABASE_URL) -> None:
+    `schema` isolates callers (currently: the pytest suite) in a throwaway PostgreSQL
+    schema on the same database/project as production, instead of touching `public`.
+    """
+
+    def __init__(self, database_url: str, *, schema: str | None = None) -> None:
         self.database_url = normalize_database_url(database_url)
+        self.schema = schema
         connect_args: dict[str, Any] = {}
-        if self.database_url.startswith("sqlite"):
-            connect_args["check_same_thread"] = False
+        if schema:
+            bootstrap_engine = create_engine(self.database_url, pool_pre_ping=True)
+            try:
+                with bootstrap_engine.begin() as connection:
+                    connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            finally:
+                bootstrap_engine.dispose()
+            connect_args["options"] = f"-csearch_path={schema}"
         self.engine: Engine = create_engine(
             self.database_url,
             pool_pre_ping=True,
@@ -128,6 +133,7 @@ class Database:
                 user_id TEXT PRIMARY KEY,
                 email TEXT,
                 role TEXT NOT NULL DEFAULT 'QC_OPERATOR',
+                station_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""",
@@ -142,10 +148,11 @@ class Database:
             )""",
             """CREATE TABLE IF NOT EXISTS production_lots (
                 lot_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
                 note TEXT NOT NULL DEFAULT '',
                 station_id TEXT,
                 shift_id TEXT,
-                vehicle_type TEXT NOT NULL DEFAULT '',
+                product_model TEXT NOT NULL DEFAULT '',
                 quantity INTEGER NOT NULL DEFAULT 0,
                 active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
@@ -155,7 +162,7 @@ class Database:
                 product_code TEXT PRIMARY KEY,
                 lot_id TEXT NOT NULL,
                 seq INTEGER NOT NULL,
-                vehicle_type TEXT NOT NULL,
+                vehicle_model TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )""",
             """CREATE TABLE IF NOT EXISTS stations (
@@ -217,11 +224,18 @@ class Database:
         lot_columns = {
             "station_id": "TEXT",
             "shift_id": "TEXT",
-            "vehicle_type": "TEXT NOT NULL DEFAULT ''",
+            "name": "TEXT NOT NULL DEFAULT ''",
+            "product_model": "TEXT NOT NULL DEFAULT ''",
             "quantity": "INTEGER NOT NULL DEFAULT 0",
         }
         station_existing = {
             column["name"] for column in inspect(self.engine).get_columns("stations")
+        }
+        profile_existing = {
+            column["name"] for column in inspect(self.engine).get_columns("profiles")
+        }
+        product_existing = {
+            column["name"] for column in inspect(self.engine).get_columns("lot_products")
         }
         with self.begin() as connection:
             for name, ddl in defect_columns.items():
@@ -239,8 +253,26 @@ class Database:
             for name, ddl in lot_columns.items():
                 if name not in lot_existing:
                     connection.execute(text(f"ALTER TABLE production_lots ADD COLUMN {name} {ddl}"))
+            # A lot no longer has a single fixed vehicle_type — each product's model is supplied
+            # per-inspection when its code is allocated (Database.allocate_lot_product).
+            if "vehicle_type" in lot_existing:
+                connection.execute(text("ALTER TABLE production_lots DROP COLUMN vehicle_type"))
+            if "vehicle_model" not in product_existing:
+                connection.execute(
+                    text("ALTER TABLE lot_products ADD COLUMN vehicle_model TEXT NOT NULL DEFAULT ''")
+                )
+            if "vehicle_type" in product_existing:
+                connection.execute(
+                    text(
+                        "UPDATE lot_products SET vehicle_model = vehicle_type "
+                        "WHERE vehicle_model = '' AND vehicle_type IS NOT NULL"
+                    )
+                )
+                connection.execute(text("ALTER TABLE lot_products DROP COLUMN vehicle_type"))
             if "zone_name" in station_existing:
                 connection.execute(text("ALTER TABLE stations DROP COLUMN zone_name"))
+            if "station_id" not in profile_existing:
+                connection.execute(text("ALTER TABLE profiles ADD COLUMN station_id TEXT"))
 
     def _seed_defect_catalog(self) -> None:
         now = datetime.now(UTC).isoformat()
@@ -385,8 +417,8 @@ class Database:
         now = datetime.now(UTC).isoformat()
         self.execute(
             """INSERT INTO production_lots
-            (lot_id, note, station_id, shift_id, vehicle_type, quantity, active, created_at, updated_at)
-            VALUES (:lot_id, :note, :station_id, :shift_id, :vehicle_type, :quantity, :active,
+            (lot_id, name, note, station_id, shift_id, product_model, quantity, active, created_at, updated_at)
+            VALUES (:lot_id, :name, :note, :station_id, :shift_id, :product_model, :quantity, :active,
                     :created_at, :updated_at)""",
             {
                 **record,
@@ -395,9 +427,6 @@ class Database:
                 "updated_at": now,
             },
         )
-        quantity = int(record.get("quantity") or 0)
-        if quantity > 0:
-            self._generate_lot_products(record["lot_id"], record["vehicle_type"], 1, quantity)
         return self.fetch_one("SELECT * FROM production_lots WHERE lot_id = :lot_id", {"lot_id": record["lot_id"]}) or {}
 
     def update_lot(self, lot_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
@@ -414,38 +443,47 @@ class Database:
                 f"UPDATE production_lots SET {assignments} WHERE lot_id = :lot_id",
                 {**fields, "lot_id": lot_id},
             )
-        if "quantity" in fields:
-            new_quantity = int(fields["quantity"])
-            old_quantity = int(existing.get("quantity") or 0)
-            if new_quantity > old_quantity:
-                vehicle_type = existing.get("vehicle_type") or ""
-                self._generate_lot_products(lot_id, vehicle_type, old_quantity + 1, new_quantity)
         return self.fetch_one("SELECT * FROM production_lots WHERE lot_id = :lot_id", {"lot_id": lot_id})
 
-    def _generate_lot_products(self, lot_id: str, vehicle_type: str, start_seq: int, end_seq: int) -> None:
-        """Auto-generate per-vehicle product codes for a lot: <vehicle_type>-<stt>, stt from
-        start_seq to end_seq inclusive (stt counts 1..quantity, matching the physical vehicles
-        produced in this lot). Example: vehicle_type "VF8", quantity 3 -> VF8-1, VF8-2, VF8-3."""
+    def count_lot_products(self, lot_id: str) -> int:
+        row = self.fetch_one(
+            "SELECT COUNT(*) AS n FROM lot_products WHERE lot_id = :lot_id", {"lot_id": lot_id}
+        )
+        return int(row["n"]) if row else 0
+
+    def allocate_lot_product(self, lot_id: str, vehicle_model: str) -> dict[str, Any]:
+        """Allocate the next sequential product code for a lot as it passes the camera:
+        <Mã Lô>-<Model sản phẩm>-<STT>, STT starting at 1 and counting up per lot until the
+        lot's quantity is used up. Caller (catalog_api.create_lot_product) has already checked
+        the lot exists, is active, and has remaining capacity; the small retry loop here just
+        guards against a rare race between two allocations reading the same count."""
         now = datetime.now(UTC).isoformat()
         statement = text(
-            """INSERT INTO lot_products (product_code, lot_id, seq, vehicle_type, created_at)
-            VALUES (:product_code, :lot_id, :seq, :vehicle_type, :created_at)
-            ON CONFLICT(product_code) DO NOTHING"""
+            """INSERT INTO lot_products (product_code, lot_id, seq, vehicle_model, created_at)
+            VALUES (:product_code, :lot_id, :seq, :vehicle_model, :created_at)"""
         )
-        with self.begin() as connection:
-            connection.execute(
-                statement,
-                [
-                    {
-                        "product_code": f"{vehicle_type}-{seq}",
-                        "lot_id": lot_id,
-                        "seq": seq,
-                        "vehicle_type": vehicle_type,
-                        "created_at": now,
-                    }
-                    for seq in range(start_seq, end_seq + 1)
-                ],
-            )
+        for _ in range(5):
+            seq = self.count_lot_products(lot_id) + 1
+            product_code = f"{lot_id}-{vehicle_model}-{seq}"
+            try:
+                with self.begin() as connection:
+                    connection.execute(
+                        statement,
+                        {
+                            "product_code": product_code,
+                            "lot_id": lot_id,
+                            "seq": seq,
+                            "vehicle_model": vehicle_model,
+                            "created_at": now,
+                        },
+                    )
+            except IntegrityError:
+                continue
+            return self.fetch_one(
+                "SELECT * FROM lot_products WHERE product_code = :product_code",
+                {"product_code": product_code},
+            ) or {}
+        raise RuntimeError(f"Could not allocate a product code for lot {lot_id} after 5 attempts")
 
     def list_lot_products(self, lot_id: str) -> list[dict[str, Any]]:
         return self.fetch_all(
@@ -624,6 +662,27 @@ class Database:
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
         ) or {"user_id": user_id, "email": email, "role": default_role}
 
+    def list_profiles(self) -> list[dict[str, Any]]:
+        return self.fetch_all("SELECT * FROM profiles ORDER BY created_at")
+
+    def update_profile(self, user_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Supervisor-only account management: reassign an inspector's station or promote/
+        demote between QC_OPERATOR and QC_SUPERVISOR (backend/app/auth_api.py)."""
+        existing = self.fetch_one(
+            "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
+        )
+        if not existing:
+            return None
+        fields = {key: value for key, value in patch.items() if key in ("role", "station_id")}
+        if fields:
+            fields["updated_at"] = datetime.now(UTC).isoformat()
+            assignments = ", ".join(f"{key} = :{key}" for key in fields)
+            self.execute(
+                f"UPDATE profiles SET {assignments} WHERE user_id = :user_id",
+                {**fields, "user_id": user_id},
+            )
+        return self.fetch_one("SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id})
+
     _TREND_GROUP_EXPRESSIONS = {
         "hour": "substr(updated_at, 1, 13)",
         "day": "COALESCE(production_date, substr(updated_at, 1, 10))",
@@ -704,7 +763,3 @@ class Database:
 
     def close(self) -> None:
         self.engine.dispose()
-
-
-# Backward-compatible import while callers migrate to the provider-neutral name.
-SQLiteDatabase = Database

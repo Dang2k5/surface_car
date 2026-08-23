@@ -31,9 +31,6 @@ class ModelSettings:
     reasoning_provider: str
     groq_api_key: str | None
     groq_model: str
-    vision_llm_provider: str
-    vision_llm_model: str
-    vision_llm_api_key: str | None
 
     @classmethod
     def from_env(cls) -> ModelSettings:
@@ -63,9 +60,6 @@ class ModelSettings:
             reasoning_provider=os.getenv("QC_REASONING_PROVIDER", "groq").strip().lower(),
             groq_api_key=os.getenv("GROQ_API_KEY") or None,
             groq_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip(),
-            vision_llm_provider=os.getenv("VISION_LLM_PROVIDER", "").strip().lower(),
-            vision_llm_model=os.getenv("VISION_LLM_MODEL", "").strip(),
-            vision_llm_api_key=os.getenv("VISION_LLM_API_KEY") or None,
         )
 
 

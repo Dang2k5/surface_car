@@ -37,37 +37,8 @@ class QCRepository(Protocol):
     def clear(self) -> int: ...
 
 
-class MockQCRepository:
-    def __init__(self) -> None:
-        self.records: dict[str, dict[str, Any]] = {}
-
-    def save(self, state: QCState) -> None:
-        vehicle_id = state["vehicle_id"]
-        self.records = {
-            thread_id: record
-            for thread_id, record in self.records.items()
-            if record.get("vehicle_id") != vehicle_id or thread_id == state["thread_id"]
-        }
-        self.records[state["thread_id"]] = _sanitize_state(dict(state))
-
-    def get(self, thread_id: str) -> dict[str, Any] | None:
-        return self.records.get(thread_id)
-
-    def list(self) -> list[dict[str, Any]]:
-        return list(self.records.values())
-
-    def list_with_metadata(self) -> list[dict[str, Any]]:
-        now = datetime.now(UTC).isoformat()
-        return [{**record, "_persisted_at": now} for record in self.records.values()]
-
-    def clear(self) -> int:
-        count = len(self.records)
-        self.records.clear()
-        return count
-
-
-class SQLiteQCRepository:
-    """Provider-neutral SQL repository retained under its legacy class name."""
+class PostgresQCRepository:
+    """Persists QC graph runs to the shared Supabase PostgreSQL database."""
 
     def __init__(self, database: Any, audit_exporter: JsonAuditExporter | None = None) -> None:
         self.database = database

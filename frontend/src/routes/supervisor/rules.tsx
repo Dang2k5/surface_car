@@ -493,7 +493,7 @@ function Rules() {
                 label="Trạng thái cuối (final_status)"
                 value={form.finalStatus}
                 onChange={(v) => setField("finalStatus", v)}
-                placeholder="HOLD_FOR_QC"
+                placeholder="FAIL"
                 mono
               />
             </div>

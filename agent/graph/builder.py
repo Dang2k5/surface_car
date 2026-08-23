@@ -10,39 +10,35 @@ from agent.graph.nodes import QCNodes
 from agent.graph.routes import route_after_human_review, route_assessment
 from agent.graph.state import QCState
 from agent.services.defect_catalog import DefectCatalogService, StaticDefectCatalog
-from agent.services.detector import DetectorService, MockDetector
+from agent.services.detector import DetectorService
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import DeterministicReasoningService, ReasoningService
-from agent.services.repository import MockQCRepository, QCRepository
-from agent.services.verifier import MockVerifier, VerifierService
-from agent.services.vision_verifier import NoopVisionVerifier, VisionVerifierService
+from agent.services.repository import QCRepository
+from agent.services.verifier import VerifierService
 
 
 def build_qc_graph(
     *,
-    detector: DetectorService | None = None,
-    verifier: VerifierService | None = None,
+    detector: DetectorService,
+    verifier: VerifierService,
+    repository: QCRepository,
     reasoning: ReasoningService | None = None,
     policy_catalog: PolicyCatalog | None = None,
-    repository: QCRepository | None = None,
     checkpointer: Any | None = None,
     defect_catalog: DefectCatalogService | None = None,
-    vision: VisionVerifierService | None = None,
 ):
     """Compile the Visual QC graph with swappable services and persistence."""
     nodes = QCNodes(
-        detector=detector or MockDetector(),
-        verifier=verifier or MockVerifier(),
+        detector=detector,
+        verifier=verifier,
         reasoning=reasoning or DeterministicReasoningService(),
         policy_catalog=policy_catalog or PolicyCatalog(),
-        repository=repository or MockQCRepository(),
+        repository=repository,
         defect_catalog=defect_catalog or StaticDefectCatalog(),
-        vision=vision or NoopVisionVerifier(),
     )
     builder = StateGraph(QCState)
     builder.add_node("prepare_input", nodes.prepare_input)
     builder.add_node("detect_defect", nodes.detect_defect)
-    builder.add_node("multimodal_verify", nodes.multimodal_verify)
     builder.add_node("assess_result", nodes.assess_result)
     builder.add_node("verify_defect", nodes.verify_defect)
     builder.add_node("human_review", nodes.human_review)
@@ -52,8 +48,7 @@ def build_qc_graph(
 
     builder.add_edge(START, "prepare_input")
     builder.add_edge("prepare_input", "detect_defect")
-    builder.add_edge("detect_defect", "multimodal_verify")
-    builder.add_edge("multimodal_verify", "assess_result")
+    builder.add_edge("detect_defect", "assess_result")
     builder.add_conditional_edges(
         "assess_result",
         route_assessment,

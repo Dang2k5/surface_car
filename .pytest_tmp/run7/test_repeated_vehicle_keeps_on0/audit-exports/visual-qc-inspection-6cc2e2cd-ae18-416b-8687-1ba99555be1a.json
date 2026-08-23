@@ -1,0 +1,205 @@
+{
+  "schema": "visual-qc-agent-audit/v1",
+  "exported_at": "2026-08-23T11:07:23.112531+00:00",
+  "identity": {
+    "thread_id": "6cc2e2cd-ae18-416b-8687-1ba99555be1a",
+    "inspection_id": "4829a95f-e9e3-4ca5-a60a-7bdf3d43c9bd",
+    "vehicle_id": "CAR-REPEATED",
+    "vehicle_model": "unknown_model",
+    "status": "WAITING_FOR_HITL"
+  },
+  "evidence": {
+    "image_url": "/test-fixtures/inspection.jpg",
+    "image_sha256": null,
+    "camera_id": "cam-fns-01",
+    "camera_evidence": [],
+    "zone_name": "unknown_zone"
+  },
+  "model_result": {
+    "model_name": null,
+    "model_version": null,
+    "model_task": null,
+    "inference_ms": null,
+    "defect_detected": false,
+    "defect_type": "unknown",
+    "confidence": 0.0,
+    "severity": null,
+    "bbox": null,
+    "segmentation_result": null,
+    "detections": [],
+    "enriched_defects": [],
+    "camera_results": [],
+    "finding_groups": [],
+    "suggested_defect_codes": [],
+    "classified_defect_code": null,
+    "defect_family": null,
+    "defect_code_classification": null,
+    "similar_defect_warning": false,
+    "measurements": {}
+  },
+  "workflow": {
+    "assessment_route": "HITL",
+    "verify_count": 0,
+    "verify_result": "NOT_RUN",
+    "human_required": true,
+    "hitl_status": "PENDING",
+    "human_decision": null,
+    "qc_decision_record": null,
+    "execution_trace": [
+      {
+        "node": "prepare_input",
+        "status": "COMPLETED",
+        "detail": "Đã xác thực dữ liệu đầu vào cho 1 camera."
+      },
+      {
+        "node": "detect_defect",
+        "status": "FAILED",
+        "detail": "Suy luận mô hình gặp lỗi (đã chặn an toàn): Unsupported image source: /test-fixtures/inspection.jpg"
+      },
+      {
+        "node": "assess_result",
+        "status": "COMPLETED",
+        "detail": "Định_tuyến=HITL. Tra cứu chính sách khớp 1 tài liệu kiểm soát, thiếu 1 minh chứng, và phát sinh 1 cảnh báo kiểm soát tài liệu."
+      }
+    ]
+  },
+  "outcome": {
+    "decision": "MODEL_ERROR_REVIEW_REQUIRED",
+    "recommendation_code": null,
+    "recommendation": null,
+    "allow_test_drive": false,
+    "severity": null,
+    "reason": "Suy luận mô hình thất bại; bắt buộc QC xét duyệt để đảm bảo an toàn.",
+    "final_status": "WAITING_FOR_HITL"
+  },
+  "policy": {
+    "policy_id": "FNS-MANUAL-001",
+    "policy_revision": "2026.08.1",
+    "policy_status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "policy_title": "Fail-safe manual visual reinspection",
+    "action_code": "MANUAL_VISUAL_REINSPECTION",
+    "action_label": "Giữ xe lại và thực hiện kiểm tra bằng mắt thủ công mới",
+    "final_status": "FAIL",
+    "test_drive_allowed": false,
+    "human_required": true,
+    "required_evidence": [
+      "qc_reinspection"
+    ],
+    "missing_evidence": [
+      "qc_reinspection"
+    ],
+    "required_steps": [
+      "CONTAIN_VEHICLE",
+      "RECAPTURE_EVIDENCE",
+      "QC_SIGN_OFF"
+    ],
+    "references": [
+      {
+        "id": "FNS-QC-POLICY-DEMO-2026",
+        "document_family": "FNS-QC-POLICY",
+        "revision": "2026.08.1",
+        "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "APPROVED",
+        "authority": "CONTROLLED_POLICY",
+        "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+        "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+        "url": "/api/policies"
+      },
+      {
+        "id": "ISO-9001-2015",
+        "document_family": "ISO-9001",
+        "revision": "2015",
+        "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+        "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+        "url": "https://www.iso.org/standard/62085.html"
+      }
+    ],
+    "document_review": {
+      "query": {
+        "vehicle_model": "unknown_model",
+        "defect_type": "unknown"
+      },
+      "roles_completed": [
+        "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+        "EXTRACT_RELEVANT_CONDITIONS",
+        "COMPARE_EVIDENCE_TO_POLICY",
+        "DETECT_MISSING_DATA",
+        "EXPLAIN_DECISION_PLAINLY",
+        "PROPOSE_APPROVED_CHECKLIST",
+        "CITE_DOCUMENT_METADATA",
+        "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+      ],
+      "matched_document_count": 1,
+      "extracted_conditions": [
+        "No context-matched controlled policy could authorize an automated disposition"
+      ],
+      "evidence_comparison": [
+        {
+          "evidence": "qc_reinspection",
+          "available": false
+        }
+      ],
+      "missing_data": [
+        "qc_reinspection"
+      ],
+      "checklist_status": "APPROVED",
+      "approved_checklist": [
+        "CONTAIN_VEHICLE",
+        "RECAPTURE_EVIDENCE",
+        "QC_SIGN_OFF"
+      ],
+      "proposed_checklist": [
+        "CONTAIN_VEHICLE",
+        "RECAPTURE_EVIDENCE",
+        "QC_SIGN_OFF"
+      ],
+      "citations": [
+        {
+          "id": "FNS-QC-POLICY-DEMO-2026",
+          "document_family": "FNS-QC-POLICY",
+          "revision": "2026.08.1",
+          "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "APPROVED",
+          "authority": "CONTROLLED_POLICY",
+          "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+          "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+          "url": "/api/policies"
+        },
+        {
+          "id": "ISO-9001-2015",
+          "document_family": "ISO-9001",
+          "revision": "2015",
+          "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+          "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+          "url": "https://www.iso.org/standard/62085.html"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "POLICY_QUERY_CONTEXT_INCOMPLETE",
+          "severity": "BLOCKING",
+          "message": "Missing policy lookup context: vehicle_model, defect_type.",
+          "document_id": null
+        }
+      ]
+    },
+    "production_eligible": false
+  },
+  "reasoning": {},
+  "agent_analysis": null
+}

@@ -3,16 +3,12 @@ from agent.services.reasoning import DeterministicReasoningService
 from backend.app.database import Database
 
 
-def test_seed_catalog_contains_ten_grouped_active_codes() -> None:
-    database = Database(":memory:")
-    try:
-        codes = database.list_defect_codes()
-        assert len(codes) == 10
-        assert {item["defect_type"] for item in codes} == {"scratch", "dent"}
-        assert all(item["defect_family"] for item in codes)
-        assert all(item["classification_rule"] for item in codes)
-    finally:
-        database.close()
+def test_seed_catalog_contains_ten_grouped_active_codes(test_database: Database) -> None:
+    codes = test_database.list_defect_codes()
+    assert len(codes) == 10
+    assert {item["defect_type"] for item in codes} == {"scratch", "dent"}
+    assert all(item["defect_family"] for item in codes)
+    assert all(item["classification_rule"] for item in codes)
 
 
 def test_classifier_selects_size_band_from_fixed_camera_estimate() -> None:

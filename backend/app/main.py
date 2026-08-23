@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -14,13 +13,11 @@ from fastapi.staticfiles import StaticFiles
 import psycopg
 from jwt import PyJWKClient
 from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.checkpoint.sqlite import SqliteSaver
 from psycopg.rows import dict_row
 
 from agent.graph.builder import build_qc_graph
 from agent.services.audit_export import JsonAuditExporter
 from agent.services.defect_catalog import DatabaseDefectCatalog
-from agent.services.detector import MockDetector
 from agent.services.object_storage import LocalDiskObjectStorage, ObjectStorageService, S3ObjectStorage
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import (
@@ -28,19 +25,14 @@ from agent.services.reasoning import (
     GroqReasoningService,
     UnavailableReasoningService,
 )
-from agent.services.repository import SQLiteQCRepository
-from agent.services.verifier import MockVerifier, ModelVerifier
-from agent.services.vision_verifier import (
-    GroqVisionVerifierService,
-    NoopVisionVerifier,
-    UnavailableVisionVerifier,
-)
+from agent.services.repository import PostgresQCRepository
+from agent.services.verifier import ModelVerifier
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
 from .auth_api import router as auth_router
 from .catalog_api import router as catalog_router
 from .config import AuditExportSettings, AuthSettings, ModelSettings, ObjectStorageSettings
-from .database import DEFAULT_DATABASE_URL, Database, normalize_database_url
+from .database import Database, normalize_database_url
 from .langgraph_api import router as langgraph_router
 from .objects_api import router as objects_router
 from .policy_api import router as policy_router
@@ -90,23 +82,25 @@ def get_cors_origins() -> list[str]:
 
 
 def get_database_url() -> str:
-    """Return the configured SQLite or PostgreSQL connection URL."""
-    configured_url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL).strip()
-    supported_prefixes = (
-        "sqlite:///",
-        "sqlite+pysqlite:///",
-        "postgres://",
-        "postgresql://",
-        "postgresql+psycopg://",
-    )
-    if configured_url == ":memory:" or configured_url.startswith(supported_prefixes):
-        return configured_url
-    logger.warning(
-        "DATABASE_URL uses an unsupported driver; "
-        "falling back to %s",
-        DEFAULT_DATABASE_URL,
-    )
-    return DEFAULT_DATABASE_URL
+    """Return the configured PostgreSQL connection URL, or fail loudly if missing/invalid."""
+    configured_url = os.getenv("DATABASE_URL", "").strip()
+    if not configured_url:
+        raise RuntimeError(
+            "DATABASE_URL is not set; a PostgreSQL/Supabase connection string is required "
+            "(see docs/ENVIRONMENT.md)"
+        )
+    supported_prefixes = ("postgres://", "postgresql://", "postgresql+psycopg://")
+    if not configured_url.startswith(supported_prefixes):
+        raise RuntimeError(
+            f"DATABASE_URL must be a PostgreSQL connection string, got: {configured_url!r}"
+        )
+    return configured_url
+
+
+def get_database_schema() -> str | None:
+    """Optional PostgreSQL schema override (tests isolate each run in a throwaway
+    schema on the same Supabase project as production; see tests/conftest.py)."""
+    return os.getenv("DATABASE_SCHEMA", "").strip() or None
 
 
 def _build_object_storage(
@@ -144,35 +138,32 @@ def _build_object_storage(
     return LocalDiskObjectStorage(local_root)
 
 
-def _build_qc_checkpointer(database_url: str) -> tuple[Any, Any]:
-    """Build the LangGraph checkpointer on the same store as DATABASE_URL.
+def _build_qc_checkpointer(database_url: str, schema: str | None) -> tuple[Any, Any]:
+    """Build the LangGraph checkpointer on the same Postgres database as DATABASE_URL.
 
     A checkpointer less durable/shared than app.state.qc_repository (agent_graph_runs)
     orphans the HITL queue: the repository keeps listing an interrupted run as pending,
     but the checkpoint needed to actually resume it lives somewhere the next request
-    can't see (in-memory, wiped by any restart; or a local-disk SQLite file another
-    instance/redeploy doesn't share) -- resuming then 404s "LangGraph thread not found"
-    while the queue still shows the case as waiting. Backing both by the same Postgres
-    database when one is configured keeps them consistent.
+    can't see (in-memory, wiped by any restart) -- resuming then 404s "LangGraph thread
+    not found" while the queue still shows the case as waiting. Backing both by the same
+    Postgres database (and schema) keeps them consistent.
     """
     normalized = normalize_database_url(database_url)
-    if normalized.startswith("postgresql+psycopg://"):
-        pg_url = "postgresql://" + normalized.removeprefix("postgresql+psycopg://")
-        conn = psycopg.connect(pg_url, autocommit=True, prepare_threshold=0, row_factory=dict_row)
-        checkpointer = PostgresSaver(conn)
-        checkpointer.setup()
-        return checkpointer, conn
-    checkpoint_db_path = Path("./data/qc_checkpoints.db")
-    checkpoint_db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(checkpoint_db_path), check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
+    pg_url = "postgresql://" + normalized.removeprefix("postgresql+psycopg://")
+    connect_kwargs: dict[str, Any] = {}
+    if schema:
+        connect_kwargs["options"] = f"-c search_path={schema}"
+    conn = psycopg.connect(
+        pg_url, autocommit=True, prepare_threshold=0, row_factory=dict_row, **connect_kwargs
+    )
+    checkpointer = PostgresSaver(conn)
     checkpointer.setup()
     return checkpointer, conn
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.database = Database(get_database_url())
+    app.state.database = Database(get_database_url(), schema=get_database_schema())
     app.state.object_storage_settings = ObjectStorageSettings.from_env()
     app.state.object_storage = _build_object_storage(
         app.state.object_storage_settings, upload_image_directory
@@ -191,14 +182,14 @@ async def lifespan(app: FastAPI):
             "disabled and all write endpoints accept unauthenticated requests (ENVIRONMENT.md)"
         )
     app.state.qc_checkpointer, app.state.qc_checkpointer_conn = _build_qc_checkpointer(
-        get_database_url()
+        get_database_url(), get_database_schema()
     )
     app.state.audit_export_settings = AuditExportSettings.from_env()
     app.state.qc_audit_exporter = JsonAuditExporter(
         app.state.audit_export_settings.directory,
         enabled=app.state.audit_export_settings.enabled,
     )
-    app.state.qc_repository = SQLiteQCRepository(
+    app.state.qc_repository = PostgresQCRepository(
         app.state.database,
         audit_exporter=app.state.qc_audit_exporter,
     )
@@ -218,51 +209,27 @@ async def lifespan(app: FastAPI):
     else:
         # Deterministic mode is retained for automated tests and explicit offline diagnostics.
         app.state.qc_reasoning = DeterministicReasoningService()
-    app.state.vision_requested_provider = app.state.model_settings.vision_llm_provider
-    if (
-        app.state.model_settings.vision_llm_provider == "groq"
-        and app.state.model_settings.vision_llm_model
-        and app.state.model_settings.vision_llm_api_key
-    ):
-        app.state.qc_vision = GroqVisionVerifierService(
-            api_key=app.state.model_settings.vision_llm_api_key,
-            model=app.state.model_settings.vision_llm_model,
-        )
-    elif app.state.model_settings.vision_llm_provider:
-        logger.warning(
-            "VISION_LLM_PROVIDER=%r is set but VISION_LLM_MODEL/VISION_LLM_API_KEY is "
-            "incomplete; visual cross-check requires HITL",
-            app.state.model_settings.vision_llm_provider,
-        )
-        app.state.qc_vision = UnavailableVisionVerifier("VISION_LLM_CONFIG_INCOMPLETE")
-    else:
-        # No vision-capable model configured. Do not guess one — ENVIRONMENT.md
-        # requires an explicit VISION_LLM_MODEL before visual cross-check runs.
-        app.state.qc_vision = NoopVisionVerifier()
-    if app.state.model_settings.detector_provider == "local_yolo":
-        app.state.qc_detector = LocalYoloSegmentationDetector(
-            app.state.model_settings.model_path,
-            device=app.state.model_settings.model_device,
-            confidence=app.state.model_settings.model_confidence,
-            image_size=app.state.model_settings.model_image_size,
-            fixed_calibration_enabled=(
-                app.state.model_settings.fixed_camera_calibration_enabled
-            ),
-            mm_per_pixel_x=app.state.model_settings.calibration_mm_per_pixel_x,
-            mm_per_pixel_y=app.state.model_settings.calibration_mm_per_pixel_y,
-            calibration_profile_id=app.state.model_settings.calibration_profile_id,
-        )
-        app.state.qc_verifier = ModelVerifier(
-            app.state.qc_detector,
-            min_confidence=app.state.model_settings.verify_threshold,
-        )
-    elif app.state.model_settings.detector_provider == "mock":
-        app.state.qc_detector = MockDetector()
-        app.state.qc_verifier = MockVerifier()
-    else:
+    if app.state.model_settings.detector_provider != "local_yolo":
         raise RuntimeError(
-            f"Unsupported DETECTOR_PROVIDER={app.state.model_settings.detector_provider!r}"
+            f"Unsupported DETECTOR_PROVIDER={app.state.model_settings.detector_provider!r}; "
+            "only 'local_yolo' is supported"
         )
+    app.state.qc_detector = LocalYoloSegmentationDetector(
+        app.state.model_settings.model_path,
+        device=app.state.model_settings.model_device,
+        confidence=app.state.model_settings.model_confidence,
+        image_size=app.state.model_settings.model_image_size,
+        fixed_calibration_enabled=(
+            app.state.model_settings.fixed_camera_calibration_enabled
+        ),
+        mm_per_pixel_x=app.state.model_settings.calibration_mm_per_pixel_x,
+        mm_per_pixel_y=app.state.model_settings.calibration_mm_per_pixel_y,
+        calibration_profile_id=app.state.model_settings.calibration_profile_id,
+    )
+    app.state.qc_verifier = ModelVerifier(
+        app.state.qc_detector,
+        min_confidence=app.state.model_settings.verify_threshold,
+    )
     app.state.qc_langgraph = build_qc_graph(
         detector=app.state.qc_detector,
         verifier=app.state.qc_verifier,
@@ -271,7 +238,6 @@ async def lifespan(app: FastAPI):
         repository=app.state.qc_repository,
         checkpointer=app.state.qc_checkpointer,
         defect_catalog=app.state.qc_defect_catalog,
-        vision=app.state.qc_vision,
     )
     yield
     app.state.database.close()
@@ -322,11 +288,13 @@ def _object_storage_runtime_status() -> dict[str, object]:
 
 
 def _vision_runtime_status() -> dict[str, object]:
-    service = getattr(app.state, "qc_vision", None)
-    status = service.runtime_status() if service and hasattr(service, "runtime_status") else {}
+    settings = getattr(app.state, "model_settings", None)
+    provider = getattr(settings, "detector_provider", None)
+    detector = getattr(app.state, "qc_detector", None)
     return {
-        **status,
-        "requested_provider": getattr(app.state, "vision_requested_provider", "starting"),
+        "mode": provider or "starting",
+        "provider": provider,
+        "configured": detector is not None,
     }
 
 

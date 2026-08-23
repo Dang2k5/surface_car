@@ -2,7 +2,22 @@
 // the FastAPI backend is the source of truth, see backend/app/langgraph_schemas.py and agent/graph/state.py).
 
 export type Role = "QC_OPERATOR" | "QC_SUPERVISOR";
-export type AuthProfile = { user_id: string; email: string | null; role: Role | string };
+export type AuthProfile = {
+  user_id: string;
+  email: string | null;
+  role: Role | string;
+  station_id?: string | null;
+};
+
+export type Profile = {
+  user_id: string;
+  email: string | null;
+  role: Role | string;
+  station_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type ProfileUpdate = { role?: Role; station_id?: string | null };
 
 export type TraceEvent = { node: string; status: string; detail: string };
 
@@ -199,6 +214,10 @@ export type QualityAlert = {
   actionable_routing_command: string;
   message_en: string;
   message_vi: string;
+  recommendation_en: string;
+  recommendation_vi: string;
+  upstream_checks_en: string[];
+  upstream_checks_vi: string[];
 };
 
 export type QualityAlertSummary = {
@@ -214,7 +233,7 @@ export type ResumePayload = {
   reason: string;
   defect_code?: string;
   severity?: string;
-  disposition?: "PASS" | "HOLD" | "REWORK" | "REINSPECT";
+  disposition?: "PASS" | "HOLD" | "REPAIR";
   location?: string;
   length_mm?: number;
   notes?: string;
@@ -263,10 +282,11 @@ export type ShiftUpdate = Partial<Pick<Shift, "name" | "start_time" | "end_time"
 // it was produced under.
 export type ProductionLot = {
   lot_id: string;
+  name: string;
   note: string;
   station_id: string | null;
   shift_id: string | null;
-  vehicle_type: string;
+  product_model: string;
   quantity: number;
   active: boolean | number;
   created_at: string;
@@ -275,29 +295,35 @@ export type ProductionLot = {
 
 export type LotCreate = {
   lot_id: string;
+  name: string;
   station_id: string;
   shift_id: string;
-  vehicle_type: string;
+  product_model: string;
   quantity: number;
   note?: string;
 };
 export type LotUpdate = {
+  name?: string;
   note?: string;
   station_id?: string;
   shift_id?: string;
+  product_model?: string;
   quantity?: number;
   active?: boolean;
 };
 
-// Auto-generated per-vehicle product code for a lot: <vehicle_type><stt>, stt from 1..quantity
-// (backend/app/database.py Database._generate_lot_products).
+// A product code is allocated one at a time as a vehicle passes the camera during an
+// inspection (backend/app/database.py Database.allocate_lot_product), format:
+// <Mã Lô>-<Model sản phẩm>-<STT>, STT starting at 1 and counting up until quantity is used.
 export type LotProduct = {
   product_code: string;
   lot_id: string;
   seq: number;
-  vehicle_type: string;
+  vehicle_model: string;
   created_at: string;
 };
+
+export type LotProductAllocate = { vehicle_model: string };
 
 export type Station = {
   station_id: string;
@@ -386,7 +412,7 @@ export type QcDecision = {
   length_mm: number | null;
   severity: string;
   action: "APPROVE" | "REJECT" | "OVERRIDE";
-  disposition: "PASS" | "HOLD" | "REWORK" | "REINSPECT";
+  disposition: "PASS" | "HOLD" | "REPAIR";
   reviewer: string;
   reason: string;
   notes: string;

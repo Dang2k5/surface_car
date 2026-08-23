@@ -4,26 +4,29 @@ config:
     curve: linear
 ---
 graph TD;
-    __start__([START]):::first
-    prepare_input(prepare_input)
-    detect_defect(detect_defect)
-    assess_result(assess_result)
-    verify_defect(verify_defect)
-    human_review(human_review / interrupt)
-    generate_recommendation(generate_recommendation)
-    save_result(save_result)
-    __end__([END]):::last
-    __start__ --> prepare_input
-    prepare_input --> detect_defect
-    detect_defect --> assess_result
-    assess_result -. PASS .-> save_result
-    assess_result -. CONFIRMED .-> generate_recommendation
-    assess_result -. VERIFY .-> verify_defect
-    assess_result -. HITL .-> human_review
-    verify_defect --> assess_result
-    human_review --> generate_recommendation
-    generate_recommendation --> save_result
-    save_result --> __end__
-    classDef default fill:#f2f0ff,line-height:1.2
-    classDef first fill-opacity:0
-    classDef last fill:#bfb6fc
+	__start__([<p>__start__</p>]):::first
+	prepare_input(prepare_input)
+	detect_defect(detect_defect)
+	assess_result(assess_result)
+	verify_defect(verify_defect)
+	human_review(human_review)
+	supervisor_review(supervisor_review)
+	generate_recommendation(generate_recommendation)
+	save_result(save_result)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> prepare_input;
+	assess_result -. &nbsp;CONFIRMED&nbsp; .-> generate_recommendation;
+	assess_result -. &nbsp;HITL&nbsp; .-> human_review;
+	assess_result -. &nbsp;PASS&nbsp; .-> save_result;
+	assess_result -. &nbsp;VERIFY&nbsp; .-> verify_defect;
+	detect_defect --> assess_result;
+	generate_recommendation --> save_result;
+	human_review -. &nbsp;CONTINUE&nbsp; .-> generate_recommendation;
+	human_review -. &nbsp;ESCALATE_TO_SUPERVISOR&nbsp; .-> supervisor_review;
+	prepare_input --> detect_defect;
+	supervisor_review --> generate_recommendation;
+	verify_defect --> assess_result;
+	save_result --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

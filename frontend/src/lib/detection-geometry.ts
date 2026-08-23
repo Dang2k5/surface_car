@@ -50,8 +50,8 @@ export function mapDefectType(className: string): Defect["type"] {
 // Real severity codes come from the QC defect catalog (backend/app/database.py: default_severity
 // column) as single letters — A = most severe, B = medium, C = minor — not the "critical/major/
 // minor" words this used to look for, so those never matched real backend data. UNASSESSED /
-// UNCONFIRMED / NONE (and the demo-only "P" from agent/services/detector.py's MockDetector) fall
-// back to "Medium" until a human or the agent finishes classifying the finding.
+// UNCONFIRMED / NONE fall back to "Medium" until a human or the agent
+// finishes classifying the finding.
 export function mapSeverity(severityRank: string | undefined): Severity {
   const key = (severityRank || "").trim().toUpperCase();
   if (key === "A" || key.includes("CRIT")) return "Critical";
@@ -104,22 +104,28 @@ function toDefect(
   imageWidth: number | undefined,
   imageHeight: number | undefined,
 ): Defect {
+  const camera = (KNOWN_CAMERA_IDS.includes(d.camera_id as CameraId)
+    ? d.camera_id
+    : "CAM-01") as CameraId;
   return {
     id: d.detection_id,
     index: index + 1,
     type: mapDefectType(d.class_name),
-    location: d.zone_name || "—",
+    // The backend's zone_name is an internal token (e.g. "unknown_zone" when a caller never
+    // picks one) and not fit for display — the camera mount position is the real, always-known
+    // location of a finding, so show that instead of trusting zone_name to be meaningful.
+    location: CAMERA_POSITION_LABELS[camera],
     severity: mapSeverity(d.severity_rank),
     // Backend confidence is a 0-1 fraction; UI displays a percent.
     confidence: Math.round(d.confidence * 1000) / 10,
-    camera: (KNOWN_CAMERA_IDS.includes(d.camera_id as CameraId)
-      ? d.camera_id
-      : "CAM-01") as CameraId,
+    camera,
     measurement: d.estimated_width_mm != null ? `${d.estimated_width_mm.toFixed(1)} mm` : "—",
     threshold: "—",
     decision,
     box: bboxToPercentBox(d.bbox, imageWidth, imageHeight),
     polygon: segmentationToPercentPoints(d.segmentation, imageWidth, imageHeight),
+    cropImageUrl: assetUrl(d.crop_image_url) || undefined,
+    overlayImageUrl: assetUrl(d.overlay_image_url) || undefined,
   };
 }
 

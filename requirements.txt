@@ -17,10 +17,9 @@ boto3>=1.35,<2.0
 
 # Agent orchestration (APIs used are compatible with LangGraph 0.2.74+ and 1.x)
 langgraph>=0.2.74,<2.0
-# Checkpointer backend chosen at startup to match DATABASE_URL (backend/app/main.py
-# _build_qc_checkpointer): pending (INTERRUPTED) HITL threads must survive a backend
-# restart, since app.state.qc_repository keeps listing them as pending regardless.
-langgraph-checkpoint-sqlite>=2.0,<4.0
+# PostgreSQL-backed checkpointer (backend/app/main.py _build_qc_checkpointer): pending
+# (INTERRUPTED) HITL threads must survive a backend restart, since app.state.qc_repository
+# keeps listing them as pending regardless.
 langgraph-checkpoint-postgres>=2.0,<4.0
 
 # Development and automated tests

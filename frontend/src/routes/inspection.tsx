@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils";
 import { assetUrl } from "@/lib/auth";
 import {
   useAgentRuns,
+  useAllocateLotProduct,
   useCreateLot,
-  useLotProducts,
   useLots,
   useShifts,
   useStations,
@@ -57,7 +57,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   const lotsQuery = useLots();
   const stationsQuery = useStations();
   const createLot = useCreateLot();
-  const [vehicleId, setVehicleId] = useState("");
+  const allocateProduct = useAllocateLotProduct();
   const [vehicleModel, setVehicleModel] = useState("");
   const [stationId, setStationId] = useState("");
   const [lotId, setLotId] = useState("");
@@ -66,15 +66,15 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   const [rows, setRows] = useState<CameraFormRow[]>([{ cameraId: "CAM-01", file: null }]);
   const [creatingLot, setCreatingLot] = useState(false);
   const [newLotId, setNewLotId] = useState("");
-  const [newVehicleType, setNewVehicleType] = useState("");
+  const [newLotName, setNewLotName] = useState("");
+  const [newProductModel, setNewProductModel] = useState("");
   const [newQuantity, setNewQuantity] = useState("");
   const [newLotError, setNewLotError] = useState("");
+  const [submitError, setSubmitError] = useState("");
 
   const shifts = shiftsQuery.data ?? [];
   const lots = lotsQuery.data ?? [];
   const stations = stationsQuery.data ?? [];
-  const lotProductsQuery = useLotProducts(lotId);
-  const lotProducts = lotProductsQuery.data ?? [];
 
   useEffect(() => {
     if (!stationId && stations.length > 0) setStationId(stations[0]!.station_id);
@@ -89,46 +89,45 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
 
   function handleLotChange(nextLotId: string) {
     setLotId(nextLotId);
-    setVehicleId("");
     const lot = lots.find((l) => l.lot_id === nextLotId);
     if (lot?.station_id) setStationId(lot.station_id);
     if (lot?.shift_id) setShiftId(lot.shift_id);
-    setVehicleModel(lot?.vehicle_type ?? "");
+    setVehicleModel(lot?.product_model ?? "");
   }
 
   async function handleCreateLot() {
     setNewLotError("");
     const quantityNum = Number(newQuantity);
-    if (!newLotId.trim()) {
-      setNewLotError("Cần nhập mã lô.");
+    if (!newLotId.trim() || !newLotName.trim()) {
+      setNewLotError("Cần nhập mã lô và tên lô.");
       return;
     }
     if (!stationId || !shiftId) {
       setNewLotError("Chọn Trạm và Ca trước khi tạo lô mới.");
       return;
     }
-    if (
-      !newVehicleType.trim() ||
-      !newQuantity ||
-      !Number.isInteger(quantityNum) ||
-      quantityNum < 1
-    ) {
-      setNewLotError("Cần nhập Loại xe và Số lượng (số nguyên >= 1).");
+    if (!newProductModel.trim()) {
+      setNewLotError("Cần nhập Model sản phẩm.");
+      return;
+    }
+    if (!newQuantity || !Number.isInteger(quantityNum) || quantityNum < 1) {
+      setNewLotError("Cần nhập Số lượng (số nguyên >= 1).");
       return;
     }
     try {
       const lot = await createLot.mutateAsync({
         lot_id: newLotId.trim(),
+        name: newLotName.trim(),
         station_id: stationId,
         shift_id: shiftId,
-        vehicle_type: newVehicleType.trim(),
+        product_model: newProductModel.trim(),
         quantity: quantityNum,
       });
       setLotId(lot.lot_id);
-      setVehicleId("");
-      setVehicleModel(lot.vehicle_type);
+      setVehicleModel(lot.product_model);
       setNewLotId("");
-      setNewVehicleType("");
+      setNewLotName("");
+      setNewProductModel("");
       setNewQuantity("");
       setCreatingLot(false);
     } catch (err) {
@@ -143,13 +142,29 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   };
 
   const missing: string[] = [];
-  if (!vehicleId) missing.push(lotId ? "Mã phương tiện" : "Lô sản xuất (để lấy mã phương tiện)");
+  if (!lotId) missing.push("Lô sản xuất");
+  if (!shiftId) missing.push("Ca làm việc");
+  if (lotId && !vehicleModel)
+    missing.push("Model sản phẩm (lô chưa có model, cập nhật ở Quản lý Lô)");
   if (!rows.every((r) => r.file)) missing.push("Ảnh cho mỗi camera đã thêm");
 
   const canSubmit = missing.length === 0;
 
   async function handleSubmit() {
     if (!canSubmit) return;
+    setSubmitError("");
+    let resolvedVehicleId: string;
+    // Mã sản phẩm sinh tự động khi xe đi qua camera: <Mã Lô>-<Model sản phẩm>-<STT>.
+    try {
+      const product = await allocateProduct.mutateAsync({
+        lotId,
+        payload: { vehicle_model: vehicleModel },
+      });
+      resolvedVehicleId = product.product_code;
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Sinh mã sản phẩm thất bại.");
+      return;
+    }
     const filled = rows.filter((r): r is { cameraId: CameraId; file: File } => !!r.file);
     const shiftLotFields = {
       ...(lotId.trim() ? { lotId: lotId.trim() } : {}),
@@ -161,14 +176,14 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
       filled.length > 1
         ? {
             cameras: filled.map((r) => ({ file: r.file, cameraId: r.cameraId })),
-            vehicleId,
+            vehicleId: resolvedVehicleId,
             vehicleModel,
             ...shiftLotFields,
           }
         : {
             file: filled[0]!.file,
             cameraId: filled[0]!.cameraId,
-            vehicleId,
+            vehicleId: resolvedVehicleId,
             vehicleModel,
             ...shiftLotFields,
           };
@@ -179,24 +194,12 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   return (
     <Panel title="Gửi yêu cầu kiểm tra" right={<span className="label-caps">1–5 camera</span>}>
       <div className="grid gap-3 md:grid-cols-2">
-        <select
-          value={vehicleId}
-          onChange={(e) => setVehicleId(e.target.value)}
-          disabled={lotProducts.length === 0}
-          className="rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground disabled:opacity-60"
-        >
-          <option value="">
-            {lotId ? "Chọn mã phương tiện trong lô" : "Chọn hoặc tạo lô sản xuất trước"}
-          </option>
-          {lotProducts.map((p) => (
-            <option key={p.product_code} value={p.product_code}>
-              {p.product_code}
-            </option>
-          ))}
-        </select>
-        <div className="flex items-center rounded-sm border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-muted-foreground">
-          Model xe: {vehicleModel || "—"}
-        </div>
+        <input
+          value={vehicleModel}
+          readOnly
+          placeholder="Model sản phẩm"
+          className="rounded-sm border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground"
+        />
         {creatingLot ? (
           <div className="space-y-1.5 md:col-span-2">
             <div className="flex flex-wrap gap-2">
@@ -208,10 +211,16 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
                 className="flex-1 rounded-sm border border-info/40 bg-background px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground"
               />
               <input
-                value={newVehicleType}
-                onChange={(e) => setNewVehicleType(e.target.value)}
-                placeholder="Loại xe (VD: VF8)"
-                className="w-32 rounded-sm border border-info/40 bg-background px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground"
+                value={newLotName}
+                onChange={(e) => setNewLotName(e.target.value)}
+                placeholder="Tên lô"
+                className="w-40 rounded-sm border border-info/40 bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground"
+              />
+              <input
+                value={newProductModel}
+                onChange={(e) => setNewProductModel(e.target.value)}
+                placeholder="Model sản phẩm (VD: VF8)"
+                className="w-36 rounded-sm border border-info/40 bg-background px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground"
               />
               <input
                 type="number"
@@ -234,7 +243,8 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
                 onClick={() => {
                   setCreatingLot(false);
                   setNewLotId("");
-                  setNewVehicleType("");
+                  setNewLotName("");
+                  setNewProductModel("");
                   setNewQuantity("");
                   setNewLotError("");
                 }}
@@ -257,10 +267,10 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
             }}
             className="rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
           >
-            <option value="">Lô sản xuất (tùy chọn)</option>
+            <option value="">Chọn lô sản xuất</option>
             {availableLots.map((l) => (
               <option key={l.lot_id} value={l.lot_id}>
-                {l.lot_id}
+                {l.lot_id} — {l.name}
               </option>
             ))}
             <option value="__new__">+ Tạo lô mới…</option>
@@ -271,7 +281,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
           onChange={(e) => setShiftId(e.target.value)}
           className="rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
         >
-          <option value="">Ca (tùy chọn)</option>
+          <option value="">Chọn ca</option>
           {shifts.map((s) => (
             <option key={s.shift_id} value={s.shift_id}>
               {s.name}
@@ -330,15 +340,15 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
 
       <button
         onClick={handleSubmit}
-        disabled={!canSubmit || submit.isPending}
+        disabled={!canSubmit || submit.isPending || allocateProduct.isPending}
         className={cn(
           "mt-4 flex w-full items-center justify-center gap-2 rounded-sm border px-3 py-2 font-mono text-[11px] tracking-[0.14em]",
-          canSubmit && !submit.isPending
+          canSubmit && !submit.isPending && !allocateProduct.isPending
             ? "border-info/45 bg-info/10 text-info"
             : "border-border text-muted-foreground opacity-60",
         )}
       >
-        {submit.isPending ? (
+        {submit.isPending || allocateProduct.isPending ? (
           <Loader2 className="size-3.5 animate-spin" />
         ) : (
           <UploadCloud className="size-3.5" />
@@ -348,6 +358,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
       {!canSubmit ? (
         <p className="mt-2 text-[11px] text-muted-foreground">Còn thiếu: {missing.join(", ")}</p>
       ) : null}
+      {submitError ? <p className="mt-2 text-[11px] text-destructive">{submitError}</p> : null}
       {submit.isError ? (
         <p className="mt-2 text-[11px] text-destructive">
           {submit.error instanceof Error ? submit.error.message : "Gửi yêu cầu thất bại."}
@@ -380,15 +391,15 @@ function InspectionPage() {
   const cam = (id: CameraId) => camerasForRun.find((c) => c.id === id)!;
   const defectsFor = (id: CameraId) => defects.filter((d) => d.camera === id);
 
-  // state.crop_image_url (agent/services/image_render.py, FR-17) is only ever rendered for the
-  // single PRIMARY detection, so reusing it as a blanket fallback for every defect made the crop
-  // panel show the same primary-detection crop no matter which defect was selected. Only use it
-  // when the selected defect actually is the primary one; any other defect falls back to its own
-  // camera's full photo, same as the "ẢNH GỐC" button already does below.
-  const defectCropImage = defect
-    ? (defect.id === state?.primary_detection_id ? assetUrl(state?.crop_image_url) : "") ||
-      cam(defect.camera).image
-    : "";
+  // final_status (agent/graph/nodes.py, agent/services/policy.py) is exactly PASS or FAIL once
+  // the graph completes; while a run is paused for HITL it has no final_status yet.
+  const verdict = activeRun?.status === "INTERRUPTED" ? "CẦN NGƯỜI KIỂM" : state?.final_status;
+
+  // Every detection now gets its own rendered crop (agent/services/image_render.py, FR-17,
+  // backend/app/langgraph_api.py's _attach_rendered_defect_images), not just the primary one.
+  // Fall back to that detection's full camera photo only when its own crop hasn't rendered
+  // (e.g. render failed for that detection), same as the "ẢNH GỐC" button below.
+  const defectCropImage = defect ? defect.cropImageUrl || cam(defect.camera).image : "";
 
   if (!activeRun || !state) {
     return (
@@ -414,9 +425,8 @@ function InspectionPage() {
             {state.vehicle_model} | VIN: {state.vehicle_id} | Inspection #{state.inspection_id}
           </p>
         </div>
-        <div className="ml-auto grid grid-cols-2 gap-x-8 gap-y-2 md:grid-cols-4">
+        <div className="ml-auto grid grid-cols-2 gap-x-8 gap-y-2 md:grid-cols-3">
           <Field label="Model" value={state.vehicle_model} />
-          <Field label="Vị trí" value={state.zone_name} />
           <Field label="Trạm" value={state.station_id || "—"} />
           <Field
             label="Trạng thái"
@@ -602,9 +612,9 @@ function InspectionPage() {
               animate={{ opacity: 1, y: 0 }}
               className={cn(
                 "rounded-sm border px-4 py-5 text-center",
-                state.final_status === "PASS"
+                verdict === "PASS"
                   ? "border-success/45 bg-success/10 glow-success"
-                  : activeRun.status === "INTERRUPTED"
+                  : verdict === "CẦN NGƯỜI KIỂM"
                     ? "border-warning/45 bg-warning/10 glow-warning"
                     : "border-destructive/45 bg-destructive/10 glow-danger",
               )}
@@ -613,10 +623,14 @@ function InspectionPage() {
               <div
                 className={cn(
                   "mt-1 font-mono text-5xl font-bold tracking-[0.1em]",
-                  state.final_status === "PASS" ? "text-success" : "text-destructive",
+                  verdict === "PASS"
+                    ? "text-success"
+                    : verdict === "CẦN NGƯỜI KIỂM"
+                      ? "text-warning"
+                      : "text-destructive",
                 )}
               >
-                {activeRun.status === "INTERRUPTED" ? "HITL" : state.final_status || "—"}
+                {verdict}
               </div>
               <div className="mt-3 font-mono text-[11px] tracking-wider text-muted-foreground">
                 ĐỘ TIN CẬY AGENT{" "}
@@ -636,12 +650,6 @@ function InspectionPage() {
                 label="Mức độ"
                 value={state.severity ? SEVERITY_LABEL_VI[mapSeverity(state.severity)] : "—"}
                 tone="warning"
-              />
-              <Field label="Khuyến nghị" value={state.recommendation_code || "—"} />
-              <Field
-                label="Chạy thử"
-                value={state.allow_test_drive ? "CHO PHÉP" : "GIỮ LẠI"}
-                tone="info"
               />
             </div>
 
