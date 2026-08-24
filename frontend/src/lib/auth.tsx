@@ -194,7 +194,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
     });
     if (error) return { error: translateAuthError(error.message), needsEmailConfirmation: false };
     // Supabase returns no session when "Confirm email" is enabled on the project — the account
