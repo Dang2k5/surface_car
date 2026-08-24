@@ -120,7 +120,7 @@ function Accounts() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12.5px] font-medium text-foreground">
-                      {p.email || p.user_id}
+                      {p.full_name || p.email || p.user_id}
                       {p.user_id === currentProfile?.user_id ? (
                         <span className="ml-1.5 text-muted-foreground">(bạn)</span>
                       ) : null}
@@ -175,7 +175,7 @@ function Accounts() {
                     >
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[12.5px] font-medium text-foreground">
-                          {p.email || p.user_id}
+                          {p.full_name || p.email || p.user_id}
                           {p.user_id === currentProfile?.user_id ? (
                             <span className="ml-1.5 text-muted-foreground">(bạn)</span>
                           ) : null}

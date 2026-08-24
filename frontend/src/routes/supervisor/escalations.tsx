@@ -17,7 +17,7 @@ import {
   Th,
   Tr,
 } from "@/components/supervisor/ui";
-import { useAuth } from "@/lib/auth";
+import { profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useResumeInspection } from "@/lib/queries";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -48,8 +48,7 @@ function Escalations() {
   const [validationError, setValidationError] = useState("");
 
   useEffect(() => {
-    if (profile?.email) setReviewer((current) => current || profile.email!);
-    else if (profile?.user_id) setReviewer((current) => current || profile.user_id);
+    if (profile) setReviewer((current) => current || profileDisplayName(profile));
   }, [profile]);
 
   const pending = (runsQuery.data ?? []).filter(isPendingSupervisor);

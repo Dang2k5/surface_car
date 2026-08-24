@@ -31,21 +31,23 @@ DATABASE_URL=postgresql+psycopg://postgres.PROJECT_REF:URL_ENCODED_PASSWORD@aws-
 
 Password phải được URL-encode. Không đặt URL này trong biến `NEXT_PUBLIC_*`.
 
-### Object Storage (S3 / MinIO)
+### Object Storage (AWS S3)
 
 Ảnh gốc, overlay, defect crop và segmentation mask không lưu binary trong
-PostgreSQL — chúng lưu trên S3/MinIO; database chỉ lưu object key
+PostgreSQL — chúng lưu trên S3; database chỉ lưu object key
 (`original_image_key`, `overlay_image_key`, `crop_image_key`,
-`mask_image_key`, xem `API_CONTRACT.md` §5).
+`mask_image_key`, xem `API_CONTRACT.md` §5). Nếu `S3_ACCESS_KEY`/
+`S3_SECRET_KEY` để trống, backend tự fallback về local disk (`./data/uploads`)
+— chỉ dùng cho dev/demo không có AWS, không dùng cho production.
 
 | Biến | Mặc định | Mục đích |
 |---|---|---|
-| `OBJECT_STORAGE_PROVIDER` | `minio` | `minio` cho dev/demo local, `s3` cho AWS S3 hoặc dịch vụ tương thích S3 |
-| `S3_ENDPOINT` | rỗng | Endpoint MinIO/S3-compatible; bỏ trống khi dùng AWS S3 mặc định |
-| `S3_BUCKET` | `visual-qc` | Bucket chứa `inspections/<id>/original|overlay|defects|masks` |
+| `OBJECT_STORAGE_PROVIDER` | `s3` | Luôn là `s3` (AWS S3) |
+| `S3_ENDPOINT` | rỗng | Để trống — chỉ dùng nếu trỏ tới một dịch vụ S3-compatible khác AWS |
+| `S3_BUCKET` | `visual-qc` | Bucket chứa `inspections/<id>/original|overlay|defects|masks`, phải được tạo sẵn trên AWS |
 | `S3_ACCESS_KEY` | rỗng | Secret server-side |
 | `S3_SECRET_KEY` | rỗng | Secret server-side |
-| `S3_REGION` | rỗng | Bắt buộc với AWS S3, tùy chọn với MinIO |
+| `S3_REGION` | rỗng | Bắt buộc với AWS S3 |
 
 Không đưa các biến `S3_*` vào `NEXT_PUBLIC_*`. Frontend chỉ truy cập ảnh qua
 backend proxy hoặc presigned URL do backend cấp.

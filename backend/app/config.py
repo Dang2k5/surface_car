@@ -99,7 +99,7 @@ class ObjectStorageSettings:
     @classmethod
     def from_env(cls) -> ObjectStorageSettings:
         return cls(
-            provider=os.getenv("OBJECT_STORAGE_PROVIDER", "minio").strip().lower(),
+            provider=os.getenv("OBJECT_STORAGE_PROVIDER", "s3").strip().lower(),
             endpoint=os.getenv("S3_ENDPOINT") or None,
             bucket=os.getenv("S3_BUCKET", "visual-qc").strip(),
             access_key=os.getenv("S3_ACCESS_KEY") or None,

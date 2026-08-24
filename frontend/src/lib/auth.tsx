@@ -278,6 +278,12 @@ export function useAuth() {
   return ctx;
 }
 
+/** The name to show for a profile everywhere in the UI — full name first, since email/user_id
+ * are just fallbacks for accounts that signed up before `full_name` existed. */
+export function profileDisplayName(profile: AuthProfile | null | undefined): string {
+  return profile?.full_name || profile?.email || profile?.user_id || "Chưa đăng nhập";
+}
+
 export function assetUrl(pathOrUrl: string | null | undefined): string | undefined {
   if (!pathOrUrl) return undefined;
   if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) return pathOrUrl;

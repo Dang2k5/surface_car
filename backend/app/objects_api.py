@@ -10,8 +10,8 @@ router = APIRouter(prefix="/assets", tags=["Object storage"])
 
 @router.get("/objects/{key:path}")
 def get_object(request: Request, key: str) -> Response:
-    """Stream one evidence object from the configured backend (local disk,
-    MinIO, or AWS S3).
+    """Stream one evidence object from the configured backend (local disk
+    or AWS S3).
 
     This URL is stable and never expires, unlike a raw presigned S3 URL —
     it is the "backend proxy" referenced by ENVIRONMENT.md Object Storage

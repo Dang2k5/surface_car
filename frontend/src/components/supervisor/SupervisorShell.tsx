@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth";
+import { profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useAgentStatus, useQualityAlerts } from "@/lib/queries";
 import { Dot } from "@/components/qc/primitives";
 
@@ -142,7 +142,7 @@ export function SupervisorShell({ children }: { children: ReactNode }) {
             </span>
           </div>
           <div className="truncate text-[11.5px] font-medium text-foreground">
-            {profile?.email || profile?.user_id || "Chưa đăng nhập"}
+            {profileDisplayName(profile)}
           </div>
           <Link to="/" className="block text-[11px] text-info hover:underline">
             → Chuyển sang giao diện QC Inspector
@@ -174,7 +174,7 @@ export function SupervisorShell({ children }: { children: ReactNode }) {
               <Activity className="size-3.5" /> {clock ?? "--:--:--"}
             </span>
             <div className="flex size-7 items-center justify-center rounded-sm bg-info/20 font-mono text-[10px] font-bold text-info">
-              {(profile?.email || profile?.user_id || "?").slice(0, 2).toUpperCase()}
+              {profileDisplayName(profile).slice(0, 2).toUpperCase()}
             </div>
           </div>
         </header>

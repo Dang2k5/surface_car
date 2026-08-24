@@ -6,7 +6,7 @@ import { CameraFeed } from "@/components/qc/CameraFeed";
 import { ImageLightbox } from "@/components/qc/ImageLightbox";
 import { Field, Meter, Panel, VerdictBadge } from "@/components/qc/primitives";
 import { cn } from "@/lib/utils";
-import { useAuth, assetUrl } from "@/lib/auth";
+import { useAuth, assetUrl, profileDisplayName } from "@/lib/auth";
 import { useAgentRuns, useResumeInspection } from "@/lib/queries";
 import type { GraphRun, ResumeAction } from "@/lib/api-types";
 import { KNOWN_CAMERA_IDS, type Camera, type CameraId, type Defect } from "@/lib/qc-data";
@@ -108,8 +108,7 @@ function HitlQueue() {
   const [validationError, setValidationError] = useState("");
 
   useEffect(() => {
-    if (profile?.email) setReviewer((current) => current || profile.email!);
-    else if (profile?.user_id) setReviewer((current) => current || profile.user_id);
+    if (profile) setReviewer((current) => current || profileDisplayName(profile));
   }, [profile]);
 
   const cases = useMemo(() => dedupeInterrupted(runs), [runs]);
@@ -128,7 +127,6 @@ function HitlQueue() {
       active?.state.severity && active.state.severity !== "UNASSESSED" ? active.state.severity : "",
     );
     setDefectCode(active?.state.classified_defect_code || "");
-    setLocation(active?.state.visual_measurements?.relative_position || "");
     setLengthMm(
       active?.state.visual_measurements?.estimated_length_mm != null
         ? active.state.visual_measurements.estimated_length_mm.toFixed(1)
@@ -141,6 +139,14 @@ function HitlQueue() {
     setValidationError("");
     setSelectedCameraId(null);
   }, [active?.thread_id]);
+
+  // Vị trí lỗi bám theo camera đang xem, chứ không phải nhập tay — 5 camera mount cố định
+  // (CAMERA_POSITION_LABELS) là vị trí thật duy nhất mà hệ thống biết chắc chắn.
+  useEffect(() => {
+    const camId = selectedCameraId ?? (active?.state.camera_id as CameraId | undefined);
+    const known = camId && KNOWN_CAMERA_IDS.includes(camId) ? camId : undefined;
+    setLocation(known ? CAMERA_POSITION_LABELS[known] : "");
+  }, [active?.thread_id, active?.state.camera_id, selectedCameraId]);
 
   if (isLoading) {
     return (
@@ -298,7 +304,7 @@ function HitlQueue() {
                     <button
                       onClick={() => setOpenThreadId(c.thread_id)}
                       className={cn(
-                        "w-full rounded-sm border px-3 py-3 text-left transition-colors",
+                        "w-full rounded-sm border px-3 py-2.5 text-left transition-colors",
                         isOpen
                           ? "border-info/45 bg-info/10"
                           : "border-warning/35 bg-surface-2 hover:border-warning/60",
@@ -322,16 +328,16 @@ function HitlQueue() {
                         </span>
                       </div>
                       <div className="label-caps mt-0.5">XE {c.state.vehicle_id}</div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 font-mono text-[11px]">
+                      <div className="mt-1.5 grid grid-cols-2 gap-2 font-mono text-[11px]">
                         <span className="text-foreground">{c.state.defect_type || "—"}</span>
                         <span className="text-right text-warning">
                           {toPercent(c.state.confidence)}%
                         </span>
                       </div>
-                      <p className="mt-1 truncate font-mono text-[10px] tracking-wider text-muted-foreground">
-                        {(c.state.reason || "").toUpperCase()}
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                        {c.state.reason || "—"}
                       </p>
-                      <div className="mt-2 flex items-center justify-between">
+                      <div className="mt-1.5 flex items-center justify-between">
                         <span className="font-mono text-[10px] tracking-[0.14em] text-warning">
                           ĐANG CHỜ
                         </span>
@@ -390,11 +396,14 @@ function HitlQueue() {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3">
-                <Field label="Loại lỗi" value={state.defect_type || "—"} />
-                <Field label="Lý do AI" value={state.reason || "—"} tone="warning" />
-                <Field label="Model xe" value={state.vehicle_model} />
-                <Field label="Mức ưu tiên" value={derivePriority(state.severity)} tone="danger" />
                 <Field label="Camera" value={state.camera_id} tone="info" />
+                <Field label="Model xe" value={state.vehicle_model} />
+                <Field label="Loại lỗi" value={state.defect_type || "—"} />
+                <Field label="Mức ưu tiên" value={derivePriority(state.severity)} tone="danger" />
+                <div className="col-span-2 min-w-0">
+                  <div className="label-caps">Lý do AI</div>
+                  <div className="mt-1 text-sm text-warning">{state.reason || "—"}</div>
+                </div>
               </div>
 
               <div className="mt-4 space-y-3 rounded-sm border border-border bg-surface-2 p-3">
@@ -462,19 +471,16 @@ function HitlQueue() {
                   </label>
                   <label className="col-span-2 block">
                     <span className="label-caps">Vị trí</span>
-                    <input
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="vd. cửa trái"
-                      className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/60"
-                    />
+                    <div className="mt-1 w-full truncate rounded-sm border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-muted-foreground">
+                      {location || "—"}
+                    </div>
                   </label>
                   <label className="col-span-2 block">
                     <span className="label-caps">Người xét duyệt</span>
                     <input
                       value={reviewer}
                       onChange={(e) => setReviewer(e.target.value)}
-                      placeholder="Tên hoặc email người xét duyệt"
+                      placeholder="Tên người xét duyệt"
                       className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/60"
                     />
                   </label>
@@ -483,7 +489,7 @@ function HitlQueue() {
 
               <div className="mt-4">
                 <label className="label-caps" htmlFor="reason">
-                  Lý do (bắt buộc khi override AI)
+                  Lý do
                 </label>
                 <textarea
                   id="reason"
@@ -498,7 +504,7 @@ function HitlQueue() {
                 />
 
                 <label className="label-caps mt-2 block" htmlFor="notes">
-                  Ghi chú (tùy chọn)
+                  Ghi chú
                 </label>
                 <textarea
                   id="notes"
@@ -509,7 +515,7 @@ function HitlQueue() {
                 />
 
                 <label className="label-caps mt-2 block" htmlFor="override-recommendation">
-                  Đề xuất chuyển cấp (bắt buộc khi chọn REVIEW / ESCALATE)
+                  Đề xuất chuyển cấp
                 </label>
                 <input
                   id="override-recommendation"

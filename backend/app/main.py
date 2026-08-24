@@ -109,11 +109,11 @@ def _build_object_storage(
     """Build the configured object storage backend, never crashing startup.
 
     Mirrors the Noop/dev-bypass convention used by every other optional
-    integration in this backend: an unreachable or unconfigured MinIO/S3
-    falls back to local disk instead of blocking the whole app from
-    starting (ENVIRONMENT.md Object Storage).
+    integration in this backend: an unreachable or unconfigured S3 falls
+    back to local disk instead of blocking the whole app from starting
+    (ENVIRONMENT.md Object Storage).
     """
-    if settings.provider in {"minio", "s3"} and settings.access_key and settings.secret_key:
+    if settings.provider == "s3" and settings.access_key and settings.secret_key:
         try:
             return S3ObjectStorage(
                 provider=settings.provider,

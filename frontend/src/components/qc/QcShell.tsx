@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dot } from "./primitives";
-import { useAuth } from "@/lib/auth";
+import { profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useAgentStatus, useQualityAlerts } from "@/lib/queries";
 import { IdentityPanel } from "./IdentityPanel";
 
@@ -135,7 +135,7 @@ export function QcShell({ children }: { children: ReactNode }) {
   const latestRun = runs?.[0];
   const usedCameras = new Set((latestRun?.state.camera_evidence ?? []).map((e) => e.camera_id));
   const stationId = latestRun?.state.station_id || "—";
-  const initials = (profile?.email || profile?.user_id || "?").slice(0, 2).toUpperCase();
+  const initials = profileDisplayName(profile).slice(0, 2).toUpperCase();
 
   return (
     <div className="flex min-h-screen">
@@ -208,9 +208,7 @@ export function QcShell({ children }: { children: ReactNode }) {
                 <UserRound className="size-4" />
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">
-                  {profile?.email || profile?.user_id || "Chưa đăng nhập"}
-                </div>
+                <div className="truncate text-sm font-medium">{profileDisplayName(profile)}</div>
                 <div className="label-caps">
                   {profile ? profile.role : "Chưa xác thực"} · Trạm {stationId}
                 </div>

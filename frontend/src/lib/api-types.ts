@@ -5,6 +5,7 @@ export type Role = "QC_OPERATOR" | "QC_SUPERVISOR";
 export type AuthProfile = {
   user_id: string;
   email: string | null;
+  full_name: string | null;
   role: Role | string;
   station_id?: string | null;
 };
@@ -12,6 +13,7 @@ export type AuthProfile = {
 export type Profile = {
   user_id: string;
   email: string | null;
+  full_name: string | null;
   role: Role | string;
   station_id: string | null;
   created_at: string;

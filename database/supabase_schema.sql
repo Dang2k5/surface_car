@@ -100,6 +100,7 @@ where defect_code in ('PAINT01', 'CRACK01', 'GLASS01', 'LAMP01', 'TIRE01');
 create table if not exists public.profiles (
   user_id text primary key,
   email text,
+  full_name text,
   role text not null default 'QC_OPERATOR',
   station_id text,
   created_at text not null,

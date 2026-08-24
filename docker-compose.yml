@@ -1,25 +1,10 @@
 version: "3.8"
 
 services:
-  # Optional local Object Storage (ENVIRONMENT.md). Start with:
-  #   docker compose up minio
-  # Then in .env: OBJECT_STORAGE_PROVIDER=minio, S3_ENDPOINT=http://localhost:9000,
-  # S3_ACCESS_KEY=minioadmin, S3_SECRET_KEY=minioadmin (change for anything beyond
-  # local dev/demo). Not required — leaving S3_ACCESS_KEY/S3_SECRET_KEY unset in
-  # .env keeps the backend on local disk storage with no code change.
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio-data:/data
-    restart: unless-stopped
-
+  # Object storage is AWS S3 (agent/services/object_storage.py). Set
+  # OBJECT_STORAGE_PROVIDER=s3, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY,
+  # S3_REGION in .env; leave S3_ACCESS_KEY/S3_SECRET_KEY unset to keep the
+  # backend on local disk storage with no code change (dev/demo fallback).
   backend:
     build:
       context: .
@@ -36,6 +21,3 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  minio-data:

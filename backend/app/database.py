@@ -132,6 +132,7 @@ class Database:
             """CREATE TABLE IF NOT EXISTS profiles (
                 user_id TEXT PRIMARY KEY,
                 email TEXT,
+                full_name TEXT,
                 role TEXT NOT NULL DEFAULT 'QC_OPERATOR',
                 station_id TEXT,
                 created_at TEXT NOT NULL,
@@ -273,6 +274,8 @@ class Database:
                 connection.execute(text("ALTER TABLE stations DROP COLUMN zone_name"))
             if "station_id" not in profile_existing:
                 connection.execute(text("ALTER TABLE profiles ADD COLUMN station_id TEXT"))
+            if "full_name" not in profile_existing:
+                connection.execute(text("ALTER TABLE profiles ADD COLUMN full_name TEXT"))
 
     def _seed_defect_catalog(self) -> None:
         now = datetime.now(UTC).isoformat()
@@ -642,25 +645,49 @@ class Database:
         return self.fetch_all("SELECT * FROM qc_decisions ORDER BY created_at DESC")
 
     def get_or_create_profile(
-        self, user_id: str, email: str | None, default_role: str
+        self, user_id: str, email: str | None, default_role: str, full_name: str | None = None
     ) -> dict[str, Any]:
         """Return the profile row for `user_id`, provisioning one with `default_role`
-        on first authenticated request (ENVIRONMENT.md: DEFAULT_QC_ROLE)."""
+        on first authenticated request (ENVIRONMENT.md: DEFAULT_QC_ROLE).
+
+        `full_name` comes from the Supabase JWT's `user_metadata.full_name`, set at sign-up
+        (frontend/src/lib/auth.tsx signUp). Backfill it onto an already-provisioned row too —
+        the first authenticated request can race the metadata landing on the token, and older
+        rows were provisioned before this column existed.
+        """
         existing = self.fetch_one(
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
         )
         if existing:
+            if full_name and not existing.get("full_name"):
+                self.execute(
+                    "UPDATE profiles SET full_name = :full_name, updated_at = :updated_at "
+                    "WHERE user_id = :user_id",
+                    {
+                        "full_name": full_name,
+                        "updated_at": datetime.now(UTC).isoformat(),
+                        "user_id": user_id,
+                    },
+                )
+                existing = {**existing, "full_name": full_name}
             return existing
         now = datetime.now(UTC).isoformat()
         self.execute(
-            """INSERT INTO profiles (user_id, email, role, created_at, updated_at)
-            VALUES (:user_id, :email, :role, :created_at, :updated_at)
+            """INSERT INTO profiles (user_id, email, full_name, role, created_at, updated_at)
+            VALUES (:user_id, :email, :full_name, :role, :created_at, :updated_at)
             ON CONFLICT(user_id) DO NOTHING""",
-            {"user_id": user_id, "email": email, "role": default_role, "created_at": now, "updated_at": now},
+            {
+                "user_id": user_id,
+                "email": email,
+                "full_name": full_name,
+                "role": default_role,
+                "created_at": now,
+                "updated_at": now,
+            },
         )
         return self.fetch_one(
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
-        ) or {"user_id": user_id, "email": email, "role": default_role}
+        ) or {"user_id": user_id, "email": email, "full_name": full_name, "role": default_role}
 
     def list_profiles(self) -> list[dict[str, Any]]:
         return self.fetch_all("SELECT * FROM profiles ORDER BY created_at")

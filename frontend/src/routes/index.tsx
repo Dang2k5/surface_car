@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowRight, CircleCheck, Clock, Cpu, Video } from "lucid
 import { Dot, Meter, Panel } from "@/components/qc/primitives";
 import { SystemStatusList } from "@/components/qc/SystemStatus";
 import { cn } from "@/lib/utils";
-import { assetUrl, useAuth } from "@/lib/auth";
+import { assetUrl, profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useAgentStatus, useQualityAlerts } from "@/lib/queries";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -163,7 +163,7 @@ function ShiftOverview() {
           </h1>
           <p className="mt-1 font-mono text-[11px] tracking-wider text-muted-foreground">
             TRẠM {latestRun?.state.station_id || "—"} · NGƯỜI VẬN HÀNH{" "}
-            {(profile?.email || profile?.user_id || "CHƯA ĐĂNG NHẬP").toUpperCase()}
+            {profileDisplayName(profile).toUpperCase()}
           </p>
         </div>
         <div

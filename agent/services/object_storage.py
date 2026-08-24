@@ -20,10 +20,10 @@ class ObjectNotFoundError(FileNotFoundError):
 class LocalDiskObjectStorage:
     """Default provider: writes under `data/uploads/`.
 
-    Zero-config fallback used when S3/MinIO is not configured or not
-    reachable at startup (ENVIRONMENT.md Object Storage). Keeps local
-    dev/demo working with no external dependency, matching the Noop/
-    dev-bypass convention used by the other optional integrations.
+    Zero-config fallback used when S3 is not configured or not reachable
+    at startup (ENVIRONMENT.md Object Storage). Keeps local dev/demo
+    working with no external dependency, matching the Noop/dev-bypass
+    convention used by the other optional integrations.
     """
 
     def __init__(self, root: Path) -> None:
@@ -58,13 +58,12 @@ class LocalDiskObjectStorage:
 
 
 class S3ObjectStorage:
-    """S3-compatible provider shared by MinIO (dev/demo) and AWS S3
-    (production) — one boto3 client; only `endpoint` differs.
+    """AWS S3 object storage backend (production).
 
-    ENVIRONMENT.md: `OBJECT_STORAGE_PROVIDER=minio` for local dev/demo,
-    `s3` for AWS S3 or another S3-compatible service. Switching between the
-    two in production is an environment-variable change only, never a code
-    change, as long as the caller keeps using this same class.
+    ENVIRONMENT.md: `OBJECT_STORAGE_PROVIDER=s3`, `S3_BUCKET`, `S3_ACCESS_KEY`,
+    `S3_SECRET_KEY`, `S3_REGION`. The bucket must already exist (provisioned
+    via AWS Console/Terraform, not auto-created by the app) — a missing
+    bucket surfaces as a clear error on first read/write.
     """
 
     def __init__(
@@ -102,12 +101,9 @@ class S3ObjectStorage:
         try:
             self.client.head_bucket(Bucket=self.bucket)
         except ClientError:
-            if self.provider != "minio":
-                # AWS S3 buckets are provisioned as infrastructure (Terraform/
-                # console), not auto-created by the app; a missing bucket on
-                # "s3" surfaces as a clear error on first read/write instead.
-                return
-            self.client.create_bucket(Bucket=self.bucket)
+            # Bucket is provisioned as infrastructure, not auto-created here;
+            # a missing bucket will surface as a clear error on first read/write.
+            return
 
     def put(self, key: str, data: bytes, content_type: str) -> None:
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)

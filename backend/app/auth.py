@@ -21,6 +21,7 @@ class CurrentUser:
     email: str | None
     role: str
     station_id: str | None = None
+    full_name: str | None = None
 
 
 def _decode_bearer_token(request: Request) -> dict:
@@ -93,11 +94,18 @@ def get_current_user(request: Request) -> CurrentUser:
     if not user_id:
         raise HTTPException(status_code=401, detail="Supabase access token missing sub claim")
     email = claims.get("email")
+    # Supabase stores sign-up options.data (frontend/src/lib/auth.tsx signUp's { full_name })
+    # under the "user_metadata" claim.
+    full_name = (claims.get("user_metadata") or {}).get("full_name")
     profile = request.app.state.database.get_or_create_profile(
-        user_id, email, settings.default_qc_role
+        user_id, email, settings.default_qc_role, full_name
     )
     return CurrentUser(
-        user_id=user_id, email=email, role=profile["role"], station_id=profile.get("station_id")
+        user_id=user_id,
+        email=email,
+        role=profile["role"],
+        station_id=profile.get("station_id"),
+        full_name=profile.get("full_name"),
     )
 
 
