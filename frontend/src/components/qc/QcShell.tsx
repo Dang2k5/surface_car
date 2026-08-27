@@ -136,6 +136,7 @@ export function QcShell({ children }: { children: ReactNode }) {
   const usedCameras = new Set((latestRun?.state.camera_evidence ?? []).map((e) => e.camera_id));
   const stationId = latestRun?.state.station_id || "—";
   const initials = profileDisplayName(profile).slice(0, 2).toUpperCase();
+  const currentNav = nav.find((item) => item.to === pathname);
 
   return (
     <div className="flex min-h-screen">
@@ -235,9 +236,9 @@ export function QcShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-20 flex items-center gap-4 border-b border-border bg-background/85 px-6 py-3 backdrop-blur">
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold tracking-wide text-foreground">
-              Trạm kiểm tra bề mặt QC — Station 03
+              {currentNav?.label ?? "AUTO QC"}
             </h1>
-            <div className="label-caps">Trạm {stationId}</div>
+            <div className="label-caps">{currentNav?.sub ?? "SURFACE VISION AI"}</div>
           </div>
           <div className="ml-auto flex items-center gap-4">
             <div

@@ -94,12 +94,19 @@ def get_current_user(request: Request) -> CurrentUser:
     if not user_id:
         raise HTTPException(status_code=401, detail="Supabase access token missing sub claim")
     email = claims.get("email")
-    # Supabase stores sign-up options.data (frontend/src/lib/auth.tsx signUp's { full_name })
-    # under the "user_metadata" claim.
-    full_name = (claims.get("user_metadata") or {}).get("full_name")
+    # Supabase stores sign-up options.data (frontend/src/lib/auth.tsx signUp's
+    # { full_name, station_id }) under the "user_metadata" claim.
+    metadata = claims.get("user_metadata") or {}
+    full_name = metadata.get("full_name")
+    station_id = metadata.get("station_id")
     profile = request.app.state.database.get_or_create_profile(
-        user_id, email, settings.default_qc_role, full_name
+        user_id, email, settings.default_qc_role, full_name, station_id
     )
+    # Deactivation is enforced here rather than per-endpoint so one check closes the whole API.
+    # An already-issued Supabase JWT stays cryptographically valid, so a locked-out account keeps
+    # working until its next request — at most ~30s given the frontend's /api/auth/me refetch.
+    if not profile.get("active", 1):
+        raise HTTPException(status_code=403, detail="Tài khoản đã bị khóa. Liên hệ QC Supervisor.")
     return CurrentUser(
         user_id=user_id,
         email=email,

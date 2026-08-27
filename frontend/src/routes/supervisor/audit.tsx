@@ -42,7 +42,6 @@ function Audit() {
     <div className="space-y-4">
       <PageHeader
         title="Nhật ký & Override"
-        description="Toàn bộ quyết định QC đã ghi nhận, bất biến theo thời gian (GET /api/qc/decisions)."
         meta={[{ label: "Tổng số", value: String(decisions.length) }]}
       />
 

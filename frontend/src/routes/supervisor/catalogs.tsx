@@ -708,15 +708,23 @@ function StationsPanel() {
 
 function Catalogs() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Ca, Lô & Trạm QC" />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <StationsPanel />
-        <ShiftsPanel />
-        <div className="xl:col-span-2">
-          <LotsPanel />
+
+      {/* Trạm và Ca là cấu trúc tổ chức cố định — Lô tham chiếu tới chúng khi được tạo, nên
+       * hai catalog này phải tồn tại trước. Tách khỏi Lô vì tần suất thay đổi khác hẳn nhau. */}
+      <section className="space-y-3">
+        <div className="label-caps border-b border-border pb-1.5">Cấu hình nền tảng</div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <StationsPanel />
+          <ShiftsPanel />
         </div>
-      </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="label-caps border-b border-border pb-1.5">Vận hành hàng ngày</div>
+        <LotsPanel />
+      </section>
     </div>
   );
 }

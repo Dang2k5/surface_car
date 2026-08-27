@@ -135,6 +135,7 @@ class Database:
                 full_name TEXT,
                 role TEXT NOT NULL DEFAULT 'QC_OPERATOR',
                 station_id TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""",
@@ -276,6 +277,13 @@ class Database:
                 connection.execute(text("ALTER TABLE profiles ADD COLUMN station_id TEXT"))
             if "full_name" not in profile_existing:
                 connection.execute(text("ALTER TABLE profiles ADD COLUMN full_name TEXT"))
+            # Deactivating an account is how a supervisor offboards someone (staff left, rotated
+            # out) — enforced centrally in backend/app/auth.py's get_current_user, so every
+            # endpoint is closed at once. Existing rows default to active.
+            if "active" not in profile_existing:
+                connection.execute(
+                    text("ALTER TABLE profiles ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+                )
 
     def _seed_defect_catalog(self) -> None:
         now = datetime.now(UTC).isoformat()
@@ -645,62 +653,92 @@ class Database:
         return self.fetch_all("SELECT * FROM qc_decisions ORDER BY created_at DESC")
 
     def get_or_create_profile(
-        self, user_id: str, email: str | None, default_role: str, full_name: str | None = None
+        self,
+        user_id: str,
+        email: str | None,
+        default_role: str,
+        full_name: str | None = None,
+        station_id: str | None = None,
     ) -> dict[str, Any]:
         """Return the profile row for `user_id`, provisioning one with `default_role`
         on first authenticated request (ENVIRONMENT.md: DEFAULT_QC_ROLE).
 
-        `full_name` comes from the Supabase JWT's `user_metadata.full_name`, set at sign-up
-        (frontend/src/lib/auth.tsx signUp). Backfill it onto an already-provisioned row too —
-        the first authenticated request can race the metadata landing on the token, and older
-        rows were provisioned before this column existed.
+        `full_name` and `station_id` come from the Supabase JWT's `user_metadata`, set at
+        sign-up (frontend/src/lib/auth.tsx signUp). Backfill them onto an already-provisioned
+        row too — the first authenticated request can race the metadata landing on the token,
+        and older rows were provisioned before these columns existed.
+
+        `station_id` is only honoured when it names a station that actually exists; a stale or
+        removed station in the token is ignored rather than blocking sign-in, leaving the
+        account unassigned for a supervisor to fix (frontend/src/routes/supervisor/accounts.tsx).
         """
+        if station_id and self.get_station(station_id) is None:
+            station_id = None
         existing = self.fetch_one(
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
         )
         if existing:
+            backfill: dict[str, Any] = {}
             if full_name and not existing.get("full_name"):
+                backfill["full_name"] = full_name
+            if station_id and not existing.get("station_id"):
+                backfill["station_id"] = station_id
+            if backfill:
+                assignments = ", ".join(f"{key} = :{key}" for key in backfill)
                 self.execute(
-                    "UPDATE profiles SET full_name = :full_name, updated_at = :updated_at "
+                    f"UPDATE profiles SET {assignments}, updated_at = :updated_at "
                     "WHERE user_id = :user_id",
                     {
-                        "full_name": full_name,
+                        **backfill,
                         "updated_at": datetime.now(UTC).isoformat(),
                         "user_id": user_id,
                     },
                 )
-                existing = {**existing, "full_name": full_name}
+                existing = {**existing, **backfill}
             return existing
         now = datetime.now(UTC).isoformat()
         self.execute(
-            """INSERT INTO profiles (user_id, email, full_name, role, created_at, updated_at)
-            VALUES (:user_id, :email, :full_name, :role, :created_at, :updated_at)
+            """INSERT INTO profiles
+            (user_id, email, full_name, role, station_id, active, created_at, updated_at)
+            VALUES (:user_id, :email, :full_name, :role, :station_id, 1, :created_at, :updated_at)
             ON CONFLICT(user_id) DO NOTHING""",
             {
                 "user_id": user_id,
                 "email": email,
                 "full_name": full_name,
                 "role": default_role,
+                "station_id": station_id,
                 "created_at": now,
                 "updated_at": now,
             },
         )
         return self.fetch_one(
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
-        ) or {"user_id": user_id, "email": email, "full_name": full_name, "role": default_role}
+        ) or {
+            "user_id": user_id,
+            "email": email,
+            "full_name": full_name,
+            "role": default_role,
+            "station_id": station_id,
+            "active": 1,
+        }
 
     def list_profiles(self) -> list[dict[str, Any]]:
         return self.fetch_all("SELECT * FROM profiles ORDER BY created_at")
 
     def update_profile(self, user_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-        """Supervisor-only account management: reassign an inspector's station or promote/
-        demote between QC_OPERATOR and QC_SUPERVISOR (backend/app/auth_api.py)."""
+        """Supervisor-only account management: reassign an inspector's station, promote/demote
+        between QC_OPERATOR and QC_SUPERVISOR, or deactivate the account (backend/app/auth_api.py)."""
         existing = self.fetch_one(
             "SELECT * FROM profiles WHERE user_id = :user_id", {"user_id": user_id}
         )
         if not existing:
             return None
-        fields = {key: value for key, value in patch.items() if key in ("role", "station_id")}
+        fields = {
+            key: value for key, value in patch.items() if key in ("role", "station_id", "active")
+        }
+        if "active" in fields:
+            fields["active"] = 1 if fields["active"] else 0
         if fields:
             fields["updated_at"] = datetime.now(UTC).isoformat()
             assignments = ", ".join(f"{key} = :{key}" for key in fields)

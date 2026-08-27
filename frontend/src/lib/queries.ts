@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "./auth";
+import { API_BASE, useAuth } from "./auth";
 import type {
   AgentStatus,
   GraphRun,
@@ -9,6 +9,7 @@ import type {
   LotProductAllocate,
   LotUpdate,
   PolicyCatalog,
+  PolicyExtractionResult,
   PolicyItemCreate,
   PolicyItemUpdate,
   Profile,
@@ -22,6 +23,7 @@ import type {
   ShiftUpdate,
   Station,
   StationCreate,
+  StationOption,
   StationUpdate,
   SubmitMultiInspection,
   SubmitSingleInspection,
@@ -226,6 +228,52 @@ export function useCreatePolicy() {
   });
 }
 
+export function useExtractPolicyDraft() {
+  const { authedFetch } = useAuth();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await authedFetch(
+        "/api/policies/extract",
+        { method: "POST", body: form },
+        60_000,
+      );
+      return json<PolicyExtractionResult>(response);
+    },
+  });
+}
+
+export function useCreateSource() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      file,
+      fields,
+    }: {
+      file: File;
+      fields: PolicyExtractionResult["source_draft"] & { id: string };
+    }) => {
+      // Multipart on purpose: this is the only moment the uploaded document is
+      // written to object storage, so a supervisor who never saves the AI draft
+      // never leaves an orphaned file behind (see backend/app/policy_api.py).
+      const form = new FormData();
+      form.append("file", file);
+      for (const [key, value] of Object.entries(fields)) {
+        if (value !== null && value !== undefined) form.append(key, value);
+      }
+      const response = await authedFetch(
+        "/api/policies/sources",
+        { method: "POST", body: form },
+        60_000,
+      );
+      return json<PolicyExtractionResult["source_draft"] & { id: string }>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["policies", "catalog"] }),
+  });
+}
+
 export function useUpdatePolicy() {
   const { authedFetch } = useAuth();
   const queryClient = useQueryClient();
@@ -398,6 +446,18 @@ export function useStations(activeOnly = true) {
         json<Station[]>(r),
       ),
     staleTime: 30_000,
+  });
+}
+
+/** Stations offered on the sign-up form. Deliberately bypasses authedFetch: the caller has no
+ * account yet, so there is no token to send (backend/app/catalog_api.py list_station_options). */
+export function useStationOptions(enabled = true) {
+  return useQuery({
+    queryKey: ["catalog", "station-options"],
+    queryFn: () => fetch(`${API_BASE}/api/catalog/stations/options`).then((r) => json<StationOption[]>(r)),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 

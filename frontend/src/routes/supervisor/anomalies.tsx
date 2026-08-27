@@ -30,7 +30,6 @@ function Anomalies() {
     <div className="space-y-4">
       <PageHeader
         title="Bất thường hệ thống"
-        description="Cảnh báo lặp lại được phát hiện tự động từ cửa sổ trượt các inspection gần đây (GET /api/quality-alerts)."
         meta={[
           { label: "Tổng số", value: String(alerts.length) },
           { label: "Nghiêm trọng", value: String(criticalCount) },

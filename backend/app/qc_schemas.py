@@ -31,6 +31,7 @@ class DefectCodeCreate(BaseModel):
 class ProfileUpdate(BaseModel):
     role: Literal["QC_OPERATOR", "QC_SUPERVISOR"] | None = None
     station_id: str | None = None
+    active: bool | None = None
 
 
 class ShiftCreate(BaseModel):
@@ -164,6 +165,28 @@ class PolicyItemCreate(BaseModel):
         if not self.action_code and not self.action_code_by_defect:
             raise ValueError("Either action_code or action_code_by_defect is required")
         return self
+
+
+class PolicySourceCreate(BaseModel):
+    id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{2,63}$")
+    document_family: str = Field(min_length=1, max_length=80)
+    revision: str = Field(min_length=1, max_length=40)
+    section: str = Field(min_length=1, max_length=200)
+    effective_date: str | None = None
+    expiry_date: str | None = None
+    document_status: str = "DRAFT"
+    authority: str = "REFERENCE"
+    title: str = Field(min_length=1, max_length=200)
+    scope: str = Field(min_length=1, max_length=2000)
+    # Set by the server from the uploaded file (policy_extract_api.create_source),
+    # never accepted from the client — a source always points at a file this backend
+    # actually stored, not an arbitrary client-supplied URL.
+    url: str = Field(default="", max_length=500)
+
+    @field_validator("id")
+    @classmethod
+    def normalize_id(cls, value: str) -> str:
+        return value.strip().upper()
 
 
 class PolicyItemUpdate(BaseModel):

@@ -6,6 +6,7 @@ import { SystemStatusList } from "@/components/qc/SystemStatus";
 import { cn } from "@/lib/utils";
 import { assetUrl, profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useAgentStatus, useQualityAlerts } from "@/lib/queries";
+import { defectsFromState, SEVERITY_LABEL_VI } from "@/lib/detection-geometry";
 import type { GraphRun } from "@/lib/api-types";
 
 export const Route = createFileRoute("/")({
@@ -117,7 +118,7 @@ function ShiftOverview() {
   // the backend (GET /agent/runs is ordered updated_at DESC).
   const latestRun =
     runsQuery.data?.find((r) => r.status === "INTERRUPTED") ?? runsQuery.data?.[0] ?? null;
-  const trace = latestRun?.state.execution_trace ?? [];
+  const latestDefects = defectsFromState(latestRun?.state);
   const engineOnline = statusQuery.data?.langgraph === "READY";
 
   const alerts = alertsQuery.data?.alerts ?? [];
@@ -162,8 +163,7 @@ function ShiftOverview() {
             TỔNG QUAN CA LÀM VIỆC
           </h1>
           <p className="mt-1 font-mono text-[11px] tracking-wider text-muted-foreground">
-            TRẠM {latestRun?.state.station_id || "—"} · NGƯỜI VẬN HÀNH{" "}
-            {profileDisplayName(profile).toUpperCase()}
+            NGƯỜI VẬN HÀNH {profileDisplayName(profile).toUpperCase()}
           </p>
         </div>
         <div
@@ -274,23 +274,32 @@ function ShiftOverview() {
               </div>
 
               <ol className="mt-5 space-y-1.5">
-                {trace.length > 0 ? (
-                  trace.map((step, i) => (
+                {latestDefects.length > 0 ? (
+                  latestDefects.map((d) => (
                     <li
-                      key={`${step.node}-${i}`}
+                      key={d.id}
                       className="flex items-center justify-between gap-3 rounded-sm border border-border bg-surface-2 px-3 py-2"
                     >
                       <span className="min-w-0 truncate font-mono text-xs text-foreground">
-                        {step.node}
+                        {d.type} · {d.location}
                       </span>
-                      <span className="shrink-0 font-mono text-[10px] tracking-wider text-muted-foreground">
-                        {step.status}
+                      <span
+                        className={cn(
+                          "shrink-0 font-mono text-[10px] tracking-wider",
+                          d.severity === "Critical"
+                            ? "text-destructive"
+                            : d.severity === "Major"
+                              ? "text-warning"
+                              : "text-muted-foreground",
+                        )}
+                      >
+                        {SEVERITY_LABEL_VI[d.severity].toUpperCase()} · {d.confidence}%
                       </span>
                     </li>
                   ))
                 ) : (
-                  <li className="rounded-sm border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-muted-foreground">
-                    Chưa có nhật ký thực thi cho lần kiểm tra này.
+                  <li className="rounded-sm border border-success/35 bg-success/5 px-3 py-2 font-mono text-xs text-success">
+                    Không phát hiện lỗi nào ở lần kiểm tra này.
                   </li>
                 )}
               </ol>

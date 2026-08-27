@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Badge, EmptyState, PageHeader, Panel } from "@/components/supervisor/ui";
+import { Lock, Unlock } from "lucide-react";
+import { Badge, Btn, EmptyState, PageHeader, Panel } from "@/components/supervisor/ui";
 import { useAuth } from "@/lib/auth";
 import { useProfiles, useStations, useUpdateProfile } from "@/lib/queries";
-import type { Profile, Role } from "@/lib/api-types";
+import { cn } from "@/lib/utils";
+import type { Profile, Role, Station } from "@/lib/api-types";
 
 export const Route = createFileRoute("/supervisor/accounts")({
   head: () => ({
@@ -15,7 +17,114 @@ export const Route = createFileRoute("/supervisor/accounts")({
 const UNASSIGNED = "__unassigned__";
 
 const moveSelectClass =
-  "h-7 min-w-0 rounded-sm border border-border bg-surface-2 px-1.5 text-[11px] text-foreground outline-none focus:border-ring";
+  "h-7 min-w-0 rounded-sm border border-border bg-surface-2 px-1.5 text-[11px] text-foreground outline-none focus:border-ring disabled:opacity-50";
+
+/** SQLite returns 0/1 where Postgres returns a boolean; a row provisioned before the column
+ * existed has neither, and predates deactivation entirely — so it counts as active. */
+function isProfileActive(p: Profile): boolean {
+  return p.active === undefined || p.active === true || p.active === 1;
+}
+
+function AccountRow({
+  profile: p,
+  isSelf,
+  stations,
+  stationId,
+  busy,
+  onMove,
+  onChangeRole,
+  onToggleActive,
+}: {
+  profile: Profile;
+  isSelf: boolean;
+  stations: Station[];
+  /** The station this row is listed under, or null in the unassigned panel. */
+  stationId: string | null;
+  busy: boolean;
+  onMove: (p: Profile, stationId: string) => void;
+  onChangeRole: (p: Profile, role: Role) => void;
+  onToggleActive: (p: Profile, active: boolean) => void;
+}) {
+  const active = isProfileActive(p);
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0",
+        !active && "opacity-60",
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[12.5px] font-medium text-foreground">
+          {p.full_name || p.email || p.user_id}
+          {isSelf ? <span className="ml-1.5 text-muted-foreground">(bạn)</span> : null}
+        </div>
+        {!active ? (
+          <Badge tone="warn" className="mt-1">
+            Đã khóa
+          </Badge>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <select
+          value={p.role === "QC_SUPERVISOR" ? "QC_SUPERVISOR" : "QC_OPERATOR"}
+          onChange={(e) => onChangeRole(p, e.target.value as Role)}
+          disabled={isSelf || busy}
+          title={isSelf ? "Không thể tự thay đổi vai trò của chính mình" : "Đổi vai trò"}
+          className={moveSelectClass}
+        >
+          <option value="QC_OPERATOR">QC_OPERATOR</option>
+          <option value="QC_SUPERVISOR">QC_SUPERVISOR</option>
+        </select>
+        {stationId === null ? (
+          <select
+            value=""
+            onChange={(e) => e.target.value && onMove(p, e.target.value)}
+            disabled={busy}
+            className={moveSelectClass}
+          >
+            <option value="">Gán vào trạm…</option>
+            {stations.map((s) => (
+              <option key={s.station_id} value={s.station_id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <select
+            value={stationId}
+            onChange={(e) => onMove(p, e.target.value === UNASSIGNED ? "" : e.target.value)}
+            disabled={busy}
+            title="Chuyển sang trạm khác"
+            className={moveSelectClass}
+          >
+            <option value={UNASSIGNED}>— Bỏ gán —</option>
+            {stations.map((opt) => (
+              <option key={opt.station_id} value={opt.station_id}>
+                {opt.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <Btn
+          variant={active ? "danger" : "success"}
+          size="xs"
+          disabled={isSelf || busy}
+          onClick={() => onToggleActive(p, !active)}
+          title={
+            isSelf
+              ? "Không thể tự khóa tài khoản của chính mình"
+              : active
+                ? "Khóa tài khoản — chặn mọi truy cập API"
+                : "Mở khóa tài khoản"
+          }
+        >
+          {active ? <Lock className="size-3" /> : <Unlock className="size-3" />}
+          {active ? "Khóa" : "Mở"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
 
 function Accounts() {
   const { profile: currentProfile } = useAuth();
@@ -39,34 +148,27 @@ function Accounts() {
     return byStation;
   }, [profiles, stations]);
 
-  async function move(p: Profile, stationId: string) {
+  async function patch(p: Profile, payload: Parameters<typeof updateProfile.mutateAsync>[0]["payload"], failure: string) {
     setError("");
     setMovingId(p.user_id);
     try {
-      await updateProfile.mutateAsync({
-        userId: p.user_id,
-        payload: { station_id: stationId || null },
-      });
+      await updateProfile.mutateAsync({ userId: p.user_id, payload });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Chuyển trạm thất bại.");
+      setError(err instanceof Error ? err.message : failure);
     } finally {
       setMovingId(null);
     }
   }
 
-  async function changeRole(p: Profile, role: Role) {
-    setError("");
-    setMovingId(p.user_id);
-    try {
-      await updateProfile.mutateAsync({ userId: p.user_id, payload: { role } });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Đổi vai trò thất bại.");
-    } finally {
-      setMovingId(null);
-    }
-  }
+  const move = (p: Profile, stationId: string) =>
+    void patch(p, { station_id: stationId || null }, "Chuyển trạm thất bại.");
+  const changeRole = (p: Profile, role: Role) =>
+    void patch(p, { role }, "Đổi vai trò thất bại.");
+  const toggleActive = (p: Profile, active: boolean) =>
+    void patch(p, { active }, active ? "Mở khóa thất bại." : "Khóa tài khoản thất bại.");
 
   const unassignedCount = grouped.get(UNASSIGNED)?.length ?? 0;
+  const lockedCount = profiles.filter((p) => !isProfileActive(p)).length;
 
   if (profilesQuery.isPending || stationsQuery.isPending) {
     return (
@@ -80,11 +182,11 @@ function Accounts() {
     <div className="space-y-4">
       <PageHeader
         title="Quản lý tài khoản theo trạm"
-        description="Mỗi inspector/supervisor thuộc một trạm QC; chuyển trạm khi có luân chuyển cán bộ (GET/PATCH /api/auth/profiles)."
         meta={[
           { label: "Tổng tài khoản", value: String(profiles.length) },
           { label: "Số trạm", value: String(stations.length) },
           { label: "Chưa gán trạm", value: String(unassignedCount) },
+          { label: "Đã khóa", value: String(lockedCount) },
         ]}
       />
 
@@ -106,6 +208,8 @@ function Accounts() {
         </Panel>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          {/* Accounts land here only when sign-up carried no station, or the station it named
+           * no longer exists — the form at /login now asks for one up front. */}
           {unassignedCount > 0 && (
             <Panel
               className="lg:col-span-2 xl:col-span-3"
@@ -114,41 +218,17 @@ function Accounts() {
               dense
             >
               {grouped.get(UNASSIGNED)!.map((p) => (
-                <div
+                <AccountRow
                   key={p.user_id}
-                  className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] font-medium text-foreground">
-                      {p.full_name || p.email || p.user_id}
-                      {p.user_id === currentProfile?.user_id ? (
-                        <span className="ml-1.5 text-muted-foreground">(bạn)</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <select
-                    value={p.role === "QC_SUPERVISOR" ? "QC_SUPERVISOR" : "QC_OPERATOR"}
-                    onChange={(e) => void changeRole(p, e.target.value as Role)}
-                    disabled={p.user_id === currentProfile?.user_id || movingId === p.user_id}
-                    className={moveSelectClass}
-                  >
-                    <option value="QC_OPERATOR">QC_OPERATOR</option>
-                    <option value="QC_SUPERVISOR">QC_SUPERVISOR</option>
-                  </select>
-                  <select
-                    value=""
-                    onChange={(e) => e.target.value && void move(p, e.target.value)}
-                    disabled={movingId === p.user_id}
-                    className={moveSelectClass}
-                  >
-                    <option value="">Gán vào trạm…</option>
-                    {stations.map((s) => (
-                      <option key={s.station_id} value={s.station_id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  profile={p}
+                  isSelf={p.user_id === currentProfile?.user_id}
+                  stations={stations}
+                  stationId={null}
+                  busy={movingId === p.user_id}
+                  onMove={move}
+                  onChangeRole={changeRole}
+                  onToggleActive={toggleActive}
+                />
               ))}
             </Panel>
           )}
@@ -169,57 +249,17 @@ function Accounts() {
                   </div>
                 ) : (
                   members.map((p) => (
-                    <div
+                    <AccountRow
                       key={p.user_id}
-                      className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[12.5px] font-medium text-foreground">
-                          {p.full_name || p.email || p.user_id}
-                          {p.user_id === currentProfile?.user_id ? (
-                            <span className="ml-1.5 text-muted-foreground">(bạn)</span>
-                          ) : null}
-                        </div>
-                        <Badge
-                          tone={p.role === "QC_SUPERVISOR" ? "info" : "neutral"}
-                          className="mt-1"
-                        >
-                          {p.role}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={p.role === "QC_SUPERVISOR" ? "QC_SUPERVISOR" : "QC_OPERATOR"}
-                          onChange={(e) => void changeRole(p, e.target.value as Role)}
-                          disabled={p.user_id === currentProfile?.user_id || movingId === p.user_id}
-                          title={
-                            p.user_id === currentProfile?.user_id
-                              ? "Không thể tự thay đổi vai trò của chính mình"
-                              : "Đổi vai trò"
-                          }
-                          className={moveSelectClass}
-                        >
-                          <option value="QC_OPERATOR">QC_OPERATOR</option>
-                          <option value="QC_SUPERVISOR">QC_SUPERVISOR</option>
-                        </select>
-                        <select
-                          value={s.station_id}
-                          onChange={(e) =>
-                            void move(p, e.target.value === UNASSIGNED ? "" : e.target.value)
-                          }
-                          disabled={movingId === p.user_id}
-                          title="Chuyển sang trạm khác"
-                          className={moveSelectClass}
-                        >
-                          <option value={UNASSIGNED}>— Bỏ gán —</option>
-                          {stations.map((opt) => (
-                            <option key={opt.station_id} value={opt.station_id}>
-                              {opt.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
+                      profile={p}
+                      isSelf={p.user_id === currentProfile?.user_id}
+                      stations={stations}
+                      stationId={s.station_id}
+                      busy={movingId === p.user_id}
+                      onMove={move}
+                      onChangeRole={changeRole}
+                      onToggleActive={toggleActive}
+                    />
                   ))
                 )}
               </Panel>

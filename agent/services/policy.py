@@ -94,6 +94,14 @@ class PolicyCatalog:
     def public_catalog(self) -> dict[str, Any]:
         return self.document
 
+    def create_source(self, data: dict[str, Any]) -> dict[str, Any]:
+        if data["id"] in self.sources:
+            raise ValueError(f"Source already exists: {data['id']}")
+        self.document["sources"].append(data)
+        self.sources[data["id"]] = data
+        self._persist()
+        return data
+
     def create_policy(self, data: dict[str, Any]) -> dict[str, Any]:
         if any(item["id"] == data["id"] for item in self.document["policies"]):
             raise ValueError(f"Policy already exists: {data['id']}")
@@ -138,7 +146,13 @@ class PolicyCatalog:
             (
                 item
                 for item in self.document["policies"]
-                if defect_type in item.get("defect_types", []) and self._matches_context(item, state)
+                if defect_type in item.get("defect_types", [])
+                and self._matches_context(item, state)
+                # A DRAFT policy (e.g. freshly saved from the Rules UI, or an
+                # AI-extracted-but-not-yet-reviewed one) must not silently start
+                # deciding real vehicles — fall through to the manual-reinspection
+                # fail-safe below until a supervisor flips it to APPROVED.
+                and self._is_approved(item)
             ),
             None,
         )
@@ -146,6 +160,9 @@ class PolicyCatalog:
             return self._manual_reinspection(state)
 
         return self._decision_from_policy(policy, state)
+
+    def _is_approved(self, policy: dict[str, Any]) -> bool:
+        return str(policy.get("checklist_status") or self.document["status"]) == "APPROVED"
 
     def evaluate_named(self, policy_id: str, state: QCState) -> PolicyDecision:
         policy = next(

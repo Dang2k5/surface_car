@@ -8,16 +8,28 @@
   "disclaimer": "Chỉ tạm thời phê duyệt để trình diễn baseline và kiểm chứng quy trình. Đây KHÔNG phải thẩm quyền phát hành sản xuất. Phải thay thế bằng control plan của OEM và hướng dẫn công việc đã được phê duyệt trước khi triển khai sản xuất.",
   "sources": [
     {
-      "id": "ISO-4628-1-2016",
-      "document_family": "ISO-4628-1",
+      "id": "IATF-16949-2016",
+      "document_family": "IATF-16949",
       "revision": "2016",
-      "section": "Khung phạm vi và định danh",
+      "section": "Khung quản lý chất lượng ngành ô tô",
       "effective_date": null,
       "expiry_date": null,
       "document_status": "REFERENCE_ONLY",
-      "title": "Sơn và vecni — Đánh giá suy giảm lớp phủ — Phần 1",
-      "scope": "Định danh số lượng, kích thước và mức độ thay đổi ngoại quan của lỗi; không phải giới hạn chấp nhận thẩm mỹ của OEM.",
-      "url": "https://www.iso.org/standard/64877.html"
+      "title": "Hệ thống quản lý chất lượng ngành ô tô — Yêu cầu cụ thể khi áp dụng ISO 9001:2015",
+      "scope": "Khung quản trị chất lượng đặc thù ô tô (kiểm soát sản phẩm không phù hợp, hồ sơ, kiểm soát vận hành); không quy định ngưỡng kích thước lỗi cụ thể. Thay thế ISO-4628 (tiêu chuẩn đánh giá suy giảm lớp phủ do thời tiết/lão hóa, không áp dụng cho nghiệm thu lỗi bề mặt trên dây chuyền sản xuất) đã bị trích dẫn sai ngữ cảnh trong bản demo trước.",
+      "url": "https://www.aiag.org/expertise-areas/quality/iatf-16949-2016"
+    },
+    {
+      "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+      "document_family": "FNS-INTERNAL",
+      "revision": "2026.08.1",
+      "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+      "effective_date": "2026-08-12",
+      "expiry_date": null,
+      "document_status": "DRAFT",
+      "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+      "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog, backend/app/database.py). Không phải tiêu chuẩn OEM đã phê duyệt — là giả định làm việc, tham khảo thứ tự độ lớn từ (1) thang phân hạng ô tô cũ USS/JAA Nhật Bản (xước Grade B ~15cm, Grade C ~30cm; A3 ~10-50cm) và (2) so sánh kích thước móp phổ biến trong ngành PDR (đồng xu~2.5cm đến dưa hấu~20cm+). Lưu ý: hai nguồn tham khảo này áp dụng cho xe đã qua sử dụng/định giá lại, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+      "url": "/api/policies"
     },
     {
       "id": "ISO-1101-2017",
@@ -30,42 +42,6 @@
       "title": "Đặc tính hình học sản phẩm — Dung sai hình học",
       "scope": "Ngôn ngữ và cách diễn giải đặc tính hình học; giới hạn thực tế phải lấy từ bản vẽ đã được phê duyệt.",
       "url": "https://www.iso.org/standard/66777.html"
-    },
-    {
-      "id": "ISO-17637-2016",
-      "document_family": "ISO-17637",
-      "revision": "2016",
-      "section": "Khung phạm vi và phương pháp kiểm tra bằng mắt",
-      "effective_date": null,
-      "expiry_date": null,
-      "document_status": "REFERENCE_ONLY",
-      "title": "Kiểm tra không phá hủy mối hàn — Kiểm tra bằng mắt mối hàn nóng chảy",
-      "scope": "Phương pháp kiểm tra bằng mắt cho mối hàn nóng chảy; cần xác nhận khả năng áp dụng cho từng quy trình hàn của xe.",
-      "url": "https://www.iso.org/standard/67259.html"
-    },
-    {
-      "id": "ISO-5817-2023",
-      "document_family": "ISO-5817",
-      "revision": "2023",
-      "section": "Khung phạm vi và mức chất lượng",
-      "effective_date": null,
-      "expiry_date": null,
-      "document_status": "REFERENCE_ONLY",
-      "title": "Hàn — Mối hàn nóng chảy — Mức chất lượng cho các khuyết tật",
-      "scope": "Mức chất lượng B, C và D cho mối hàn nóng chảy được đề cập; không phải mức chấp nhận mặc định cho hàn điểm ô tô.",
-      "url": "https://www.iso.org/standard/80209.html"
-    },
-    {
-      "id": "ISO-3779-2009",
-      "document_family": "ISO-3779",
-      "revision": "2009",
-      "section": "Nội dung và cấu trúc số VIN",
-      "effective_date": null,
-      "expiry_date": null,
-      "document_status": "REFERENCE_ONLY",
-      "title": "Phương tiện giao thông đường bộ — Số nhận dạng xe (VIN) — Nội dung và cấu trúc",
-      "scope": "Nội dung và cấu trúc VIN áp dụng trên toàn cầu.",
-      "url": "https://www.iso.org/standard/52200.html"
     },
     {
       "id": "ISO-9001-2015",
@@ -119,7 +95,7 @@
       "human_required": false,
       "required_evidence": ["controlled_light_reinspection", "defect_extent_measurement", "approved_oem_acceptance_criteria"],
       "steps": ["CONTAIN_VEHICLE", "CAPTURE_CONTROLLED_LIGHT_IMAGE", "MEASURE_DEFECT_EXTENT", "APPLY_APPROVED_OEM_CRITERIA", "QC_SIGN_OFF"],
-      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-4628-1-2016", "ISO-9001-2015"]
+      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "IATF-16949-2016", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]
     },
     {
       "id": "FNS-GEOMETRY-001",
@@ -134,56 +110,7 @@
       "human_required": false,
       "required_evidence": ["approved_geometry_criteria", "geometry_measurement", "body_repair_signoff"],
       "steps": ["APPLY_HOLD", "TRANSFER_TO_BODY_REPAIR_ASSESSMENT", "MEASURE_PANEL_GEOMETRY", "COMPARE_WITH_APPROVED_DRAWING", "QC_REINSPECTION"],
-      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-1101-2017", "ISO-9001-2015"]
-    },
-    {
-      "id": "FNS-SAFETY-001",
-      "title": "Ngăn giữ hư hỏng liên quan an toàn có thể quan sát được",
-      "applicability": {"vehicle_models": ["*"]},
-      "conditions": ["Hư hỏng quan sát được ảnh hưởng đến kính, đèn hoặc an toàn lốp", "Xe vẫn bị chặn di chuyển cho đến khi có đánh giá của chuyên gia"],
-      "checklist_status": "APPROVED",
-      "defect_types": ["glass_shatter", "lamp_broken", "tire_flat"],
-      "action_code_by_defect": {
-        "glass_shatter": "ISOLATE_FOR_GLASS_REPAIR",
-        "lamp_broken": "ISOLATE_FOR_LIGHTING_REPAIR",
-        "tire_flat": "IMMOBILIZE_FOR_TIRE_SERVICE"
-      },
-      "final_status": "FAIL",
-      "test_drive_allowed": false,
-      "human_required": true,
-      "required_evidence": ["specialist_assessment", "approved_repair_instruction", "qc_reinspection"],
-      "steps": ["IMMOBILIZE_OR_CONTAIN", "ESCALATE_TO_SPECIALIST", "APPLY_APPROVED_REPAIR_INSTRUCTION", "QC_REINSPECTION"],
-      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-9001-2015"]
-    },
-    {
-      "id": "FNS-WELD-001",
-      "title": "Quản trị kiểm tra bằng mắt mối hàn",
-      "applicability": {"vehicle_models": ["*"]},
-      "conditions": ["Phải xác định quy trình hàn và tiêu chuẩn áp dụng", "Phải có mức chấp nhận đã phê duyệt và người kiểm tra đủ năng lực"],
-      "checklist_status": "APPROVED",
-      "defect_types": ["weld_imperfection"],
-      "action_code": "HOLD_FOR_WELD_ENGINEERING_REVIEW",
-      "final_status": "FAIL",
-      "test_drive_allowed": false,
-      "human_required": true,
-      "required_evidence": ["weld_process_identification", "approved_weld_acceptance_level", "qualified_visual_examiner", "measurement_or_ndt_result"],
-      "steps": ["IDENTIFY_WELD_PROCESS", "CONFIRM_STANDARD_APPLICABILITY", "PERFORM_APPROVED_VISUAL_TEST", "APPLY_APPROVED_ACCEPTANCE_LEVEL", "QUALITY_SIGN_OFF"],
-      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-17637-2016", "ISO-5817-2023", "ISO-9001-2015"]
-    },
-    {
-      "id": "FNS-VIN-001",
-      "title": "Xác minh cấu trúc VIN và danh tính xe",
-      "applicability": {"vehicle_models": ["*"]},
-      "conditions": ["VIN không đọc được hoặc không khớp hồ sơ xe", "Phải có cả quy định thị trường và hồ sơ sản xuất"],
-      "checklist_status": "APPROVED",
-      "defect_types": ["vin_mismatch", "vin_unreadable"],
-      "action_code": "HOLD_FOR_VIN_VERIFICATION",
-      "final_status": "FAIL",
-      "test_drive_allowed": false,
-      "human_required": true,
-      "required_evidence": ["vin_capture", "vehicle_build_record", "approved_market_vin_validation"],
-      "steps": ["HOLD_VEHICLE", "RECAPTURE_VIN", "VALIDATE_STRUCTURE", "COMPARE_BUILD_RECORD", "AUTHORIZED_SIGN_OFF"],
-      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-3779-2009", "ISO-9001-2015"]
+      "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-1101-2017", "IATF-16949-2016", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]
     },
     {
       "id": "FNS-TREND-001",

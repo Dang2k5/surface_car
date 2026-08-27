@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import uuid
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 
 from .auth import CurrentUser, require_role
-from .qc_schemas import PolicyItemCreate, PolicyItemUpdate
+from .qc_schemas import PolicyItemCreate, PolicyItemUpdate, PolicySourceCreate
 
 router = APIRouter(prefix="/api/policies", tags=["QC policy catalog"])
+
+MAX_SOURCE_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 @router.get("")
@@ -38,6 +43,65 @@ def create_policy(
     try:
         return request.app.state.qc_policy_catalog.create_policy(
             payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/sources", status_code=201)
+async def create_source(
+    request: Request,
+    file: UploadFile,
+    id: str = Form(...),
+    document_family: str = Form(...),
+    revision: str = Form(...),
+    section: str = Form(...),
+    title: str = Form(...),
+    scope: str = Form(...),
+    effective_date: str | None = Form(default=None),
+    expiry_date: str | None = Form(default=None),
+    document_status: str = Form(default="DRAFT"),
+    authority: str = Form(default="REFERENCE"),
+    user: CurrentUser = Depends(require_role("QC_SUPERVISOR")),
+) -> dict:
+    """Register a new controlled-document source together with its file (the
+    AI-extract-from-PDF flow, POST /api/policies/extract, only reads the file's text —
+    it never writes to storage, so a supervisor who never saves leaves no orphaned
+    object). The file is written to object storage here, at the moment the source is
+    actually registered, and only then."""
+    try:
+        fields = PolicySourceCreate(
+            id=id,
+            document_family=document_family,
+            revision=revision,
+            section=section,
+            title=title,
+            scope=scope,
+            effective_date=effective_date,
+            expiry_date=expiry_date,
+            document_status=document_status,
+            authority=authority,
+        )
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail=error.errors()) from error
+
+    if fields.id in request.app.state.qc_policy_catalog.sources:
+        raise HTTPException(status_code=409, detail=f"Source already exists: {fields.id}")
+
+    data = await file.read()
+    if len(data) > MAX_SOURCE_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File quá lớn (giới hạn 15MB).")
+    if not data:
+        raise HTTPException(status_code=422, detail="File rỗng.")
+
+    object_key = f"policy-sources/{uuid.uuid4()}/{file.filename or 'source'}"
+    request.app.state.object_storage.put(
+        object_key, data, file.content_type or "application/octet-stream"
+    )
+
+    try:
+        return request.app.state.qc_policy_catalog.create_source(
+            {**fields.model_dump(exclude_none=True), "url": f"/assets/objects/{object_key}"}
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

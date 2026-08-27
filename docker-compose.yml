@@ -16,8 +16,14 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    # Caps the container so a memory spike (e.g. two instances briefly
+    # overlapping during a deploy) OOM-kills this container instead of
+    # starving the whole host.
+    mem_limit: 1g
+    mem_reservation: 512m
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 90s

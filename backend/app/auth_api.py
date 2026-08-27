@@ -39,14 +39,18 @@ def update_profile(
     payload: ProfileUpdate,
     user: CurrentUser = Depends(require_role("QC_SUPERVISOR")),
 ) -> dict[str, Any]:
-    """Reassign an inspector's station or change their role (e.g. promote to QC_SUPERVISOR
-    on a staff rotation). Supervisor-only, mirrors backend/app/catalog_api.py's station CRUD."""
+    """Reassign an inspector's station, change their role (e.g. promote to QC_SUPERVISOR on a
+    staff rotation), or deactivate the account when someone leaves. Supervisor-only, mirrors
+    backend/app/catalog_api.py's station CRUD."""
     database = request.app.state.database
     patch = payload.model_dump(exclude_unset=True)
     if "station_id" in patch and patch["station_id"] and database.get_station(patch["station_id"]) is None:
         raise HTTPException(status_code=422, detail=f"Không tìm thấy trạm: {patch['station_id']}")
     if "role" in patch and patch["role"] != user.role and user_id == user.user_id:
         raise HTTPException(status_code=400, detail="Không thể tự thay đổi vai trò của chính mình.")
+    # Self-lockout would leave the console with no way back in for this supervisor.
+    if patch.get("active") is False and user_id == user.user_id:
+        raise HTTPException(status_code=400, detail="Không thể tự khóa tài khoản của chính mình.")
     updated = database.update_profile(user_id, patch)
     if updated is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")

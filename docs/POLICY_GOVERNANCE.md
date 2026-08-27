@@ -18,25 +18,42 @@ and must not be presented as ISO/GD&T-mandated limits for a real vehicle.
 
 | Source | Publicly supported scope | Explicit limitation in this project |
 | --- | --- | --- |
-| ISO 4628-1:2016 | Designation of coating defect quantity, size, and appearance change | Does not become an OEM cosmetic acceptance limit |
+| IATF 16949:2016 | Automotive-specific quality management framework (nonconforming product control, records, operational control) | Does not define numeric scratch/dent acceptance thresholds |
 | ISO 1101:2017 | Language and interpretation of geometrical tolerancing | Actual limits must come from an approved drawing |
-| ISO 17637:2016 | Visual testing of fusion-welded joints | Weld-process applicability must be confirmed |
-| ISO 5817:2023 | Quality levels B/C/D for covered fusion-weld imperfections | No default level is assigned; it is not a spot-weld acceptance rule |
-| ISO 3779:2009 | VIN content and structure | Market and build-record checks remain required |
 | ISO 9001:2015 | Documented information, control, evaluation, and improvement | Does not supply product acceptance limits |
 | AIAG CQI-8 | Layered process audit governance and effectiveness | Licensed detail must be supplied by the organization |
+| FNS-SEVERITY-CRITERIA-INTERNAL | Internal `DRAFT` mm severity bands for scratch/dent (`SCRATCH01-05`, `DENT01-05`) | Working assumption order-of-magnitude grounded in used-car auction grading (USS/JAA) and PDR dent-size references, not an approved OEM control plan |
 
 Source links are stored in `agent/policies/qc_policy_catalog.json` and returned
 by `GET /api/policies`.
 
-`qc_policy_catalog.json` là một controlled document register rộng hơn CV
-taxonomy hiện tại của MVP — nó còn giữ entry cho `weld_imperfection`,
-`vin_mismatch`/`vin_unreadable`, `paint_defect`, `lamp_broken`, `tire_flat`
-(tham chiếu tới ISO 17637/5817/3779 ở trên) để phục vụ tra cứu chính sách
-đầy đủ. Trong baseline MVP, node `decide` chỉ có thể route tới các entry có
-`defect_types` khớp taxonomy CV thật (`scratch`, `dent` — `PRD.md` §7.1); các
-entry khác trong register là tài liệu tham chiếu, chưa reachable qua luồng
-tự động cho tới khi taxonomy được mở rộng (`PRD.md` §11).
+`qc_policy_catalog.json` chỉ còn 3 policy khớp đúng taxonomy CV thật của MVP
+(`scratch`/`paint_defect` → `FNS-SURFACE-001`, `dent`/`crack` →
+`FNS-GEOMETRY-001`, mọi loại lỗi lặp lại → `FNS-TREND-001`, `PRD.md` §7.1).
+Các entry trước đây cho `weld_imperfection`, `vin_mismatch`/`vin_unreadable`,
+`glass_shatter`/`lamp_broken`/`tire_flat` (`FNS-SAFETY-001`, `FNS-WELD-001`,
+`FNS-VIN-001`, cùng các source ISO 17637/5817/3779 tương ứng) đã bị xoá khỏi
+catalog vì `agent/services/yolo_detector.py` chỉ nhận diện `dent`/`scratch` —
+các entry đó chưa từng reachable qua luồng tự động và không thuộc phạm vi đề
+tài. Khôi phục lại nếu taxonomy CV được mở rộng trong tương lai (`PRD.md`
+§11).
+
+## Policy `checklist_status`: DRAFT vs APPROVED
+
+Each policy in `qc_policy_catalog.json` carries its own `checklist_status`
+(`DRAFT` or `APPROVED`), independent of the catalog-level `status`. This is
+what a supervisor picks under "Trạng thái phê duyệt" when creating or editing
+a policy in the Rules screen (`frontend/src/routes/supervisor/rules.tsx`).
+
+`PolicyCatalog.evaluate()` (`agent/services/policy.py`) only matches a policy
+for automatic routing when `checklist_status == "APPROVED"`
+(`_is_approved()`). A `DRAFT` policy — freshly saved, or an AI-extracted draft
+the supervisor has not reviewed yet — is skipped and the inspection falls
+through to the fail-safe manual-reinspection policy (`FNS-MANUAL-001`,
+`final_status=FAIL`, `human_required=true`) instead of silently deciding a
+real vehicle. Only flipping `checklist_status` to `APPROVED` puts a policy
+into production routing. `evaluate_named()` (used only for the internal
+`FNS-TREND-001` alert lookup, not per-defect routing) is not gated this way.
 
 ## Component responsibilities and decision authority
 

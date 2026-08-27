@@ -36,6 +36,7 @@ from .database import Database, normalize_database_url
 from .langgraph_api import router as langgraph_router
 from .objects_api import router as objects_router
 from .policy_api import router as policy_router
+from .policy_extract_api import router as policy_extract_router
 from .qc_api import router as qc_router
 from .quality_alerts_api import router as quality_alerts_router
 from .trend_api import router as trend_router
@@ -263,6 +264,7 @@ app.include_router(objects_router)
 app.include_router(langgraph_router)
 app.include_router(quality_alerts_router)
 app.include_router(policy_router)
+app.include_router(policy_extract_router)
 app.include_router(qc_router)
 app.include_router(trend_router)
 app.include_router(v1_router)

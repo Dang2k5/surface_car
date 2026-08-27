@@ -142,6 +142,19 @@ def create_lot_product(
     return database.allocate_lot_product(lot_id.strip(), payload.vehicle_model)
 
 
+@router.get("/stations/options", response_model=list[dict[str, Any]])
+def list_station_options(request: Request) -> list[dict[str, Any]]:
+    """Active stations as (id, name) pairs — the only catalog endpoint reachable without a
+    token, because the sign-up form has to offer a station before an account exists to
+    authenticate with (frontend/src/routes/login.tsx). Deliberately narrower than
+    `list_stations`: no timestamps, no inactive stations, nothing beyond the label a new
+    inspector picks from."""
+    return [
+        {"station_id": station["station_id"], "name": station["name"]}
+        for station in request.app.state.database.list_stations(active_only=True)
+    ]
+
+
 @router.get("/stations", response_model=list[dict[str, Any]])
 def list_stations(
     request: Request,

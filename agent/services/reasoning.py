@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from agent.graph.state import QCState
 from agent.services.policy import PolicyDecision
+from agent.services.policy_extractor import PolicyDraft, PolicyExtractionResult, PolicySourceDraft
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ class ReasoningService(Protocol):
     def classify_defect_code(
         self, state: QCState, candidates: list[dict[str, object]]
     ) -> DefectCodeClassification: ...
+
+    def extract_policy_draft(
+        self, *, document_text: str, filename: str, known_vocabulary: dict[str, list[str]]
+    ) -> PolicyExtractionResult: ...
 
     def runtime_status(self) -> dict[str, object]: ...
 
@@ -128,6 +133,43 @@ class DeterministicReasoningService:
             similar_observation_warning=len(detections) >= 2,
             provider="deterministic",
             model="catalog-rule-v1",
+        )
+
+    def extract_policy_draft(
+        self, *, document_text: str, filename: str, known_vocabulary: dict[str, list[str]]
+    ) -> PolicyExtractionResult:
+        """Keyword-only heuristic — enough to exercise the upload/extract endpoint in
+        tests without a real LLM. Never used at runtime (QC_REASONING_PROVIDER=groq)."""
+        lowered = document_text.lower()
+        defect_types = []
+        if "xước" in lowered or "scratch" in lowered:
+            defect_types.append("scratch")
+        if "móp" in lowered or "dent" in lowered:
+            defect_types.append("dent")
+        if not defect_types:
+            defect_types = ["scratch"]
+        return PolicyExtractionResult(
+            policy=PolicyDraft(
+                suggested_id="FNS-DRAFT-001",
+                title=f"Chính sách nháp trích xuất từ {filename}",
+                defect_types=defect_types,
+                conditions=["Trích xuất tự động — QC Trưởng cần rà soát lại toàn bộ trước khi duyệt"],
+                required_evidence=["qc_reinspection"],
+                steps=["QC_SIGN_OFF"],
+                action_code="MANUAL_VISUAL_REINSPECTION",
+                final_status="FAIL",
+                test_drive_allowed=False,
+                human_required=True,
+            ),
+            source=PolicySourceDraft(
+                document_family="UNCLASSIFIED",
+                revision="draft",
+                title=filename,
+                section="Toàn bộ tài liệu",
+            ),
+            extraction_notes_vi="Kết quả từ deterministic fallback (không dùng LLM) — chỉ dùng cho test.",
+            provider="deterministic",
+            model="policy-extract-heuristic-v1",
         )
 
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
@@ -227,6 +269,11 @@ class UnavailableReasoningService:
     ) -> DefectCodeClassification:
         raise ReasoningUnavailableError(self.reason)
 
+    def extract_policy_draft(
+        self, *, document_text: str, filename: str, known_vocabulary: dict[str, list[str]]
+    ) -> PolicyExtractionResult:
+        raise ReasoningUnavailableError(self.reason)
+
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
         raise ReasoningUnavailableError(self.reason)
 
@@ -315,6 +362,69 @@ class GroqReasoningService:
         except Exception as exc:
             self._mark_failure(exc)
             logger.warning("Groq code classification failed; HITL is required: %s", exc)
+            raise ReasoningUnavailableError(type(exc).__name__) from exc
+
+    def extract_policy_draft(
+        self, *, document_text: str, filename: str, known_vocabulary: dict[str, list[str]]
+    ) -> PolicyExtractionResult:
+        # Groq context windows are finite; a scanned/huge control plan is truncated
+        # rather than rejected outright — the supervisor still reviews every field.
+        truncated_text = document_text[:20000]
+        prompt = {
+            "task": (
+                "Read this QC work-instruction / control-plan document and draft ONE candidate "
+                "policy for the visual QC catalog, plus the document metadata needed to register it "
+                "as a source. This is a DRAFT for a human QC supervisor to review and edit before "
+                "anything is saved — never invent numeric thresholds not present in the text."
+            ),
+            "document_filename": filename,
+            "document_text": truncated_text,
+            "known_vocabulary_hint": (
+                "Reuse these existing catalog values when they genuinely match the document; "
+                "otherwise introduce new snake_case values that describe what the document actually says."
+            ),
+            "known_vocabulary": known_vocabulary,
+            "constraints": [
+                "conditions, required_evidence and steps must be grounded in the document text.",
+                "action_code and final_status should follow the document's stated disposition "
+                "(e.g. FAIL/hold/rework vs PASS), not be invented.",
+                "defect_types must use short snake_case tokens (e.g. scratch, dent), not free text.",
+                "Write extraction_notes_vi in Vietnamese: list anything ambiguous, missing, or that "
+                "the supervisor should double-check.",
+                "If the document has a document number/revision/date, use it for the source fields; "
+                "otherwise mark revision as 'draft' and leave effective_date null.",
+            ],
+        }
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You extract a draft QC policy from an uploaded document for a human "
+                            "supervisor to review. Return only the requested JSON schema."
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "policy_extraction",
+                        "strict": False,
+                        "schema": PolicyExtractionResult.model_json_schema(),
+                    },
+                },
+            )
+            content = completion.choices[0].message.content or "{}"
+            result = PolicyExtractionResult.model_validate_json(content)
+            self._mark_success()
+            return result.model_copy(update={"provider": "groq", "model": self.model})
+        except Exception as exc:
+            self._mark_failure(exc)
+            logger.warning("Groq policy extraction failed; upload cannot proceed: %s", exc)
             raise ReasoningUnavailableError(type(exc).__name__) from exc
 
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:

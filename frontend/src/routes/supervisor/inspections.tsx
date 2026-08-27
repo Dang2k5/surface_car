@@ -58,7 +58,6 @@ function InspectionExplorer() {
     <div className="space-y-4">
       <PageHeader
         title="Tra cứu inspection"
-        description="Toàn bộ lịch sử inspection đã ghi nhận (GET /agent/runs)."
         meta={[
           { label: "Tổng số", value: String(runs.length) },
           { label: "Hiển thị", value: String(filtered.length) },

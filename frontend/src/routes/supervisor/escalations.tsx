@@ -92,7 +92,6 @@ function Escalations() {
     <div className="space-y-4">
       <PageHeader
         title="Hàng đợi leo thang"
-        description="Các quyết định OVERRIDE của QC Inspector đang chờ Supervisor phê duyệt hoặc từ chối (GraphRun.status = INTERRUPTED, human_decision.action = OVERRIDE)."
         meta={[{ label: "Đang chờ", value: String(pending.length) }]}
         right={
           <Select

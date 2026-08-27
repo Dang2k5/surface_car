@@ -422,7 +422,7 @@ function InspectionPage() {
             KIỂM TRA XE
           </h1>
           <p className="mt-1 font-mono text-[11px] tracking-wider text-muted-foreground">
-            {state.vehicle_model} | VIN: {state.vehicle_id} | Inspection #{state.inspection_id}
+            VIN: {state.vehicle_id} | Inspection #{state.inspection_id}
           </p>
         </div>
         <div className="ml-auto grid grid-cols-2 gap-x-8 gap-y-2 md:grid-cols-3">

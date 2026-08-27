@@ -27,10 +27,10 @@ export function Panel({
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
           <div className="min-w-0">
             {title && (
-              <h2 className="truncate text-[13px] font-semibold tracking-tight">{title}</h2>
+              <h2 className="truncate text-[14px] font-semibold tracking-tight">{title}</h2>
             )}
             {subtitle && (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtitle}</p>
+              <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{subtitle}</p>
             )}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
@@ -67,7 +67,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.07em]",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.07em]",
         toneMap[tone],
         className,
       )}
@@ -131,7 +131,7 @@ export function Btn({
       {...rest}
       className={cn(
         "inline-flex items-center justify-center gap-1.5 rounded-sm border font-medium transition-colors disabled:opacity-45",
-        size === "xs" ? "h-6 px-2 text-[11px]" : "h-7 px-2.5 text-xs",
+        size === "xs" ? "h-6 px-2 text-[12px]" : "h-7 px-2.5 text-xs",
         variant === "ghost" &&
           "border-transparent text-muted-foreground hover:bg-surface-2 hover:text-foreground",
         variant === "outline" &&
@@ -184,7 +184,7 @@ export function KpiCard({
     >
       <div className="label-caps">{label}</div>
       <div className="num mt-2 text-[26px] font-semibold leading-none">{value}</div>
-      {sub && <div className="mt-2 truncate text-[11px] text-muted-foreground">{sub}</div>}
+      {sub && <div className="mt-2 truncate text-[12px] text-muted-foreground">{sub}</div>}
     </div>
   );
 
@@ -201,7 +201,7 @@ export function KpiCard({
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className="min-w-0 overflow-x-auto">
-      <table className={cn("w-full border-collapse text-[12px]", className)}>{children}</table>
+      <table className={cn("w-full border-collapse text-[13px]", className)}>{children}</table>
     </div>
   );
 }
@@ -210,7 +210,7 @@ export function Th({ children, className }: { children?: ReactNode; className?: 
   return (
     <th
       className={cn(
-        "sticky top-0 z-10 whitespace-nowrap border-b border-border bg-surface px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground",
+        "sticky top-0 z-10 whitespace-nowrap border-b border-border bg-surface px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground",
         className,
       )}
     >
@@ -277,7 +277,7 @@ export function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-7 min-w-0 rounded-sm border border-border bg-surface-2 px-2 text-[12px] text-foreground outline-none focus:border-ring"
+        className="h-7 min-w-0 rounded-sm border border-border bg-surface-2 px-2 text-[13px] text-foreground outline-none focus:border-ring"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -296,6 +296,7 @@ export function TextField({
   placeholder,
   mono,
   type = "text",
+  list,
 }: {
   label: string;
   value: string;
@@ -303,6 +304,7 @@ export function TextField({
   placeholder?: string;
   mono?: boolean;
   type?: "text" | "date";
+  list?: string;
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-1">
@@ -311,9 +313,10 @@ export function TextField({
         type={type}
         value={value}
         placeholder={placeholder}
+        list={list}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          "h-7 min-w-0 rounded-sm border border-border bg-surface-2 px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring",
+          "h-7 min-w-0 rounded-sm border border-border bg-surface-2 px-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring",
           mono && "font-mono",
         )}
       />
@@ -344,9 +347,9 @@ export function TextArea({
         placeholder={placeholder}
         rows={rows}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 resize-y rounded-sm border border-border bg-surface-2 px-2 py-1.5 text-[12px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+        className="min-w-0 resize-y rounded-sm border border-border bg-surface-2 px-2 py-1.5 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring"
       />
-      {hint && <span className="text-[10.5px] text-muted-foreground">{hint}</span>}
+      {hint && <span className="text-[11.5px] text-muted-foreground">{hint}</span>}
     </label>
   );
 }
@@ -361,7 +364,7 @@ export function Checkbox({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-2 text-[12px] text-foreground">
+    <label className="flex items-center gap-2 text-[13px] text-foreground">
       <input
         type="checkbox"
         checked={checked}
@@ -389,7 +392,7 @@ export function SegmentedControl<T extends string>({
           key={o.key}
           onClick={() => onChange(o.key)}
           className={cn(
-            "rounded-[2px] px-2.5 py-1 text-[11px] font-medium transition-colors",
+            "rounded-[2px] px-2.5 py-1 text-[12px] font-medium transition-colors",
             value === o.key
               ? "bg-surface text-foreground"
               : "text-muted-foreground hover:text-foreground",
@@ -429,8 +432,8 @@ export function Timeline({ items }: { items: { t: string; text: string; kind?: s
                 tone === "neutral" && "bg-border-strong",
               )}
             />
-            <div className="num text-[11px] text-muted-foreground">{it.t}</div>
-            <div className="mt-0.5 text-[12px] leading-snug text-foreground">{it.text}</div>
+            <div className="num text-[12px] text-muted-foreground">{it.t}</div>
+            <div className="mt-0.5 text-[13px] leading-snug text-foreground">{it.text}</div>
             {it.kind && <div className="label-caps mt-1">{it.kind}</div>}
           </li>
         );
@@ -460,10 +463,10 @@ export function EmptyState({
           toneMap[tone],
         )}
       >
-        <span className="text-[13px]">✓</span>
+        <span className="text-[14px]">✓</span>
       </div>
-      <h3 className="text-[13px] font-semibold">{title}</h3>
-      <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">{description}</p>
+      <h3 className="text-[14px] font-semibold">{title}</h3>
+      <p className="max-w-sm text-[13px] leading-relaxed text-muted-foreground">{description}</p>
       {action}
     </div>
   );
@@ -481,7 +484,7 @@ export function Field({
   return (
     <div className="min-w-0">
       <div className="label-caps">{label}</div>
-      <div className={cn("mt-1 truncate text-[12.5px] text-foreground", mono && "num")}>
+      <div className={cn("mt-1 truncate text-[13.5px] text-foreground", mono && "num")}>
         {children}
       </div>
     </div>
@@ -515,9 +518,9 @@ export function Drawer({
       >
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-3">
           <div className="min-w-0">
-            <h2 className="truncate text-[14px] font-semibold">{title}</h2>
+            <h2 className="truncate text-[15px] font-semibold">{title}</h2>
             {subtitle && (
-              <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtitle}</div>
+              <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{subtitle}</div>
             )}
           </div>
           <Btn variant="outline" onClick={onClose}>
@@ -532,26 +535,23 @@ export function Drawer({
 
 export function PageHeader({
   title,
-  description,
   right,
   meta,
 }: {
   title: string;
-  description?: string;
   right?: ReactNode;
   meta?: { label: string; value: string }[];
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-3">
       <div className="min-w-0">
-        <h1 className="text-[19px] font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-[12px] text-muted-foreground">{description}</p>}
+        <h1 className="text-[21px] font-semibold tracking-tight">{title}</h1>
         {meta && (
           <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1">
             {meta.map((m) => (
               <div key={m.label} className="flex items-baseline gap-1.5">
                 <span className="label-caps">{m.label}</span>
-                <span className="num text-[12px] text-foreground">{m.value}</span>
+                <span className="num text-[13px] text-foreground">{m.value}</span>
               </div>
             ))}
           </div>

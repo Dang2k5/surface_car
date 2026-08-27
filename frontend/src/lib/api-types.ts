@@ -16,10 +16,16 @@ export type Profile = {
   full_name: string | null;
   role: Role | string;
   station_id: string | null;
+  /** SQLite stores this as 0/1, Postgres as a boolean — normalise with isProfileActive. */
+  active: boolean | number;
   created_at: string;
   updated_at: string;
 };
-export type ProfileUpdate = { role?: Role; station_id?: string | null };
+export type ProfileUpdate = { role?: Role; station_id?: string | null; active?: boolean };
+
+/** Active stations offered on the (unauthenticated) sign-up form — see
+ * backend/app/catalog_api.py's list_station_options. */
+export type StationOption = { station_id: string; name: string };
 
 export type TraceEvent = { node: string; status: string; detail: string };
 
@@ -390,6 +396,31 @@ export type PolicyItemCreate = {
 };
 
 export type PolicyItemUpdate = Partial<Omit<PolicyItemCreate, "id">>;
+
+export type PolicyExtractionResult = {
+  policy_draft: {
+    suggested_id: string;
+    title: string;
+    defect_types: string[];
+    conditions: string[];
+    required_evidence: string[];
+    steps: string[];
+    action_code: string;
+    final_status: string;
+    test_drive_allowed: boolean | null;
+    human_required: boolean;
+  };
+  source_draft: {
+    document_family: string;
+    revision: string;
+    title: string;
+    section: string;
+    effective_date: string | null;
+  };
+  extraction_notes_vi: string;
+  provider: string;
+  model: string;
+};
 
 export type PolicyCatalog = {
   catalog_id: string;

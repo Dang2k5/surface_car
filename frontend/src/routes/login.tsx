@@ -1,9 +1,10 @@
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Eye, EyeOff, Lock, Mail, ScanLine, User } from "lucide-react";
+import { Eye, EyeOff, Factory, Lock, Mail, ScanLine, User } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { useStationOptions } from "@/lib/queries";
 import heroVisual from "@/assets/qc-vision.jpg";
 
 export const Route = createFileRoute("/login")({
@@ -58,7 +59,12 @@ function LoginPage() {
   const [regAccount, setRegAccount] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regPasswordConfirm, setRegPasswordConfirm] = useState("");
+  const [regStation, setRegStation] = useState("");
   const [regError, setRegError] = useState("");
+
+  // Only fetched once the register tab is open — the login path needs no station list.
+  const stationOptionsQuery = useStationOptions(mode === "register");
+  const stationOptions = stationOptionsQuery.data ?? [];
 
   const [forgotAccount, setForgotAccount] = useState("");
   const [forgotError, setForgotError] = useState("");
@@ -98,6 +104,7 @@ function LoginPage() {
       regAccount.trim(),
       regPassword,
       fullName.trim(),
+      regStation,
     );
     setSubmitting(false);
     if (error) {
@@ -111,6 +118,7 @@ function LoginPage() {
     setRegAccount("");
     setRegPassword("");
     setRegPasswordConfirm("");
+    setRegStation("");
     setFullName("");
   }
 
@@ -408,10 +416,37 @@ function LoginPage() {
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <div className="label-caps text-[12px]">Trạm làm việc</div>
+                    <div className="relative">
+                      <Factory className="pointer-events-none absolute left-3.5 top-1/2 size-4.5 -translate-y-1/2 text-muted-foreground" />
+                      <select
+                        id="reg-station"
+                        value={regStation}
+                        onChange={(e) => setRegStation(e.target.value)}
+                        required
+                        disabled={stationOptionsQuery.isPending || stationOptions.length === 0}
+                        className="h-12 w-full rounded-sm border border-input bg-surface-2/60 pl-11 pr-3 text-base text-foreground outline-none transition-shadow focus-visible:border-info/60 focus-visible:shadow-[var(--glow-info)] disabled:opacity-50"
+                      >
+                        <option value="">
+                          {stationOptionsQuery.isPending
+                            ? "Đang tải danh sách trạm…"
+                            : stationOptions.length === 0
+                              ? "Chưa có trạm nào — liên hệ QC Supervisor"
+                              : "Chọn trạm…"}
+                        </option>
+                        {stationOptions.map((s) => (
+                          <option key={s.station_id} value={s.station_id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
                   <p className="text-[11px] leading-snug text-muted-foreground">
-                    Tài khoản mới mặc định nhận vai trò QC Inspector (QC_OPERATOR). Chuyển sang QC
-                    Supervisor là thao tác quản trị thủ công trong Supabase, không thực hiện qua
-                    biểu mẫu này.
+                    Tài khoản mới mặc định nhận vai trò QC Inspector. QC Supervisor có thể đổi vai
+                    trò và trạm sau tại mục Quản lý tài khoản.
                   </p>
 
                   <button

@@ -74,6 +74,7 @@ type AuthContextValue = {
     email: string,
     password: string,
     fullName: string,
+    stationId: string,
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   sendPasswordReset: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
@@ -184,18 +185,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error ? translateAuthError(error.message) : null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
+  const signUp = useCallback(
+    async (email: string, password: string, fullName: string, stationId: string) => {
     if (!supabase) {
       return {
         error: "Supabase chưa được cấu hình (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).",
         needsEmailConfirmation: false,
       };
     }
+    // station_id rides along in user_metadata and is turned into the profile's station on the
+    // first authenticated request — see backend/app/auth.py's get_current_user. Picking the
+    // station here is what saves a supervisor from having to assign every new account by hand.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: fullName },
+        data: { full_name: fullName, ...(stationId ? { station_id: stationId } : {}) },
         emailRedirectTo: `${window.location.origin}/login`,
       },
     });
@@ -203,7 +208,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Supabase returns no session when "Confirm email" is enabled on the project — the account
     // exists but can't sign in until the user clicks the confirmation link.
     return { error: null, needsEmailConfirmation: !data.session };
-  }, []);
+    },
+    [],
+  );
 
   const sendPasswordReset = useCallback(async (email: string) => {
     if (!supabase) return { error: "Supabase chưa được cấu hình." };

@@ -94,7 +94,6 @@ function ControlCenter() {
     <div className="space-y-4">
       <PageHeader
         title="Trung tâm điều hành chất lượng"
-        description="Tình hình chất lượng sản xuất hiện tại trên toàn bộ dữ liệu inspection đã ghi nhận."
         right={
           <div className="flex items-center gap-2">
             <Badge tone={engineOnline ? "pass" : "fail"} dot>
@@ -145,7 +144,6 @@ function ControlCenter() {
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <Panel
           title="Xu hướng chất lượng"
-          subtitle="Số lượng PASS / FAIL và tỷ lệ lỗi theo thời gian (GET /api/trend)"
           actions={
             <SegmentedControl<GroupBy>
               value={groupBy}
@@ -264,7 +262,7 @@ function ControlCenter() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Panel title="Phân bố loại lỗi" subtitle="Theo camera/detection đã ghi nhận">
+        <Panel title="Phân bố loại lỗi">
           {defectMix.length === 0 ? (
             <div className="flex h-[210px] items-center justify-center text-sm text-muted-foreground">
               Chưa có phát hiện lỗi nào.
@@ -273,7 +271,7 @@ function ControlCenter() {
             <DonutChart data={defectMix} />
           )}
         </Panel>
-        <Panel title="Phân bố mức độ nghiêm trọng" subtitle="Theo severity_rank của các detection">
+        <Panel title="Phân bố mức độ nghiêm trọng">
           {severityMix.length === 0 ? (
             <div className="flex h-[210px] items-center justify-center text-sm text-muted-foreground">
               Chưa có phát hiện lỗi nào.
