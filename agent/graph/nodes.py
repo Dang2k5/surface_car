@@ -7,7 +7,7 @@ from langgraph.types import interrupt
 from agent.graph.state import QCState, TraceEvent
 from agent.services.defect_catalog import DefectCatalogService
 from agent.services.detector import DetectorService
-from agent.services.policy import PolicyCatalog
+from agent.services.policy import PolicyCatalog, PolicyDecision
 from agent.services.reasoning import (
     DefectCodeClassification,
     ReasoningAnalysis,
@@ -32,6 +32,31 @@ _CAMERA_ZONE_NAMES: dict[str, str] = {
     "CAM-04": "phai",
     "CAM-05": "tren_toan_canh",
 }
+
+
+def _detection_priority_key(item: dict[str, Any]) -> tuple[int, float, float]:
+    """Mirrors yolo_detector.py's detection_priority_key (duplicated, not imported, to keep
+    this module working against the DetectorService Protocol rather than the concrete YOLO
+    implementation): class safety priority first, then estimated size, confidence last."""
+    measurements = item.get("visual_measurements") or {}
+    length_mm = float(measurements.get("estimated_length_mm") or 0.0)
+    return (
+        int(item.get("safety_priority", 0)),
+        length_mm,
+        float(item.get("confidence") or 0.0),
+    )
+
+
+_SEVERITY_LETTER_RANK = {"A": 3, "B": 2, "C": 1}
+
+
+def _classification_rank(item: dict[str, Any]) -> tuple[int, float]:
+    """Ranks a per-camera classification for "which camera's finding is worst" —
+    used to pick the single decision that drives the LLM narrative once every camera's
+    finding has already been independently classified and policy-evaluated."""
+    measurements = item.get("visual_measurements") or {}
+    length_mm = float(measurements.get("estimated_length_mm") or 0.0)
+    return (_SEVERITY_LETTER_RANK.get(str(item.get("severity") or "").upper(), 0), length_mm)
 
 
 def _zone_name_for_camera(camera_id: Any, fallback: str) -> str:
@@ -79,32 +104,27 @@ class QCNodes:
             ),
         }
 
-    def detect_defect(self, state: QCState) -> dict[str, Any]:
+    def _classify_local_detection(
+        self, state: QCState, base_detection: dict[str, Any], local: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Classify ONE camera's own worst finding against the defect catalog + LLM,
+        independently of every other camera's finding. Called once per camera that has
+        a detection (bounded by KNOWN_CAMERA_IDS, currently 5), so a defect on CAM-03
+        is classified on its own merits instead of only ever being read off the single
+        global-worst detection."""
+        suggested_codes = self.defect_catalog.match(str(local.get("class_name") or "none"))
+        overlay = {
+            **state,
+            **base_detection,
+            "defect_type": local.get("class_name"),
+            "confidence": local.get("confidence"),
+            "bbox": local.get("bbox"),
+            "segmentation_result": local.get("segmentation"),
+            "visual_measurements": local.get("visual_measurements"),
+            "camera_id": local.get("camera_id"),
+        }
         try:
-            detection = self.detector.detect(state)
-        except Exception as error:
-            return {
-                "defect_detected": False,
-                "defect_type": "unknown",
-                "confidence": 0.0,
-                "bbox": None,
-                "segmentation_result": None,
-                "detections": [],
-                "inference_status": "ERROR",
-                "error": str(error),
-                "execution_trace": _trace(
-                    "detect_defect",
-                    f"Suy luận mô hình gặp lỗi (đã chặn an toàn): {error}",
-                    "FAILED",
-                ),
-            }
-        detected = bool(detection.get("defect_detected"))
-        model_name = str(detection.get("model_name") or type(self.detector).__name__)
-        suggested_codes = self.defect_catalog.match(str(detection.get("defect_type") or "none"))
-        try:
-            classification = self.reasoning.classify_defect_code(
-                {**state, **detection}, suggested_codes
-            )
+            classification = self.reasoning.classify_defect_code(overlay, suggested_codes)
             reasoning_status = "LLM_CLASSIFICATION_COMPLETED"
         except ReasoningUnavailableError as error:
             classification = DefectCodeClassification(
@@ -126,6 +146,93 @@ class QCNodes:
             ),
             None,
         )
+        return {
+            "detection_id": local.get("detection_id"),
+            "camera_id": local.get("camera_id"),
+            "defect_type": local.get("class_name"),
+            "confidence": local.get("confidence"),
+            "bbox": local.get("bbox"),
+            "visual_measurements": local.get("visual_measurements"),
+            "suggested_defect_codes": suggested_codes,
+            "defect_code_classification": classification.model_dump(mode="json"),
+            "reasoning_status": reasoning_status,
+            "classified_defect_code": classification.defect_code,
+            "defect_family": classification.defect_family,
+            "catalog_defect_type": classified_record.get("defect_type") if classified_record else None,
+            "severity": (
+                str(classified_record.get("default_severity") or "UNASSESSED")
+                if classified_record
+                else "UNASSESSED"
+            ),
+            "severity_source_id": classified_record.get("source_id") if classified_record else None,
+            "similar_defect_warning": classification.similar_observation_warning,
+        }
+
+    def detect_defect(self, state: QCState) -> dict[str, Any]:
+        try:
+            detection = self.detector.detect(state)
+        except Exception as error:
+            return {
+                "defect_detected": False,
+                "defect_type": "unknown",
+                "confidence": 0.0,
+                "bbox": None,
+                "segmentation_result": None,
+                "detections": [],
+                "camera_classifications": [],
+                "unresolved_camera_ids": [],
+                "inference_status": "ERROR",
+                "error": str(error),
+                "execution_trace": _trace(
+                    "detect_defect",
+                    f"Suy luận mô hình gặp lỗi (đã chặn an toàn): {error}",
+                    "FAILED",
+                ),
+            }
+        detected = bool(detection.get("defect_detected"))
+        model_name = str(detection.get("model_name") or type(self.detector).__name__)
+
+        # One classification per camera that actually has a detection — each of the 5
+        # fixed camera mounts observes a different panel of the vehicle, so a finding on
+        # any one of them must independently be able to drive PASS/FAIL/HITL, not just
+        # whichever camera happens to hold the single worst finding overall.
+        camera_classifications: list[dict[str, Any]] = [
+            self._classify_local_detection(
+                state, detection, max(camera["detections"], key=_detection_priority_key)
+            )
+            for camera in detection.get("camera_results", [])
+            if camera.get("defect_detected")
+        ]
+        primary_detection_id = detection.get("primary_detection_id")
+        worst = next(
+            (item for item in camera_classifications if item["detection_id"] == primary_detection_id),
+            None,
+        )
+        unresolved_camera_ids = [
+            item["camera_id"] for item in camera_classifications if item["catalog_defect_type"] is None
+        ]
+
+        if worst is not None:
+            suggested_codes = worst["suggested_defect_codes"]
+            reasoning_status = worst["reasoning_status"]
+            classification_dump = worst["defect_code_classification"]
+            classified_defect_code = worst["classified_defect_code"]
+            defect_family = worst["defect_family"]
+            catalog_defect_type = worst["catalog_defect_type"]
+            severity = worst["severity"]
+            severity_source_id = worst["severity_source_id"]
+            similar_defect_warning = worst["similar_defect_warning"]
+        else:
+            suggested_codes = []
+            reasoning_status = "NOT_RUN"
+            classification_dump = {}
+            classified_defect_code = None
+            defect_family = None
+            catalog_defect_type = None
+            severity = str(detection.get("severity") or "UNASSESSED")
+            severity_source_id = None
+            similar_defect_warning = False
+
         visual = detection.get("visual_measurements") or {}
         geometry_detail = (
             f" khung_bao={float(visual.get('width_px', 0)):.0f}x"
@@ -133,6 +240,14 @@ class QCNodes:
             f"tỉ_lệ_diện_tích_ảnh={float(visual.get('image_area_ratio', 0)):.1%};"
             if visual
             else ""
+        )
+        length_mm = visual.get("estimated_length_mm")
+        size_status = visual.get("physical_size_status")
+        size_detail = (
+            f" kích_thước_ước_lượng={float(length_mm):.1f}mm "
+            f"(hiệu_chuẩn={visual.get('calibration_profile_id')}, trạng_thái={size_status})."
+            if length_mm is not None
+            else f" kích_thước_mm=chưa đo được (trạng_thái={size_status or 'REQUIRES_CAMERA_CALIBRATION'})."
         )
         raw_zone_name = str(state.get("zone_name") or "unknown_zone")
         zone_name = (
@@ -144,29 +259,37 @@ class QCNodes:
             **detection,
             "zone_name": zone_name,
             "suggested_defect_codes": suggested_codes,
-            "defect_code_classification": classification.model_dump(mode="json"),
+            "defect_code_classification": classification_dump,
             "agent_reasoning_status": reasoning_status,
-            "classified_defect_code": classification.defect_code,
-            "defect_family": classification.defect_family,
-            "severity": (
-                str(classified_record.get("default_severity") or "UNASSESSED")
-                if classified_record
-                else str(detection.get("severity") or "UNASSESSED")
-            ),
-            "similar_defect_warning": classification.similar_observation_warning,
+            "classified_defect_code": classified_defect_code,
+            "defect_family": defect_family,
+            # Set ONLY when defect_catalog confirmed a real defect_code for this finding —
+            # PolicyCatalog.evaluate() matches on this, never on the raw CV label directly
+            # (agent/services/policy.py), so an unclassified finding can never let Policy
+            # infer an action_code/final_status from an unvetted YOLO output.
+            "catalog_defect_type": catalog_defect_type,
+            "severity": severity,
+            "severity_source_id": severity_source_id,
+            "similar_defect_warning": similar_defect_warning,
+            "camera_classifications": camera_classifications,
+            "unresolved_camera_ids": unresolved_camera_ids,
             "execution_trace": _trace(
                 "detect_defect",
                 f"{model_name} trả về defect_detected={detected}, "
                 f"độ_tin_cậy={float(detection.get('confidence', 0.0)):.2f}, "
                 f"số_phát_hiện={len(detection.get('detections', []))} trên "
                 f"{len(detection.get('camera_results', [])) or 1} camera; "
-                f"khớp_danh_mục={len(suggested_codes)}, mã_đã_chọn={classification.defect_code}, "
-                f"bộ_phân_loại={classification.provider};{geometry_detail} "
-                "kích_thước_mm=cần hiệu chuẩn.",
+                f"phân_loại_độc_lập_theo_camera={len(camera_classifications)} "
+                f"(chưa_khớp_danh_mục={len(unresolved_camera_ids)}); "
+                f"mã_đã_chọn={classified_defect_code};{geometry_detail}"
+                f"{size_detail}",
             ),
         }
 
     def assess_result(self, state: QCState) -> dict[str, Any]:
+        camera_classifications = state.get("camera_classifications") or []
+        unresolved_camera_ids = state.get("unresolved_camera_ids") or []
+
         if state.get("inference_status") == "ERROR":
             route = "HITL"
             decision = "MODEL_ERROR_REVIEW_REQUIRED"
@@ -175,24 +298,80 @@ class QCNodes:
             route = "PASS"
             decision = "PASS"
             reason = "Không phát hiện lỗi bề mặt nào thuộc danh mục được hỗ trợ."
-        elif state.get("defect_type") == "unknown" or not state.get("classified_defect_code"):
+        elif unresolved_camera_ids:
             route = "HITL"
             decision = "UNKNOWN_CLASS_REVIEW_REQUIRED"
-            reason = "Phát hiện một lỗi mới hoặc chưa có trong danh mục nên Agent không thể phân loại."
+            reason = (
+                "Phát hiện lỗi mới hoặc chưa có trong danh mục ở camera "
+                f"{', '.join(unresolved_camera_ids)} nên Agent không thể phân loại."
+            )
         else:
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
-            reason = "Agent đã phân loại lỗi đã biết và chọn được mã QC đang hoạt động."
+            reason = (
+                f"Agent đã phân loại độc lập {len(camera_classifications)} camera có lỗi "
+                "và chọn được mã QC đang hoạt động cho từng camera."
+            )
 
-        policy = self.policy_catalog.evaluate(state)
+        camera_policy_decisions: list[dict[str, Any]] = []
         analysis: ReasoningAnalysis | None = None
+
         if route == "CONFIRMED":
+            # Evaluate policy for EVERY camera's own finding independently — a defect on
+            # CAM-03 that the catalog/policy says must FAIL cannot be hidden just because
+            # CAM-01's finding happened to be classified as PASS-eligible.
+            evaluated: list[tuple[dict[str, Any], PolicyDecision]] = []
+            for item in camera_classifications:
+                overlay_state = {
+                    **state,
+                    "defect_type": item["defect_type"],
+                    "catalog_defect_type": item["catalog_defect_type"],
+                    "confidence": item["confidence"],
+                    "severity": item["severity"],
+                    "bbox": item["bbox"],
+                    "visual_measurements": item["visual_measurements"],
+                    "camera_id": item["camera_id"],
+                }
+                evaluated.append((item, self.policy_catalog.evaluate(overlay_state)))
+
+            camera_policy_decisions = [
+                {
+                    "camera_id": item["camera_id"],
+                    "detection_id": item["detection_id"],
+                    "policy_decision": decision.model_dump(mode="json"),
+                }
+                for item, decision in evaluated
+            ]
+
+            # Worst-wins, deterministically: ANY camera FAILing fails the whole vehicle.
+            # The single decision that drives the LLM narrative is the highest-severity
+            # FAIL (or, if nothing fails, just the highest-severity finding overall).
+            failing = [pair for pair in evaluated if pair[1].final_status == "FAIL"]
+            _worst_item, policy = max(failing or evaluated, key=lambda pair: _classification_rank(pair[0]))
+            aggregate_final_status = "FAIL" if failing else "PASS"
+
             try:
                 analysis = self.reasoning.analyze(state, policy)
             except ReasoningUnavailableError as error:
                 route = "HITL"
                 decision = "LLM_AGENT_UNAVAILABLE"
                 reason = f"LLM Agent không thể đưa ra quyết định hợp lệ: {error}."
+            else:
+                # The LLM only ever reasons about ONE camera's policy — it cannot know a
+                # DIFFERENT camera's defect is what actually fails the vehicle, so the
+                # deterministic cross-camera aggregate always overrides its free-form status.
+                if analysis.final_status != aggregate_final_status:
+                    analysis = analysis.model_copy(
+                        update={
+                            "final_status": aggregate_final_status,
+                            "allow_test_drive": (
+                                aggregate_final_status == "PASS" and analysis.allow_test_drive
+                            ),
+                        }
+                    )
+        else:
+            policy = self.policy_catalog.evaluate(state)
+
         review = policy.document_review
         return {
             "assessment_route": route,
@@ -202,14 +381,17 @@ class QCNodes:
             "reason": reason,
             "human_required": route == "HITL",
             "policy_decision": policy.model_dump(mode="json"),
+            "camera_policy_decisions": camera_policy_decisions,
             "ai_analysis": analysis.model_dump(mode="json") if analysis else {},
             "agent_reasoning_status": (
                 "LLM_DECISION_COMPLETED" if analysis else state.get("agent_reasoning_status", "NOT_RUN")
             ),
             "execution_trace": _trace(
                 "assess_result",
-                f"Định_tuyến={route}. Tra cứu chính sách khớp {review.matched_document_count} tài liệu "
-                f"kiểm soát, thiếu {len(review.missing_data)} minh chứng, và phát sinh "
+                f"Định_tuyến={route}. Đánh giá chính sách độc lập cho "
+                f"{len(camera_policy_decisions)} camera; tra cứu chính sách khớp "
+                f"{review.matched_document_count} tài liệu kiểm soát, thiếu "
+                f"{len(review.missing_data)} minh chứng, và phát sinh "
                 f"{len(review.warnings)} cảnh báo kiểm soát tài liệu.",
             ),
         }
@@ -445,12 +627,15 @@ class QCNodes:
 def _enrich_defects(state: QCState) -> list[dict[str, Any]]:
     """Add context and preserve the detector's explicit calibration provenance.
 
-    Only the primary detection (the one that drove assess_result/policy) is
-    classified into a QC severity; a fabricated severity must never be
-    attributed to the other camera views' findings.
+    Every camera that has its own classified finding (state["camera_classifications"],
+    built in QCNodes.detect_defect/_classify_local_detection — one per camera with a
+    detection) gets ITS OWN real severity and is_primary=True; a detection that lost
+    out to another finding within the SAME camera still gets no fabricated severity.
     """
     fallback_zone_name = str(state.get("zone_name") or "unknown_zone")
-    primary_detection_id = state.get("primary_detection_id")
+    classified_by_detection_id = {
+        item["detection_id"]: item for item in (state.get("camera_classifications") or [])
+    }
     return [
         {
             **item,
@@ -476,11 +661,11 @@ def _enrich_defects(state: QCState) -> list[dict[str, Any]]:
                 "calibration_profile_id"
             ),
             "severity_rank": (
-                state.get("severity") or "UNASSESSED"
-                if item.get("detection_id") == primary_detection_id
+                classified_by_detection_id[item["detection_id"]]["severity"]
+                if item.get("detection_id") in classified_by_detection_id
                 else "UNCLASSIFIED_SECONDARY_FINDING"
             ),
-            "is_primary": item.get("detection_id") == primary_detection_id,
+            "is_primary": item.get("detection_id") in classified_by_detection_id,
         }
         for item in state.get("detections", [])
     ]

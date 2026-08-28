@@ -20,7 +20,7 @@ type DisplayPattern = {
 };
 
 function levelFromSeverity(severity: QualityAlert["severity"]): WarningLevel {
-  return severity === "CRITICAL" ? "CRITICAL" : severity === "WARNING" ? "WARNING" : "WATCH";
+  return severity;
 }
 
 function toPattern(alert: QualityAlert): DisplayPattern {
@@ -64,8 +64,15 @@ function EarlyWarnings() {
   const alerts = useMemo(() => alertSummary?.alerts ?? [], [alertSummary]);
   const patterns = useMemo(() => alerts.map(toPattern), [alerts]);
   const criticalCount = patterns.filter((p) => p.level === "CRITICAL").length;
+  // WATCH is an early, low-urgency signal (worth tracking in the level breakdown) — it does not
+  // belong in the inspector's "check right now" list, which should only ever hold things that
+  // actually warrant an immediate action at the station.
+  const immediateAlerts = useMemo(
+    () => alerts.filter((a) => a.severity !== "WATCH" && a.upstream_checks_vi.length > 0),
+    [alerts],
+  );
   const levelCounts = useMemo(() => {
-    const counts: Record<WarningLevel, number> = { NORMAL: 0, WATCH: 0, WARNING: 0, CRITICAL: 0 };
+    const counts: Record<WarningLevel, number> = { WATCH: 0, WARNING: 0, CRITICAL: 0 };
     for (const p of patterns) counts[p.level] += 1;
     return counts;
   }, [patterns]);
@@ -109,15 +116,13 @@ function EarlyWarnings() {
         >
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Đang tải cảnh báo chất lượng…</p>
-          ) : alerts.filter((a) => a.upstream_checks_vi.length > 0).length === 0 ? (
+          ) : immediateAlerts.length === 0 ? (
             <div className="flex h-[200px] items-center justify-center px-4 text-center text-sm text-muted-foreground">
               Không có việc kiểm tra nào cần thực hiện lúc này.
             </div>
           ) : (
             <div className="max-h-[420px] space-y-4 overflow-y-auto pr-1">
-              {alerts
-                .filter((a) => a.upstream_checks_vi.length > 0)
-                .map((alert) => (
+              {immediateAlerts.map((alert) => (
                   <div key={alert.id} className="rounded-sm border border-border bg-surface-2 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-xs font-bold tracking-[0.1em] text-foreground">
@@ -160,16 +165,15 @@ function EarlyWarnings() {
         </Panel>
 
         <Panel title="Ngưỡng mức độ cảnh báo">
-          <div className="grid grid-cols-4 gap-2">
-            {(["NORMAL", "WATCH", "WARNING", "CRITICAL"] as const).map((lvl, i) => (
+          <div className="grid grid-cols-3 gap-2">
+            {(["WATCH", "WARNING", "CRITICAL"] as const).map((lvl, i) => (
               <div
                 key={lvl}
                 className={cn(
                   "rounded-sm border bg-surface-2 p-3 text-center",
-                  i === 3 && "border-destructive/45",
-                  i === 2 && "border-warning/45",
-                  i === 1 && "border-info/40",
-                  i === 0 && "border-border",
+                  i === 2 && "border-destructive/45",
+                  i === 1 && "border-warning/45",
+                  i === 0 && "border-info/40",
                 )}
               >
                 <LevelBadge level={lvl} />

@@ -5,7 +5,12 @@ import {
   type Defect,
   type Severity,
 } from "@/lib/qc-data";
-import type { EnrichedDefect, QCState } from "@/lib/api-types";
+import type {
+  CameraClassification,
+  CameraPolicyDecision,
+  EnrichedDefect,
+  QCState,
+} from "@/lib/api-types";
 import { assetUrl } from "@/lib/auth";
 
 // Static position labels for the 5 fixed camera mounts — not sample/demo data, just UI copy
@@ -36,14 +41,13 @@ export function camerasFromState(state: QCState | undefined): Camera[] {
   });
 }
 
-// Real defect class names coming back from the CV model are free-form strings (e.g. "scratch",
-// "paint_defect"); map them onto the small closed set the UI badge uses. Unrecognized classes
-// fall back to "Surface anomaly" rather than crashing.
+// The CV model's taxonomy (agent/services/yolo_detector.py's CLASS_MAP) only ever normalizes
+// to "scratch" or "dent" — map those onto the small closed set the UI badge uses. Anything else
+// (a class the map hasn't been taught yet) falls back to "Surface anomaly" rather than crashing.
 export function mapDefectType(className: string): Defect["type"] {
   const key = className.toLowerCase();
   if (key.includes("scratch")) return "Scratch";
   if (key.includes("dent")) return "Dent";
-  if (key.includes("paint")) return "Paint defect";
   return "Surface anomaly";
 }
 
@@ -97,12 +101,46 @@ export function segmentationToPercentPoints(
   }));
 }
 
+// Each camera that has its own detection gets its own independent classification
+// (agent/graph/nodes.py's QCNodes._classify_local_detection, one call per camera with a
+// finding — see state.camera_classifications). A detection that lost out to another one
+// WITHIN the same camera was never run through classify_defect_code, so it has no real
+// threshold/rule to show; showing another finding's rule on it would misattribute that
+// finding's size bucket.
+function thresholdFor(
+  d: EnrichedDefect,
+  cameraClassifications: CameraClassification[] | undefined,
+): string {
+  const own = cameraClassifications?.find((c) => c.detection_id === d.detection_id);
+  if (!own?.classified_defect_code) return "—";
+  const rule = own.suggested_defect_codes.find((c) => c.defect_code === own.classified_defect_code)
+    ?.classification_rule;
+  return rule || "—";
+}
+
+// The vehicle-level final_status is a single PASS/FAIL, but each camera's finding was
+// policy-evaluated independently (agent/graph/nodes.py's assess_result, state.camera_policy_
+// decisions) — show THAT camera's own verdict when it exists instead of blindly copying the
+// overall vehicle verdict onto every finding (which would hide a PASS-eligible camera behind
+// a different camera's FAIL, or vice versa).
+function decisionFor(
+  d: EnrichedDefect,
+  cameraPolicyDecisions: CameraPolicyDecision[] | undefined,
+  overallDecision: "PASS" | "FAIL",
+): "PASS" | "FAIL" {
+  const own = cameraPolicyDecisions?.find((c) => c.detection_id === d.detection_id);
+  const ownStatus = own?.policy_decision?.final_status;
+  return ownStatus === "PASS" || ownStatus === "FAIL" ? ownStatus : overallDecision;
+}
+
 function toDefect(
   d: EnrichedDefect,
   index: number,
-  decision: "PASS" | "FAIL",
+  overallDecision: "PASS" | "FAIL",
   imageWidth: number | undefined,
   imageHeight: number | undefined,
+  cameraClassifications: CameraClassification[] | undefined,
+  cameraPolicyDecisions: CameraPolicyDecision[] | undefined,
 ): Defect {
   const camera = (KNOWN_CAMERA_IDS.includes(d.camera_id as CameraId)
     ? d.camera_id
@@ -120,8 +158,8 @@ function toDefect(
     confidence: Math.round(d.confidence * 1000) / 10,
     camera,
     measurement: d.estimated_width_mm != null ? `${d.estimated_width_mm.toFixed(1)} mm` : "—",
-    threshold: "—",
-    decision,
+    threshold: thresholdFor(d, cameraClassifications),
+    decision: decisionFor(d, cameraPolicyDecisions, overallDecision),
     box: bboxToPercentBox(d.bbox, imageWidth, imageHeight),
     polygon: segmentationToPercentPoints(d.segmentation, imageWidth, imageHeight),
     cropImageUrl: assetUrl(d.crop_image_url) || undefined,
@@ -140,6 +178,14 @@ export function defectsFromState(state: QCState | undefined): Defect[] {
     const cameraResult = state.camera_results?.find((r) => r.camera_id === d.camera_id);
     const imageWidth = cameraResult?.image_width ?? state.image_width;
     const imageHeight = cameraResult?.image_height ?? state.image_height;
-    return toDefect(d, i, overallPass ? "PASS" : "FAIL", imageWidth, imageHeight);
+    return toDefect(
+      d,
+      i,
+      overallPass ? "PASS" : "FAIL",
+      imageWidth,
+      imageHeight,
+      state.camera_classifications,
+      state.camera_policy_decisions,
+    );
   });
 }

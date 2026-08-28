@@ -37,6 +37,18 @@ class ReasoningUnavailableError(RuntimeError):
     """Raised when the configured LLM Agent cannot produce a validated decision."""
 
 
+def _detections_for_prompt(state: QCState) -> list[dict[str, object]]:
+    """Strip segmentation polygons out of `detections` before it goes into an LLM
+    prompt: the classifier only reasons about class/confidence/measurements/camera,
+    never the raw mask shape, and a 128-point polygon per detection is the single
+    biggest token cost in this prompt (it alone has pushed real inspections over
+    Groq's per-minute token limit, e.g. 8712 tokens against an 8000 TPM cap)."""
+    return [
+        {key: value for key, value in detection.items() if key != "segmentation"}
+        for detection in state.get("detections", [])
+    ]
+
+
 class DefectCodeClassification(BaseModel):
     defect_code: str | None
     defect_family: str | None
@@ -115,10 +127,13 @@ class DeterministicReasoningService:
             code = "DENT04"
             reason = "Vùng móp có tỷ lệ dài/rộng lớn; gợi ý kiểm tra nếp gấp."
         elif width is not None:
+            # Bands mirror defect_catalog's classification_rule (Japan auction-sheet
+            # A1/A2/A3 scratch grading; PDR dent-diameter reference chart for dent) —
+            # see agent/services/defect_catalog.py and docs/POLICY_GOVERNANCE.md.
             if defect_type == "scratch":
-                code = "SCRATCH01" if width <= 50 else "SCRATCH02" if width <= 150 else "SCRATCH03"
+                code = "SCRATCH01" if width <= 50 else "SCRATCH02" if width <= 100 else "SCRATCH03"
             elif defect_type == "dent":
-                code = "DENT01" if width <= 50 else "DENT02" if width <= 150 else "DENT03"
+                code = "DENT01" if width <= 25 else "DENT02" if width <= 50 else "DENT03"
             reason = f"Phân loại theo bề rộng ước lượng pilot {width:.1f} mm."
         if code not in codes:
             code = codes[0]
@@ -230,12 +245,19 @@ class DeterministicReasoningService:
             risk_flags.append("MISSING_REQUIRED_EVIDENCE")
         if state.get("severity") in {None, "UNASSESSED", "UNCONFIRMED"}:
             risk_flags.append("SEVERITY_NOT_ASSESSED")
+        # The severity A/B/C threshold itself is cited from defect_catalog's own source
+        # (severity_source_id, set only once defect_catalog confirmed a defect_code — see
+        # agent/graph/nodes.py's detect_defect), on top of whatever the matched policy cites.
+        cited_source_ids = [item.id for item in policy.references]
+        severity_source_id = state.get("severity_source_id")
+        if severity_source_id and severity_source_id not in cited_source_ids:
+            cited_source_ids.append(severity_source_id)
         return ReasoningAnalysis(
             summary_en=summary_en,
             summary_vi=summary_vi,
             risk_flags=risk_flags,
             recommended_checks=missing or ["qc_signoff"],
-            cited_source_ids=[item.id for item in policy.references],
+            cited_source_ids=cited_source_ids,
             provider="deterministic",
             model="policy-template-v1",
             severity=str(state.get("severity") or "UNASSESSED"),
@@ -324,7 +346,7 @@ class GroqReasoningService:
                 "confidence": state.get("confidence"),
                 "zone_name": state.get("zone_name"),
                 "visual_measurements": state.get("visual_measurements"),
-                "detections": state.get("detections"),
+                "detections": _detections_for_prompt(state),
             },
             "allowed_codes": candidates,
             "constraints": [
@@ -440,6 +462,7 @@ class GroqReasoningService:
                 "bbox": state.get("bbox"),
                 "visual_measurements": state.get("visual_measurements"),
                 "severity": state.get("severity"),
+                "severity_source_id": state.get("severity_source_id"),
                 "verify_result": state.get("verify_result"),
                 "similar_defect_warning": state.get("similar_defect_warning"),
                 "total_camera_views": len(state.get("camera_results") or []) or 1,
@@ -497,7 +520,19 @@ class GroqReasoningService:
             if decision_payload.allow_test_drive and not policy.test_drive_allowed:
                 raise ValueError("Groq attempted to allow a blocked test drive")
             self._mark_success()
-            return decision_payload.model_copy(update={"provider": "groq", "model": self.model})
+            # Guarantee the severity threshold's own source is cited even if the LLM didn't
+            # pick it up from the prompt — mirrors DeterministicReasoningService.analyze().
+            cited_source_ids = list(decision_payload.cited_source_ids)
+            severity_source_id = state.get("severity_source_id")
+            if severity_source_id and severity_source_id not in cited_source_ids:
+                cited_source_ids.append(severity_source_id)
+            return decision_payload.model_copy(
+                update={
+                    "provider": "groq",
+                    "model": self.model,
+                    "cited_source_ids": cited_source_ids,
+                }
+            )
         except Exception as exc:
             self._mark_failure(exc)
             logger.warning("Groq decision failed; HITL is required: %s", exc)

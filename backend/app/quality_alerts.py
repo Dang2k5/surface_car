@@ -86,8 +86,12 @@ class QualityAlertSummary(BaseModel):
     generated_at: str
     window_hours: int
     window_size: int
+    watch_consecutive_threshold: int
+    watch_window_threshold: int
     minimum_occurrences: int
     in_window_threshold: int
+    critical_consecutive_threshold: int
+    critical_window_threshold: int
     analyzed_inspections: int
     defect_breakdown: list[DefectAggregate]
     findings: list[InspectionFinding]
@@ -113,9 +117,27 @@ class RepetitionAlertService:
         *,
         window_hours: int = 24,
         window_size: int = 10,
+        # Four-tier severity ladder over the SAME two deterministic signals (a same-position
+        # repeat streak, or how many distinct vehicles in the window share it) — WATCH is the
+        # earliest point a repeat is even a "pattern" (a single occurrence is noise, not a
+        # trend); WARNING/its thresholds are unchanged from the original 2-tier logic so
+        # existing callers/behavior at that boundary don't shift; CRITICAL escalates once the
+        # streak or window share is more than half the monitored window, i.e. likely a
+        # systemic upstream issue rather than a handful of unlucky vehicles.
+        watch_consecutive_threshold: int = 2,
+        watch_window_threshold: int = 2,
         minimum_occurrences: int = 3,
         in_window_threshold: int = 4,
+        critical_consecutive_threshold: int = 5,
+        critical_window_threshold: int = 7,
     ) -> QualityAlertSummary:
+        # Keep the four thresholds monotonically ordered (WATCH <= WARNING <= CRITICAL) even if
+        # a caller passes inconsistent query params — otherwise a lower CRITICAL bound than
+        # WARNING would make the WARNING tier unreachable for that signal.
+        watch_consecutive_threshold = min(watch_consecutive_threshold, minimum_occurrences)
+        watch_window_threshold = min(watch_window_threshold, in_window_threshold)
+        critical_consecutive_threshold = max(critical_consecutive_threshold, minimum_occurrences)
+        critical_window_threshold = max(critical_window_threshold, in_window_threshold)
         now = datetime.now(UTC)
         cutoff = now - timedelta(hours=window_hours)
         candidates = []
@@ -154,9 +176,18 @@ class RepetitionAlertService:
         for (defect_type, zone_name), items in grouped.items():
             vehicle_ids = sorted({str(item.get("vehicle_id", "UNKNOWN")) for item in items})
             consecutive_count = _leading_consecutive_count(records, defect_type, zone_name)
-            triggered_by_consecutive = consecutive_count >= minimum_occurrences
-            triggered_by_window = len(vehicle_ids) >= in_window_threshold
-            if not triggered_by_consecutive and not triggered_by_window:
+            window_count = len(vehicle_ids)
+            severity, trigger_type = _severity_for(
+                consecutive_count=consecutive_count,
+                window_count=window_count,
+                watch_consecutive_threshold=watch_consecutive_threshold,
+                watch_window_threshold=watch_window_threshold,
+                warning_consecutive_threshold=minimum_occurrences,
+                warning_window_threshold=in_window_threshold,
+                critical_consecutive_threshold=critical_consecutive_threshold,
+                critical_window_threshold=critical_window_threshold,
+            )
+            if severity is None:
                 continue
             camera_ids = sorted({str(item.get("camera_id") or "unknown_camera") for item in items})
             camera_id = camera_ids[0] if len(camera_ids) == 1 else "MULTI_CAMERA"
@@ -166,8 +197,6 @@ class RepetitionAlertService:
             )
             similar_code_warning = len(related_codes) > 1
             timestamps = sorted(_parse_timestamp(item.get("_persisted_at")) for item in items)
-            severity = "CRITICAL" if triggered_by_consecutive else "WARNING"
-            trigger_type = "CONSECUTIVE" if triggered_by_consecutive else "WINDOW_FREQUENCY"
             root_cause, target_shop = _predicted_root_cause(defect_type)
             routing_command = "ROUTE_AFFECTED_BATCH_TO_OFFLINE_INSPECTION_BUFFER"
             key_text = f"{defect_type}|{zone_name}|{window_size}"
@@ -249,13 +278,20 @@ class RepetitionAlertService:
                     ai_analysis=analysis.model_dump(mode="json"),
                 )
             )
-        alerts.sort(key=lambda item: (item.severity != "CRITICAL", -item.affected_vehicle_count))
+        severity_rank = {"CRITICAL": 0, "WARNING": 1, "WATCH": 2}
+        alerts.sort(
+            key=lambda item: (severity_rank.get(item.severity, 3), -item.affected_vehicle_count)
+        )
         return QualityAlertSummary(
             generated_at=now.isoformat(),
             window_hours=window_hours,
             window_size=window_size,
+            watch_consecutive_threshold=watch_consecutive_threshold,
+            watch_window_threshold=watch_window_threshold,
             minimum_occurrences=minimum_occurrences,
             in_window_threshold=in_window_threshold,
+            critical_consecutive_threshold=critical_consecutive_threshold,
+            critical_window_threshold=critical_window_threshold,
             analyzed_inspections=len(records),
             defect_breakdown=defect_breakdown,
             findings=findings,
@@ -299,6 +335,52 @@ def _leading_consecutive_count(
             break
         count += 1
     return count
+
+
+def _severity_for(
+    *,
+    consecutive_count: int,
+    window_count: int,
+    watch_consecutive_threshold: int,
+    watch_window_threshold: int,
+    warning_consecutive_threshold: int,
+    warning_window_threshold: int,
+    critical_consecutive_threshold: int,
+    critical_window_threshold: int,
+) -> tuple[str | None, str | None]:
+    """Rank the same (defect_type, zone_name) group's two deterministic repeat signals —
+    a same-position streak across consecutive vehicles, and how many distinct vehicles in
+    the monitored window share it — against an escalating ladder shared by both signals.
+    CONSECUTIVE is reported whenever it alone reaches the tier, even if WINDOW_FREQUENCY also
+    qualifies: a same-position streak is the stronger signal of a live upstream cause (the
+    same defect keeps recurring right now), whereas a same window count from vehicles at
+    scattered ranks doesn't come with that same immediacy."""
+    if (
+        consecutive_count >= critical_consecutive_threshold
+        or window_count >= critical_window_threshold
+    ):
+        trigger = (
+            "CONSECUTIVE"
+            if consecutive_count >= critical_consecutive_threshold
+            else "WINDOW_FREQUENCY"
+        )
+        return "CRITICAL", trigger
+    if (
+        consecutive_count >= warning_consecutive_threshold
+        or window_count >= warning_window_threshold
+    ):
+        trigger = (
+            "CONSECUTIVE"
+            if consecutive_count >= warning_consecutive_threshold
+            else "WINDOW_FREQUENCY"
+        )
+        return "WARNING", trigger
+    if consecutive_count >= watch_consecutive_threshold or window_count >= watch_window_threshold:
+        trigger = (
+            "CONSECUTIVE" if consecutive_count >= watch_consecutive_threshold else "WINDOW_FREQUENCY"
+        )
+        return "WATCH", trigger
+    return None, None
 
 
 def _predicted_root_cause(defect_type: str) -> tuple[str, str]:

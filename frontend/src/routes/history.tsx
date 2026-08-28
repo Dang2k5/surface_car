@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { useMemo, useState } from "react";
-import { Download, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import type { HistoryRow, Verdict } from "@/lib/qc-data";
 import { Field, Panel, VerdictBadge } from "@/components/qc/primitives";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/history")({
 });
 
 const results = ["ALL", "PASS", "FAIL", "HITL"] as const;
-const types = ["ALL", "Scratch", "Dent", "Paint defect"] as const;
+const types = ["ALL", "Scratch", "Dent"] as const;
 
 type Row = HistoryRow & { threadId: string; enrichedCount: number };
 
@@ -54,6 +54,20 @@ function toRow(run: GraphRun): Row {
     defectType: s.defect_type || s.classified_defect_code || "—",
     enrichedCount: defects,
   };
+}
+
+function formatTime(time: string): string {
+  if (!time || time === "—") return "—";
+  const d = new Date(time);
+  if (Number.isNaN(d.getTime())) return time;
+  return d.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function toCsv(rows: Row[]): string {
@@ -105,6 +119,8 @@ function InspectionHistory() {
   const [query, setQuery] = useState("");
   const [minConf, setMinConf] = useState(0);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 15;
 
   const allRows = useMemo(() => (runs ?? []).map(toRow), [runs]);
 
@@ -120,7 +136,18 @@ function InspectionHistory() {
     [allRows, result, type, minConf, query],
   );
 
-  const selected = rows.find((r) => r.threadId === selectedThreadId) ?? rows[0] ?? null;
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pagedRows = useMemo(
+    () => rows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [rows, currentPage],
+  );
+
+  const selected = rows.find((r) => r.threadId === selectedThreadId) ?? pagedRows[0] ?? null;
+
+  useEffect(() => {
+    setPage(1);
+  }, [result, type, minConf, query]);
   const selectedRun = runs?.find((r) => r.thread_id === selected?.threadId);
   const selectedEvidence = selectedRun?.state.camera_evidence ?? [];
 
@@ -225,7 +252,7 @@ function InspectionHistory() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {pagedRows.map((r) => (
                   <tr
                     key={r.threadId}
                     onClick={() => setSelectedThreadId(r.threadId)}
@@ -234,7 +261,7 @@ function InspectionHistory() {
                       selected?.threadId === r.threadId ? "bg-info/10" : "hover:bg-surface-2",
                     )}
                   >
-                    <td className="px-3 py-2 text-muted-foreground">{r.time}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{formatTime(r.time)}</td>
                     <td className="px-3 py-2 text-foreground">{r.vin}</td>
                     <td className="px-3 py-2 text-muted-foreground">{r.model}</td>
                     <td className="px-3 py-2">
@@ -269,6 +296,29 @@ function InspectionHistory() {
               </tbody>
             </table>
           </div>
+          {rows.length > 0 ? (
+            <div className="flex items-center justify-between border-t border-border px-3 py-2">
+              <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
+                TRANG {currentPage}/{pageCount} · {rows.length} BẢN GHI
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-muted-foreground transition-colors hover:border-info/45 hover:text-info disabled:opacity-40"
+                >
+                  <ChevronLeft className="size-3.5" /> TRƯỚC
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={currentPage === pageCount}
+                  className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-muted-foreground transition-colors hover:border-info/45 hover:text-info disabled:opacity-40"
+                >
+                  SAU <ChevronRight className="size-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : null}
         </Panel>
 
         {selected ? (
@@ -320,7 +370,7 @@ function InspectionHistory() {
 
               <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-3">
                 <Field label="Mã inspection" value={selected.threadId.slice(0, 8)} />
-                <Field label="Thời gian" value={selected.time} tone="info" />
+                <Field label="Thời gian" value={formatTime(selected.time)} tone="info" />
                 <Field label="Model" value={selected.model} />
                 <Field
                   label="Độ tin cậy AI"

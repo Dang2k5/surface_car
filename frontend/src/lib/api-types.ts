@@ -53,6 +53,37 @@ export type EnrichedDefect = {
   mask_image_url?: string;
 };
 
+// One entry per camera that had >=1 detection — each camera's own worst finding,
+// classified independently against the defect catalog + LLM (agent/graph/nodes.py's
+// QCNodes._classify_local_detection). Lets the UI show WHY a specific camera's finding
+// was classified the way it was, instead of only ever reading the single global-worst one.
+export type CameraClassification = {
+  detection_id: string;
+  camera_id: string;
+  defect_type: string;
+  confidence: number;
+  bbox: { x1: number; y1: number; x2: number; y2: number };
+  visual_measurements?: Record<string, unknown>;
+  suggested_defect_codes: DefectCode[];
+  classified_defect_code: string | null;
+  defect_family: string | null;
+  catalog_defect_type: string | null;
+  severity: string;
+  severity_source_id: string | null;
+  similar_defect_warning: boolean;
+};
+
+// Policy verdict for ONE camera's own classified finding (agent/graph/nodes.py's
+// assess_result) — the vehicle's final_status is FAIL if ANY of these is FAIL.
+export type CameraPolicyDecision = {
+  camera_id: string;
+  detection_id: string;
+  policy_decision: { final_status?: string; action_code?: string; action_label?: string } & Record<
+    string,
+    unknown
+  >;
+};
+
 export type CameraEvidence = { camera_id: string; image_path?: string; image_url?: string };
 export type CameraResult = {
   camera_id: string;
@@ -104,6 +135,9 @@ export type QCState = {
   };
   primary_detection_id?: string | null;
   enriched_defects?: EnrichedDefect[];
+  camera_classifications?: CameraClassification[];
+  camera_policy_decisions?: CameraPolicyDecision[];
+  unresolved_camera_ids?: string[];
   overlay_image_url?: string | null;
   crop_image_url?: string | null;
   mask_image_url?: string | null;
@@ -139,6 +173,9 @@ export type QCState = {
   hitl_status?:
     "PENDING" | "CONFIRMED" | "OVERRIDDEN" | "SUPERVISOR_APPROVED" | "SUPERVISOR_REJECTED";
   execution_trace?: TraceEvent[];
+  /** ISO timestamp of the last time this run was persisted (backend/app/langgraph_api.py's
+   * list_agent_runs, backed by QCRepository.list_with_metadata) — used as "waiting since". */
+  _persisted_at?: string;
 };
 
 export type GraphRun = {
@@ -185,6 +222,11 @@ export type TrendRow = {
   pass_fail_rate: number;
 };
 
+// Defect classification catalog (backend/app/qc_api.py's /api/qc/defect-codes) — the
+// severity A/B/C thresholds every inspection is classified against. source_id/source_title/
+// source_document_status trace back to the controlled-policy source register
+// (agent/policies/qc_policy_catalog.json) that justifies default_severity/classification_rule;
+// document_status !== "APPROVED" means that threshold is still an unapproved working draft.
 export type DefectCode = {
   defect_code: string;
   defect_type: string;
@@ -196,11 +238,14 @@ export type DefectCode = {
   default_severity: string;
   measurement_required: number;
   active: number;
+  source_id: string | null;
+  source_title: string | null;
+  source_document_status: string | null;
 };
 
 export type QualityAlert = {
   id: string;
-  severity: "WARNING" | "CRITICAL";
+  severity: "WATCH" | "WARNING" | "CRITICAL";
   status: string;
   defect_type: string;
   zone_name: string;
@@ -231,6 +276,13 @@ export type QualityAlert = {
 export type QualityAlertSummary = {
   generated_at: string;
   window_hours: number;
+  window_size: number;
+  watch_consecutive_threshold: number;
+  watch_window_threshold: number;
+  minimum_occurrences: number;
+  in_window_threshold: number;
+  critical_consecutive_threshold: number;
+  critical_window_threshold: number;
   alerts: QualityAlert[];
 };
 
@@ -343,6 +395,31 @@ export type Station = {
 
 export type StationCreate = { station_id: string; name: string };
 export type StationUpdate = { name?: string; active?: boolean };
+
+export type DefectCodeCreate = {
+  defect_code: string;
+  defect_type: "scratch" | "dent";
+  cv_label: "scratch" | "dent";
+  defect_family?: string;
+  display_name: string;
+  description?: string;
+  classification_rule?: string;
+  default_severity?: string;
+  measurement_required?: boolean;
+  source_id?: string;
+  active?: boolean;
+};
+
+export type DefectCodeUpdate = {
+  defect_family?: string;
+  display_name?: string;
+  description?: string;
+  classification_rule?: string;
+  default_severity?: string;
+  measurement_required?: boolean;
+  source_id?: string;
+  active?: boolean;
+};
 
 // QC_SUPERVISOR-facing types, ported from the legacy quality-command-61 (Lovable) frontend —
 // mapped onto the real backend contracts below instead of that project's mock qc-data.ts.

@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_BASE, useAuth } from "./auth";
 import type {
   AgentStatus,
+  DefectCode,
+  DefectCodeCreate,
+  DefectCodeUpdate,
   GraphRun,
   GraphSpec,
   LotCreate,
@@ -318,6 +321,70 @@ export function useQcDecisions(inspectionId?: string) {
   });
 }
 
+export function useDefectCodes(activeOnly = false) {
+  const { authedFetch } = useAuth();
+  return useQuery({
+    queryKey: ["qc", "defect-codes", activeOnly],
+    queryFn: () =>
+      authedFetch(`/api/qc/defect-codes?active_only=${activeOnly}`).then((r) =>
+        json<DefectCode[]>(r),
+      ),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateDefectCode() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: DefectCodeCreate) => {
+      const response = await authedFetch("/api/qc/defect-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<DefectCode>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["qc", "defect-codes"] }),
+  });
+}
+
+export function useUpdateDefectCode() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      defectCode,
+      payload,
+    }: {
+      defectCode: string;
+      payload: DefectCodeUpdate;
+    }) => {
+      const response = await authedFetch(`/api/qc/defect-codes/${encodeURIComponent(defectCode)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return json<DefectCode>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["qc", "defect-codes"] }),
+  });
+}
+
+export function useDeleteDefectCode() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (defectCode: string) => {
+      const response = await authedFetch(`/api/qc/defect-codes/${encodeURIComponent(defectCode)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(await errorMessage(response));
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["qc", "defect-codes"] }),
+  });
+}
+
 export function useShifts(activeOnly = true) {
   const { authedFetch } = useAuth();
   return useQuery({
@@ -355,6 +422,20 @@ export function useUpdateShift() {
         body: JSON.stringify(payload),
       });
       return json<Shift>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "shifts"] }),
+  });
+}
+
+export function useDeleteShift() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (shiftId: string) => {
+      const response = await authedFetch(`/api/catalog/shifts/${encodeURIComponent(shiftId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(await errorMessage(response));
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "shifts"] }),
   });
@@ -488,6 +569,20 @@ export function useUpdateStation() {
         body: JSON.stringify(payload),
       });
       return json<Station>(response);
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "stations"] }),
+  });
+}
+
+export function useDeleteStation() {
+  const { authedFetch } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (stationId: string) => {
+      const response = await authedFetch(`/api/catalog/stations/${encodeURIComponent(stationId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(await errorMessage(response));
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["catalog", "stations"] }),
   });

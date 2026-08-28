@@ -141,6 +141,10 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
     if (next) setRows((r) => [...r, { cameraId: next, file: null }]);
   };
 
+  const removeRow = (i: number) => {
+    setRows((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r));
+  };
+
   const missing: string[] = [];
   if (!lotId) missing.push("Lô sản xuất");
   if (!shiftId) missing.push("Ca làm việc");
@@ -326,6 +330,16 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
               }
               className="flex-1 font-mono text-xs text-muted-foreground"
             />
+            {rows.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                aria-label={`Xóa ${row.cameraId}`}
+                className="rounded-sm border border-border px-2 py-1.5 font-mono text-xs text-muted-foreground hover:border-destructive/60 hover:text-destructive"
+              >
+                ×
+              </button>
+            ) : null}
           </div>
         ))}
         {rows.length < 5 ? (

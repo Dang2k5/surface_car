@@ -22,21 +22,46 @@ and must not be presented as ISO/GD&T-mandated limits for a real vehicle.
 | ISO 1101:2017 | Language and interpretation of geometrical tolerancing | Actual limits must come from an approved drawing |
 | ISO 9001:2015 | Documented information, control, evaluation, and improvement | Does not supply product acceptance limits |
 | AIAG CQI-8 | Layered process audit governance and effectiveness | Licensed detail must be supplied by the organization |
-| FNS-SEVERITY-CRITERIA-INTERNAL | Internal `DRAFT` mm severity bands for scratch/dent (`SCRATCH01-05`, `DENT01-05`) | Working assumption order-of-magnitude grounded in used-car auction grading (USS/JAA) and PDR dent-size references, not an approved OEM control plan |
+| FNS-SEVERITY-CRITERIA-INTERNAL | Internal `DRAFT` mm severity bands for scratch/dent (`SCRATCH01-05`, `DENT01-05`): scratch ≤50/50-100/>100mm (C/B/A) follows the Japan used-vehicle auction-sheet scratch-length grading convention (A1/A2/A3); dent ≤25/25-50/>50mm (C/B/A) follows the PDR (Paintless Dent Repair) industry dent-diameter reference chart | Working assumption grounded in a real, independently checkable industry convention — not an approved OEM control plan; both source conventions apply to used-vehicle grading / consumer PDR, more lenient than new-vehicle-release acceptance |
 
 Source links are stored in `agent/policies/qc_policy_catalog.json` and returned
 by `GET /api/policies`.
 
+Each `defect_catalog` row (`backend/app/database.py`, `SCRATCH01-05`/`DENT01-05`)
+carries its own `source_id` pointing back into this same register — all 10 default
+rows currently cite `FNS-SEVERITY-CRITERIA-INTERNAL`. `GET /api/qc/defect-codes`
+enriches each row with that source's `document_status`/`title` (looked up from
+`PolicyCatalog.sources`, not a second registry), so the API surfaces the same
+DRAFT/APPROVED status a client already gets for policies. Severity is no longer
+an orphaned number — it always resolves to a citable, status-tracked document.
+
 `qc_policy_catalog.json` chỉ còn 3 policy khớp đúng taxonomy CV thật của MVP
-(`scratch`/`paint_defect` → `FNS-SURFACE-001`, `dent`/`crack` →
-`FNS-GEOMETRY-001`, mọi loại lỗi lặp lại → `FNS-TREND-001`, `PRD.md` §7.1).
-Các entry trước đây cho `weld_imperfection`, `vin_mismatch`/`vin_unreadable`,
+(`scratch` → `FNS-SURFACE-001`, `dent` → `FNS-GEOMETRY-001`, mọi loại lỗi lặp
+lại → `FNS-TREND-001`, `PRD.md` §7.1). Các entry trước đây cho
+`weld_imperfection`, `vin_mismatch`/`vin_unreadable`,
 `glass_shatter`/`lamp_broken`/`tire_flat` (`FNS-SAFETY-001`, `FNS-WELD-001`,
 `FNS-VIN-001`, cùng các source ISO 17637/5817/3779 tương ứng) đã bị xoá khỏi
 catalog vì `agent/services/yolo_detector.py` chỉ nhận diện `dent`/`scratch` —
 các entry đó chưa từng reachable qua luồng tự động và không thuộc phạm vi đề
-tài. Khôi phục lại nếu taxonomy CV được mở rộng trong tương lai (`PRD.md`
-§11).
+tài. Cùng lý do đó, `paint_defect` và `crack` cũng đã bị xoá khỏi
+`defect_types` của hai policy trên (trước đây bị bỏ sót trong đợt dọn dẹp
+này): `paint_defect` vẫn ghi ở `PRD.md` §11 (Future Extension), còn `crack`
+chưa từng có căn cứ trong `PRD.md`. Khôi phục lại nếu taxonomy CV được mở
+rộng trong tương lai (`PRD.md` §11).
+
+## Policy không được quyết định trực tiếp từ nhãn CV thô
+
+`PolicyCatalog.evaluate()` (`agent/services/policy.py`) không match
+`defect_types` theo `state["defect_type"]` (nhãn thô YOLO trả về) nữa, mà
+theo `state["catalog_defect_type"]` — trường này chỉ được set khi
+`defect_catalog` đã xác nhận một `defect_code` hợp lệ cho phát hiện đó (qua
+`classify_defect_code`, hoặc qua override thủ công của operator đã được xác
+minh với `get_defect_code`). Nếu chưa có mã lỗi nào được xác nhận,
+`evaluate()` trả thẳng về policy dự phòng "Fail-safe manual visual
+reinspection" (`FNS-MANUAL-001`) thay vì tự suy diễn hành động từ nhãn CV
+chưa qua kiểm chứng. Lý do an toàn: một nhãn CV thô (vd. "scratch") không tự
+nó đủ căn cứ để chọn `action_code`/`final_status` — phải đi qua bước phân
+loại có kiểm soát của `defect_catalog` trước.
 
 ## Policy `checklist_status`: DRAFT vs APPROVED
 

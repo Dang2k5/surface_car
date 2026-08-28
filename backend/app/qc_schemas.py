@@ -16,6 +16,11 @@ class DefectCodeCreate(BaseModel):
     default_severity: str = Field(default="UNASSESSED", min_length=1, max_length=30)
     measurement_required: bool = False
     active: bool = True
+    # Traces which controlled-policy source (agent/policies/qc_policy_catalog.json's
+    # sources[]) justifies default_severity/classification_rule — e.g. the mm bands
+    # SCRATCH01-05/DENT01-05 ship with cite "FNS-SEVERITY-CRITERIA-INTERNAL" (DRAFT).
+    # Not a foreign key: the source registry lives in the policy catalog, not this DB.
+    source_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("defect_code")
     @classmethod
@@ -26,6 +31,17 @@ class DefectCodeCreate(BaseModel):
     @classmethod
     def normalize_type(cls, value: str) -> str:
         return value.strip().lower().replace(" ", "_")
+
+
+class DefectCodeUpdate(BaseModel):
+    defect_family: str | None = Field(default=None, max_length=80)
+    display_name: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+    classification_rule: str | None = Field(default=None, max_length=1000)
+    default_severity: str | None = Field(default=None, min_length=1, max_length=30)
+    measurement_required: bool | None = None
+    source_id: str | None = Field(default=None, max_length=64)
+    active: bool | None = None
 
 
 class ProfileUpdate(BaseModel):

@@ -28,6 +28,11 @@ const nav = [
 
 const KNOWN_CAMERA_IDS = ["CAM-01", "CAM-02", "CAM-03", "CAM-04", "CAM-05"];
 
+const ROLE_LABEL: Record<string, string> = {
+  QC_SUPERVISOR: "Giám sát QC",
+  QC_OPERATOR: "Vận hành QC",
+};
+
 function useClock() {
   const [now, setNow] = useState<string | null>(null);
   useEffect(() => {
@@ -128,13 +133,15 @@ export function QcShell({ children }: { children: ReactNode }) {
   const hitlPending =
     runs?.filter((r) => r.status === "INTERRUPTED" && !r.state.human_decision).length ?? 0;
   const alerts = alertSummary?.alerts ?? [];
-  const warningCount = alerts.length;
+  // WATCH alerts are an early, low-urgency signal (see /warnings) — they don't belong in the
+  // "needs attention now" badge/bell count, only WARNING/CRITICAL do.
+  const activeAlerts = alerts.filter((a) => a.severity !== "WATCH");
+  const warningCount = activeAlerts.length;
   const engineOnline = agentStatus?.langgraph === "READY";
   const badgeByPath: Record<string, number> = { "/hitl": hitlPending, "/warnings": warningCount };
 
   const latestRun = runs?.[0];
   const usedCameras = new Set((latestRun?.state.camera_evidence ?? []).map((e) => e.camera_id));
-  const stationId = latestRun?.state.station_id || "—";
   const initials = profileDisplayName(profile).slice(0, 2).toUpperCase();
   const currentNav = nav.find((item) => item.to === pathname);
 
@@ -184,7 +191,7 @@ export function QcShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="space-y-3 border-t border-border p-4">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 rounded-sm border border-border bg-surface-2 p-2.5">
             <div className="flex items-center justify-between">
               <span className="label-caps">AI Engine</span>
               <span
@@ -203,16 +210,15 @@ export function QcShell({ children }: { children: ReactNode }) {
               </span>
             </div>
           </div>
-          <div className="rounded-sm border border-border bg-surface-2 p-3">
-            <div className="flex items-center gap-2">
-              <div className="grid size-7 place-items-center rounded-full border border-border bg-surface text-muted-foreground">
-                <UserRound className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{profileDisplayName(profile)}</div>
-                <div className="label-caps">
-                  {profile ? profile.role : "Chưa xác thực"} · Trạm {stationId}
-                </div>
+          <div className="flex min-w-0 items-center gap-2.5 rounded-sm border border-border bg-surface-2 p-3">
+            <div className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-surface text-muted-foreground">
+              <UserRound className="size-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{profileDisplayName(profile)}</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {profile ? (ROLE_LABEL[profile.role] ?? profile.role) : "Chưa xác thực"}
+                {profile?.station_id ? ` · Trạm ${profile.station_id}` : ""}
               </div>
             </div>
           </div>
@@ -260,7 +266,7 @@ export function QcShell({ children }: { children: ReactNode }) {
             </div>
             <NotificationBell
               warningCount={warningCount}
-              alerts={alerts.map((a) => ({ id: a.id, text: a.message_vi || a.message_en }))}
+              alerts={activeAlerts.map((a) => ({ id: a.id, text: a.message_vi || a.message_en }))}
             />
             <div className="grid size-9 place-items-center rounded-full border border-info/40 bg-info/10 font-mono text-xs text-info">
               {initials}

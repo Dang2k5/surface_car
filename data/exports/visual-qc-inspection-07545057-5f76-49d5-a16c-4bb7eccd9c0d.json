@@ -1,0 +1,1855 @@
+{
+  "schema": "visual-qc-agent-audit/v1",
+  "exported_at": "2026-08-27T13:49:42.413554+00:00",
+  "identity": {
+    "thread_id": "07545057-5f76-49d5-a16c-4bb7eccd9c0d",
+    "inspection_id": "de198e88-11ba-4d2d-a49c-6aaf5204e3be",
+    "vehicle_id": "LOT-2026-22-08-A-VF3-24",
+    "vehicle_model": "VF3",
+    "status": "FAIL"
+  },
+  "evidence": {
+    "image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/camera-1.png",
+    "image_sha256": "6ce2b1fe70126f9ba2b2549eed6259d54fb3721b11ad0dd3eba2a0acf1f58771",
+    "camera_id": "CAM-01",
+    "camera_evidence": [
+      {
+        "camera_id": "CAM-01",
+        "image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/camera-1.png",
+        "image_sha256": "6ce2b1fe70126f9ba2b2549eed6259d54fb3721b11ad0dd3eba2a0acf1f58771"
+      },
+      {
+        "camera_id": "CAM-02",
+        "image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/camera-2.png",
+        "image_sha256": "9cf47a5bdaabed7cfcc7734a7419d9fae6862eb40351c1ba990fcd8fd40be521"
+      }
+    ],
+    "zone_name": "truoc"
+  },
+  "model_result": {
+    "model_name": "best.pt",
+    "model_version": "ca4fc8558947",
+    "model_task": "segment",
+    "inference_ms": 1115.4,
+    "defect_detected": true,
+    "defect_type": "scratch",
+    "confidence": 0.522738,
+    "severity": "B",
+    "bbox": {
+      "x1": 719.93,
+      "y1": 437.4,
+      "x2": 1021.67,
+      "y2": 461.63
+    },
+    "segmentation_result": {
+      "format": "polygon",
+      "points": [
+        [
+          1020.71,
+          445.05
+        ],
+        [
+          1020.71,
+          445.05
+        ],
+        [
+          1013.46,
+          445.05
+        ],
+        [
+          994.11,
+          445.05
+        ],
+        [
+          991.69,
+          442.63
+        ],
+        [
+          950.57,
+          442.63
+        ],
+        [
+          948.15,
+          440.21
+        ],
+        [
+          892.52,
+          440.21
+        ],
+        [
+          890.1,
+          442.63
+        ],
+        [
+          812.7,
+          442.63
+        ],
+        [
+          810.28,
+          445.05
+        ],
+        [
+          781.26,
+          445.05
+        ],
+        [
+          778.84,
+          447.47
+        ],
+        [
+          723.21,
+          447.47
+        ],
+        [
+          720.79,
+          445.05
+        ],
+        [
+          720.79,
+          454.73
+        ],
+        [
+          728.04,
+          454.73
+        ],
+        [
+          730.46,
+          457.14
+        ],
+        [
+          744.98,
+          457.14
+        ],
+        [
+          747.39,
+          459.56
+        ],
+        [
+          798.19,
+          459.56
+        ],
+        [
+          800.61,
+          457.14
+        ],
+        [
+          902.19,
+          457.14
+        ],
+        [
+          904.61,
+          454.73
+        ],
+        [
+          907.03,
+          454.73
+        ],
+        [
+          909.45,
+          457.14
+        ],
+        [
+          998.94,
+          457.14
+        ],
+        [
+          1001.36,
+          454.73
+        ],
+        [
+          1011.04,
+          454.73
+        ],
+        [
+          1013.46,
+          452.31
+        ],
+        [
+          1013.46,
+          445.05
+        ]
+      ]
+    },
+    "detections": [
+      {
+        "detection_id": "CAM-01_0",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.522738,
+        "bbox": {
+          "x1": 719.93,
+          "y1": 437.4,
+          "x2": 1021.67,
+          "y2": 461.63
+        },
+        "visual_measurements": {
+          "width_px": 301.74,
+          "height_px": 24.23,
+          "bbox_area_px": 7309.82,
+          "mask_area_px": 4039.11,
+          "image_area_ratio": 0.004648,
+          "center_x_ratio": 0.562534,
+          "center_y_ratio": 0.442435,
+          "relative_position": "middle_center",
+          "estimated_width_mm": 241.39,
+          "estimated_height_mm": 19.38,
+          "estimated_length_mm": 241.39,
+          "estimated_bbox_area_mm2": 4678.29,
+          "estimated_mask_area_mm2": 2585.03,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              1020.71,
+              445.05
+            ],
+            [
+              1020.71,
+              445.05
+            ],
+            [
+              1013.46,
+              445.05
+            ],
+            [
+              994.11,
+              445.05
+            ],
+            [
+              991.69,
+              442.63
+            ],
+            [
+              950.57,
+              442.63
+            ],
+            [
+              948.15,
+              440.21
+            ],
+            [
+              892.52,
+              440.21
+            ],
+            [
+              890.1,
+              442.63
+            ],
+            [
+              812.7,
+              442.63
+            ],
+            [
+              810.28,
+              445.05
+            ],
+            [
+              781.26,
+              445.05
+            ],
+            [
+              778.84,
+              447.47
+            ],
+            [
+              723.21,
+              447.47
+            ],
+            [
+              720.79,
+              445.05
+            ],
+            [
+              720.79,
+              454.73
+            ],
+            [
+              728.04,
+              454.73
+            ],
+            [
+              730.46,
+              457.14
+            ],
+            [
+              744.98,
+              457.14
+            ],
+            [
+              747.39,
+              459.56
+            ],
+            [
+              798.19,
+              459.56
+            ],
+            [
+              800.61,
+              457.14
+            ],
+            [
+              902.19,
+              457.14
+            ],
+            [
+              904.61,
+              454.73
+            ],
+            [
+              907.03,
+              454.73
+            ],
+            [
+              909.45,
+              457.14
+            ],
+            [
+              998.94,
+              457.14
+            ],
+            [
+              1001.36,
+              454.73
+            ],
+            [
+              1011.04,
+              454.73
+            ],
+            [
+              1013.46,
+              452.31
+            ],
+            [
+              1013.46,
+              445.05
+            ]
+          ]
+        }
+      },
+      {
+        "detection_id": "CAM-01_1",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.434833,
+        "bbox": {
+          "x1": 1084.69,
+          "y1": 457.47,
+          "x2": 1246.42,
+          "y2": 512.44
+        },
+        "visual_measurements": {
+          "width_px": 161.73,
+          "height_px": 54.98,
+          "bbox_area_px": 8891.71,
+          "mask_area_px": 6336.25,
+          "image_area_ratio": 0.005654,
+          "center_x_ratio": 0.752941,
+          "center_y_ratio": 0.477318,
+          "relative_position": "middle_right",
+          "estimated_width_mm": 129.38,
+          "estimated_height_mm": 43.98,
+          "estimated_length_mm": 129.38,
+          "estimated_bbox_area_mm2": 5690.69,
+          "estimated_mask_area_mm2": 4055.2,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              1134.39,
+              459.56
+            ],
+            [
+              1131.97,
+              461.98
+            ],
+            [
+              1129.56,
+              461.98
+            ],
+            [
+              1124.72,
+              466.82
+            ],
+            [
+              1122.3,
+              466.82
+            ],
+            [
+              1119.88,
+              469.24
+            ],
+            [
+              1117.46,
+              469.24
+            ],
+            [
+              1115.04,
+              471.66
+            ],
+            [
+              1100.53,
+              471.66
+            ],
+            [
+              1098.11,
+              474.08
+            ],
+            [
+              1093.28,
+              474.08
+            ],
+            [
+              1090.86,
+              476.49
+            ],
+            [
+              1088.44,
+              476.49
+            ],
+            [
+              1086.02,
+              478.91
+            ],
+            [
+              1086.02,
+              493.43
+            ],
+            [
+              1088.44,
+              493.43
+            ],
+            [
+              1095.69,
+              500.68
+            ],
+            [
+              1100.53,
+              500.68
+            ],
+            [
+              1102.95,
+              503.1
+            ],
+            [
+              1105.37,
+              503.1
+            ],
+            [
+              1107.79,
+              505.52
+            ],
+            [
+              1112.62,
+              505.52
+            ],
+            [
+              1115.04,
+              507.94
+            ],
+            [
+              1122.3,
+              507.94
+            ],
+            [
+              1124.72,
+              510.36
+            ],
+            [
+              1211.79,
+              510.36
+            ],
+            [
+              1214.21,
+              507.94
+            ],
+            [
+              1221.47,
+              507.94
+            ],
+            [
+              1223.89,
+              505.52
+            ],
+            [
+              1226.31,
+              505.52
+            ],
+            [
+              1228.72,
+              503.1
+            ],
+            [
+              1231.14,
+              503.1
+            ],
+            [
+              1235.98,
+              498.26
+            ],
+            [
+              1238.4,
+              498.26
+            ],
+            [
+              1245.66,
+              491.01
+            ],
+            [
+              1245.66,
+              481.33
+            ],
+            [
+              1243.24,
+              481.33
+            ],
+            [
+              1235.98,
+              474.08
+            ],
+            [
+              1233.56,
+              474.08
+            ],
+            [
+              1231.14,
+              471.66
+            ],
+            [
+              1216.63,
+              471.66
+            ],
+            [
+              1214.21,
+              469.24
+            ],
+            [
+              1197.28,
+              469.24
+            ],
+            [
+              1194.86,
+              466.82
+            ],
+            [
+              1192.44,
+              466.82
+            ],
+            [
+              1190.03,
+              464.4
+            ],
+            [
+              1187.61,
+              464.4
+            ],
+            [
+              1185.19,
+              461.98
+            ],
+            [
+              1182.77,
+              461.98
+            ],
+            [
+              1180.35,
+              459.56
+            ]
+          ]
+        }
+      }
+    ],
+    "enriched_defects": [
+      {
+        "detection_id": "CAM-01_0",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.522738,
+        "bbox": {
+          "x1": 719.93,
+          "y1": 437.4,
+          "x2": 1021.67,
+          "y2": 461.63
+        },
+        "visual_measurements": {
+          "width_px": 301.74,
+          "height_px": 24.23,
+          "bbox_area_px": 7309.82,
+          "mask_area_px": 4039.11,
+          "image_area_ratio": 0.004648,
+          "center_x_ratio": 0.562534,
+          "center_y_ratio": 0.442435,
+          "relative_position": "middle_center",
+          "estimated_width_mm": 241.39,
+          "estimated_height_mm": 19.38,
+          "estimated_length_mm": 241.39,
+          "estimated_bbox_area_mm2": 4678.29,
+          "estimated_mask_area_mm2": 2585.03,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              1020.71,
+              445.05
+            ],
+            [
+              1020.71,
+              445.05
+            ],
+            [
+              1013.46,
+              445.05
+            ],
+            [
+              994.11,
+              445.05
+            ],
+            [
+              991.69,
+              442.63
+            ],
+            [
+              950.57,
+              442.63
+            ],
+            [
+              948.15,
+              440.21
+            ],
+            [
+              892.52,
+              440.21
+            ],
+            [
+              890.1,
+              442.63
+            ],
+            [
+              812.7,
+              442.63
+            ],
+            [
+              810.28,
+              445.05
+            ],
+            [
+              781.26,
+              445.05
+            ],
+            [
+              778.84,
+              447.47
+            ],
+            [
+              723.21,
+              447.47
+            ],
+            [
+              720.79,
+              445.05
+            ],
+            [
+              720.79,
+              454.73
+            ],
+            [
+              728.04,
+              454.73
+            ],
+            [
+              730.46,
+              457.14
+            ],
+            [
+              744.98,
+              457.14
+            ],
+            [
+              747.39,
+              459.56
+            ],
+            [
+              798.19,
+              459.56
+            ],
+            [
+              800.61,
+              457.14
+            ],
+            [
+              902.19,
+              457.14
+            ],
+            [
+              904.61,
+              454.73
+            ],
+            [
+              907.03,
+              454.73
+            ],
+            [
+              909.45,
+              457.14
+            ],
+            [
+              998.94,
+              457.14
+            ],
+            [
+              1001.36,
+              454.73
+            ],
+            [
+              1011.04,
+              454.73
+            ],
+            [
+              1013.46,
+              452.31
+            ],
+            [
+              1013.46,
+              445.05
+            ]
+          ]
+        },
+        "zone_name": "truoc",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 241.39,
+        "estimated_height_mm": 19.38,
+        "surface_area_mm2": 2585.03,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "B",
+        "is_primary": true,
+        "overlay_image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/CAM-01_0/overlay.png",
+        "crop_image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/CAM-01_0/crop.png",
+        "mask_image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/CAM-01_0/mask.png"
+      },
+      {
+        "detection_id": "CAM-01_1",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "confidence": 0.434833,
+        "bbox": {
+          "x1": 1084.69,
+          "y1": 457.47,
+          "x2": 1246.42,
+          "y2": 512.44
+        },
+        "visual_measurements": {
+          "width_px": 161.73,
+          "height_px": 54.98,
+          "bbox_area_px": 8891.71,
+          "mask_area_px": 6336.25,
+          "image_area_ratio": 0.005654,
+          "center_x_ratio": 0.752941,
+          "center_y_ratio": 0.477318,
+          "relative_position": "middle_right",
+          "estimated_width_mm": 129.38,
+          "estimated_height_mm": 43.98,
+          "estimated_length_mm": 129.38,
+          "estimated_bbox_area_mm2": 5690.69,
+          "estimated_mask_area_mm2": 4055.2,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              1134.39,
+              459.56
+            ],
+            [
+              1131.97,
+              461.98
+            ],
+            [
+              1129.56,
+              461.98
+            ],
+            [
+              1124.72,
+              466.82
+            ],
+            [
+              1122.3,
+              466.82
+            ],
+            [
+              1119.88,
+              469.24
+            ],
+            [
+              1117.46,
+              469.24
+            ],
+            [
+              1115.04,
+              471.66
+            ],
+            [
+              1100.53,
+              471.66
+            ],
+            [
+              1098.11,
+              474.08
+            ],
+            [
+              1093.28,
+              474.08
+            ],
+            [
+              1090.86,
+              476.49
+            ],
+            [
+              1088.44,
+              476.49
+            ],
+            [
+              1086.02,
+              478.91
+            ],
+            [
+              1086.02,
+              493.43
+            ],
+            [
+              1088.44,
+              493.43
+            ],
+            [
+              1095.69,
+              500.68
+            ],
+            [
+              1100.53,
+              500.68
+            ],
+            [
+              1102.95,
+              503.1
+            ],
+            [
+              1105.37,
+              503.1
+            ],
+            [
+              1107.79,
+              505.52
+            ],
+            [
+              1112.62,
+              505.52
+            ],
+            [
+              1115.04,
+              507.94
+            ],
+            [
+              1122.3,
+              507.94
+            ],
+            [
+              1124.72,
+              510.36
+            ],
+            [
+              1211.79,
+              510.36
+            ],
+            [
+              1214.21,
+              507.94
+            ],
+            [
+              1221.47,
+              507.94
+            ],
+            [
+              1223.89,
+              505.52
+            ],
+            [
+              1226.31,
+              505.52
+            ],
+            [
+              1228.72,
+              503.1
+            ],
+            [
+              1231.14,
+              503.1
+            ],
+            [
+              1235.98,
+              498.26
+            ],
+            [
+              1238.4,
+              498.26
+            ],
+            [
+              1245.66,
+              491.01
+            ],
+            [
+              1245.66,
+              481.33
+            ],
+            [
+              1243.24,
+              481.33
+            ],
+            [
+              1235.98,
+              474.08
+            ],
+            [
+              1233.56,
+              474.08
+            ],
+            [
+              1231.14,
+              471.66
+            ],
+            [
+              1216.63,
+              471.66
+            ],
+            [
+              1214.21,
+              469.24
+            ],
+            [
+              1197.28,
+              469.24
+            ],
+            [
+              1194.86,
+              466.82
+            ],
+            [
+              1192.44,
+              466.82
+            ],
+            [
+              1190.03,
+              464.4
+            ],
+            [
+              1187.61,
+              464.4
+            ],
+            [
+              1185.19,
+              461.98
+            ],
+            [
+              1182.77,
+              461.98
+            ],
+            [
+              1180.35,
+              459.56
+            ]
+          ]
+        },
+        "zone_name": "truoc",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 129.38,
+        "estimated_height_mm": 43.98,
+        "surface_area_mm2": 4055.2,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "UNCLASSIFIED_SECONDARY_FINDING",
+        "is_primary": false,
+        "overlay_image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/CAM-01_1/overlay.png",
+        "crop_image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/CAM-01_1/crop.png",
+        "mask_image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/CAM-01_1/mask.png"
+      }
+    ],
+    "camera_results": [
+      {
+        "camera_id": "CAM-01",
+        "image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/camera-1.png",
+        "image_width": 1548,
+        "image_height": 1016,
+        "defect_detected": true,
+        "detections": [
+          {
+            "detection_id": "CAM-01_0",
+            "camera_id": "CAM-01",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "confidence": 0.522738,
+            "bbox": {
+              "x1": 719.93,
+              "y1": 437.4,
+              "x2": 1021.67,
+              "y2": 461.63
+            },
+            "visual_measurements": {
+              "width_px": 301.74,
+              "height_px": 24.23,
+              "bbox_area_px": 7309.82,
+              "mask_area_px": 4039.11,
+              "image_area_ratio": 0.004648,
+              "center_x_ratio": 0.562534,
+              "center_y_ratio": 0.442435,
+              "relative_position": "middle_center",
+              "estimated_width_mm": 241.39,
+              "estimated_height_mm": 19.38,
+              "estimated_length_mm": 241.39,
+              "estimated_bbox_area_mm2": 4678.29,
+              "estimated_mask_area_mm2": 2585.03,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  1020.71,
+                  445.05
+                ],
+                [
+                  1020.71,
+                  445.05
+                ],
+                [
+                  1013.46,
+                  445.05
+                ],
+                [
+                  994.11,
+                  445.05
+                ],
+                [
+                  991.69,
+                  442.63
+                ],
+                [
+                  950.57,
+                  442.63
+                ],
+                [
+                  948.15,
+                  440.21
+                ],
+                [
+                  892.52,
+                  440.21
+                ],
+                [
+                  890.1,
+                  442.63
+                ],
+                [
+                  812.7,
+                  442.63
+                ],
+                [
+                  810.28,
+                  445.05
+                ],
+                [
+                  781.26,
+                  445.05
+                ],
+                [
+                  778.84,
+                  447.47
+                ],
+                [
+                  723.21,
+                  447.47
+                ],
+                [
+                  720.79,
+                  445.05
+                ],
+                [
+                  720.79,
+                  454.73
+                ],
+                [
+                  728.04,
+                  454.73
+                ],
+                [
+                  730.46,
+                  457.14
+                ],
+                [
+                  744.98,
+                  457.14
+                ],
+                [
+                  747.39,
+                  459.56
+                ],
+                [
+                  798.19,
+                  459.56
+                ],
+                [
+                  800.61,
+                  457.14
+                ],
+                [
+                  902.19,
+                  457.14
+                ],
+                [
+                  904.61,
+                  454.73
+                ],
+                [
+                  907.03,
+                  454.73
+                ],
+                [
+                  909.45,
+                  457.14
+                ],
+                [
+                  998.94,
+                  457.14
+                ],
+                [
+                  1001.36,
+                  454.73
+                ],
+                [
+                  1011.04,
+                  454.73
+                ],
+                [
+                  1013.46,
+                  452.31
+                ],
+                [
+                  1013.46,
+                  445.05
+                ]
+              ]
+            }
+          },
+          {
+            "detection_id": "CAM-01_1",
+            "camera_id": "CAM-01",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "confidence": 0.434833,
+            "bbox": {
+              "x1": 1084.69,
+              "y1": 457.47,
+              "x2": 1246.42,
+              "y2": 512.44
+            },
+            "visual_measurements": {
+              "width_px": 161.73,
+              "height_px": 54.98,
+              "bbox_area_px": 8891.71,
+              "mask_area_px": 6336.25,
+              "image_area_ratio": 0.005654,
+              "center_x_ratio": 0.752941,
+              "center_y_ratio": 0.477318,
+              "relative_position": "middle_right",
+              "estimated_width_mm": 129.38,
+              "estimated_height_mm": 43.98,
+              "estimated_length_mm": 129.38,
+              "estimated_bbox_area_mm2": 5690.69,
+              "estimated_mask_area_mm2": 4055.2,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  1134.39,
+                  459.56
+                ],
+                [
+                  1131.97,
+                  461.98
+                ],
+                [
+                  1129.56,
+                  461.98
+                ],
+                [
+                  1124.72,
+                  466.82
+                ],
+                [
+                  1122.3,
+                  466.82
+                ],
+                [
+                  1119.88,
+                  469.24
+                ],
+                [
+                  1117.46,
+                  469.24
+                ],
+                [
+                  1115.04,
+                  471.66
+                ],
+                [
+                  1100.53,
+                  471.66
+                ],
+                [
+                  1098.11,
+                  474.08
+                ],
+                [
+                  1093.28,
+                  474.08
+                ],
+                [
+                  1090.86,
+                  476.49
+                ],
+                [
+                  1088.44,
+                  476.49
+                ],
+                [
+                  1086.02,
+                  478.91
+                ],
+                [
+                  1086.02,
+                  493.43
+                ],
+                [
+                  1088.44,
+                  493.43
+                ],
+                [
+                  1095.69,
+                  500.68
+                ],
+                [
+                  1100.53,
+                  500.68
+                ],
+                [
+                  1102.95,
+                  503.1
+                ],
+                [
+                  1105.37,
+                  503.1
+                ],
+                [
+                  1107.79,
+                  505.52
+                ],
+                [
+                  1112.62,
+                  505.52
+                ],
+                [
+                  1115.04,
+                  507.94
+                ],
+                [
+                  1122.3,
+                  507.94
+                ],
+                [
+                  1124.72,
+                  510.36
+                ],
+                [
+                  1211.79,
+                  510.36
+                ],
+                [
+                  1214.21,
+                  507.94
+                ],
+                [
+                  1221.47,
+                  507.94
+                ],
+                [
+                  1223.89,
+                  505.52
+                ],
+                [
+                  1226.31,
+                  505.52
+                ],
+                [
+                  1228.72,
+                  503.1
+                ],
+                [
+                  1231.14,
+                  503.1
+                ],
+                [
+                  1235.98,
+                  498.26
+                ],
+                [
+                  1238.4,
+                  498.26
+                ],
+                [
+                  1245.66,
+                  491.01
+                ],
+                [
+                  1245.66,
+                  481.33
+                ],
+                [
+                  1243.24,
+                  481.33
+                ],
+                [
+                  1235.98,
+                  474.08
+                ],
+                [
+                  1233.56,
+                  474.08
+                ],
+                [
+                  1231.14,
+                  471.66
+                ],
+                [
+                  1216.63,
+                  471.66
+                ],
+                [
+                  1214.21,
+                  469.24
+                ],
+                [
+                  1197.28,
+                  469.24
+                ],
+                [
+                  1194.86,
+                  466.82
+                ],
+                [
+                  1192.44,
+                  466.82
+                ],
+                [
+                  1190.03,
+                  464.4
+                ],
+                [
+                  1187.61,
+                  464.4
+                ],
+                [
+                  1185.19,
+                  461.98
+                ],
+                [
+                  1182.77,
+                  461.98
+                ],
+                [
+                  1180.35,
+                  459.56
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "camera_id": "CAM-02",
+        "image_url": "/assets/objects/inspections/de198e88-11ba-4d2d-a49c-6aaf5204e3be/camera-2.png",
+        "image_width": 1550,
+        "image_height": 1015,
+        "defect_detected": false,
+        "detections": []
+      }
+    ],
+    "finding_groups": [
+      {
+        "defect_type": "scratch",
+        "observation_count": 2,
+        "camera_ids": [
+          "CAM-01"
+        ],
+        "max_confidence": 0.522738,
+        "deduplication_status": "SINGLE_VIEW"
+      }
+    ],
+    "suggested_defect_codes": [
+      {
+        "defect_code": "SCRATCH01",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước nhỏ",
+        "description": "Vết xước đơn, chiều dài ước lượng đến 50 mm",
+        "classification_rule": "Chọn khi estimated_width_mm <= 50 và chỉ có một vùng xước",
+        "default_severity": "C",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-27T13:46:18.310331+00:00"
+      },
+      {
+        "defect_code": "SCRATCH02",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước trung bình",
+        "description": "Vết xước đơn dài trên 50 đến 150 mm",
+        "classification_rule": "Chọn khi 50 < estimated_width_mm <= 150",
+        "default_severity": "C",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-27T13:46:18.310331+00:00"
+      },
+      {
+        "defect_code": "SCRATCH03",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước dài",
+        "description": "Vết xước dài trên 150 mm",
+        "classification_rule": "Chọn khi estimated_width_mm > 150",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-27T13:46:18.310331+00:00"
+      },
+      {
+        "defect_code": "SCRATCH04",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH_CLUSTER",
+        "display_name": "Cụm nhiều vết xước",
+        "description": "Nhiều vùng xước cùng xuất hiện trên một ảnh",
+        "classification_rule": "Chọn khi có từ 2 detection scratch trở lên",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-27T13:46:18.310331+00:00"
+      },
+      {
+        "defect_code": "SCRATCH05",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH_EDGE",
+        "display_name": "Vết xước vùng mép",
+        "description": "Vết xước nằm gần mép vùng quan sát hoặc đường ráp",
+        "classification_rule": "Chọn khi relative_position nằm sát trái/phải",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-27T13:46:18.310331+00:00"
+      }
+    ],
+    "classified_defect_code": "SCRATCH04",
+    "defect_family": "SURFACE_SCRATCH_CLUSTER",
+    "defect_code_classification": {
+      "defect_code": "SCRATCH04",
+      "defect_family": "SURFACE_SCRATCH_CLUSTER",
+      "confidence": 0.7,
+      "rationale_vi": "Có hai vùng xước được phát hiện trong cùng một ảnh, đáp ứng quy tắc phân loại \"Cụm nhiều vết xước\".",
+      "candidate_codes": [
+        "SCRATCH01",
+        "SCRATCH02",
+        "SCRATCH03",
+        "SCRATCH04",
+        "SCRATCH05"
+      ],
+      "similar_observation_warning": true,
+      "provider": "groq",
+      "model": "openai/gpt-oss-20b",
+      "fallback_reason": null
+    },
+    "similar_defect_warning": true,
+    "measurements": {}
+  },
+  "workflow": {
+    "assessment_route": "CONFIRMED",
+    "verify_count": 0,
+    "verify_result": "NOT_RUN",
+    "human_required": false,
+    "hitl_status": "CONFIRMED",
+    "human_decision": null,
+    "qc_decision_record": null,
+    "execution_trace": [
+      {
+        "node": "prepare_input",
+        "status": "COMPLETED",
+        "detail": "Đã xác thực dữ liệu đầu vào cho 2 camera."
+      },
+      {
+        "node": "detect_defect",
+        "status": "COMPLETED",
+        "detail": "best.pt trả về defect_detected=True, độ_tin_cậy=0.52, số_phát_hiện=2 trên 2 camera; khớp_danh_mục=5, mã_đã_chọn=SCRATCH04, bộ_phân_loại=groq; khung_bao=302x24px, tỉ_lệ_diện_tích_ảnh=0.5%; kích_thước_mm=cần hiệu chuẩn."
+      },
+      {
+        "node": "assess_result",
+        "status": "COMPLETED",
+        "detail": "Định_tuyến=CONFIRMED. Tra cứu chính sách khớp 1 tài liệu kiểm soát, thiếu 3 minh chứng, và phát sinh 0 cảnh báo kiểm soát tài liệu."
+      },
+      {
+        "node": "generate_recommendation",
+        "status": "COMPLETED",
+        "detail": "Chính sách FNS-SURFACE-001@2026.08.1 chọn SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT; nguồn_quyết_định=groq."
+      },
+      {
+        "node": "save_result",
+        "status": "COMPLETED",
+        "detail": "Đã lưu trạng thái cuối cùng qua repository."
+      }
+    ]
+  },
+  "outcome": {
+    "decision": "DEFECT_CONFIRMED",
+    "recommendation_code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT",
+    "recommendation": "Giữ lại để đánh giá bề mặt có kiểm soát và tái kiểm tra có ghi nhận",
+    "allow_test_drive": false,
+    "severity": "B",
+    "reason": "Lỗi trầy xước (SCRATCH04) được phát hiện với độ dài 241 mm và độ tin cậy 0.52. Thiếu bằng chứng cần thiết (đánh giá lại dưới ánh sáng kiểm soát, đo lường phạm vi lỗi, tiêu chí chấp nhận OEM). Theo chính sách FNS-SURFACE-001, xe cần được tái kiểm tra dưới ánh sáng kiểm soát, đo lường phạm vi lỗi, áp dụng tiêu chí OEM và ký QC. Trạng thái cuối cùng: FAIL. Không cho phép lái thử.",
+    "final_status": "FAIL"
+  },
+  "policy": {
+    "policy_id": "FNS-SURFACE-001",
+    "policy_revision": "2026.08.1",
+    "policy_status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "policy_title": "Ngăn giữ và đánh giá lỗi bề mặt",
+    "action_code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT",
+    "action_label": "Giữ lại để đánh giá bề mặt có kiểm soát và tái kiểm tra có ghi nhận",
+    "final_status": "FAIL",
+    "test_drive_allowed": false,
+    "human_required": false,
+    "required_evidence": [
+      "controlled_light_reinspection",
+      "defect_extent_measurement",
+      "approved_oem_acceptance_criteria"
+    ],
+    "missing_evidence": [
+      "controlled_light_reinspection",
+      "defect_extent_measurement",
+      "approved_oem_acceptance_criteria"
+    ],
+    "required_steps": [
+      "CONTAIN_VEHICLE",
+      "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+      "MEASURE_DEFECT_EXTENT",
+      "APPLY_APPROVED_OEM_CRITERIA",
+      "QC_SIGN_OFF"
+    ],
+    "references": [
+      {
+        "id": "FNS-QC-POLICY-DEMO-2026",
+        "document_family": "FNS-QC-POLICY",
+        "revision": "2026.08.1",
+        "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "APPROVED",
+        "authority": "CONTROLLED_POLICY",
+        "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+        "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+        "url": "/api/policies"
+      },
+      {
+        "id": "IATF-16949-2016",
+        "document_family": "IATF-16949",
+        "revision": "2016",
+        "section": "Khung quản lý chất lượng ngành ô tô",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Hệ thống quản lý chất lượng ngành ô tô — Yêu cầu cụ thể khi áp dụng ISO 9001:2015",
+        "scope": "Khung quản trị chất lượng đặc thù ô tô (kiểm soát sản phẩm không phù hợp, hồ sơ, kiểm soát vận hành); không quy định ngưỡng kích thước lỗi cụ thể. Thay thế ISO-4628 (tiêu chuẩn đánh giá suy giảm lớp phủ do thời tiết/lão hóa, không áp dụng cho nghiệm thu lỗi bề mặt trên dây chuyền sản xuất) đã bị trích dẫn sai ngữ cảnh trong bản demo trước.",
+        "url": "https://www.aiag.org/expertise-areas/quality/iatf-16949-2016"
+      },
+      {
+        "id": "ISO-9001-2015",
+        "document_family": "ISO-9001",
+        "revision": "2015",
+        "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+        "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+        "url": "https://www.iso.org/standard/62085.html"
+      },
+      {
+        "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+        "document_family": "FNS-INTERNAL",
+        "revision": "2026.08.1",
+        "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "DRAFT",
+        "authority": "REFERENCE",
+        "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+        "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog, backend/app/database.py). Không phải tiêu chuẩn OEM đã phê duyệt — là giả định làm việc, tham khảo thứ tự độ lớn từ (1) thang phân hạng ô tô cũ USS/JAA Nhật Bản (xước Grade B ~15cm, Grade C ~30cm; A3 ~10-50cm) và (2) so sánh kích thước móp phổ biến trong ngành PDR (đồng xu~2.5cm đến dưa hấu~20cm+). Lưu ý: hai nguồn tham khảo này áp dụng cho xe đã qua sử dụng/định giá lại, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+        "url": "/api/policies"
+      }
+    ],
+    "document_review": {
+      "query": {
+        "vehicle_model": "VF3",
+        "defect_type": "scratch"
+      },
+      "roles_completed": [
+        "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+        "EXTRACT_RELEVANT_CONDITIONS",
+        "COMPARE_EVIDENCE_TO_POLICY",
+        "DETECT_MISSING_DATA",
+        "EXPLAIN_DECISION_PLAINLY",
+        "PROPOSE_APPROVED_CHECKLIST",
+        "CITE_DOCUMENT_METADATA",
+        "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+      ],
+      "matched_document_count": 1,
+      "extracted_conditions": [
+        "Loại lỗi là trầy xước hoặc lỗi sơn",
+        "Phải xác định được mức độ lỗi",
+        "Phải có tiêu chí thẩm mỹ OEM đã phê duyệt trước khi xuất xưởng"
+      ],
+      "evidence_comparison": [
+        {
+          "evidence": "controlled_light_reinspection",
+          "available": false
+        },
+        {
+          "evidence": "defect_extent_measurement",
+          "available": false
+        },
+        {
+          "evidence": "approved_oem_acceptance_criteria",
+          "available": false
+        }
+      ],
+      "missing_data": [
+        "controlled_light_reinspection",
+        "defect_extent_measurement",
+        "approved_oem_acceptance_criteria"
+      ],
+      "checklist_status": "APPROVED",
+      "approved_checklist": [
+        "CONTAIN_VEHICLE",
+        "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+        "MEASURE_DEFECT_EXTENT",
+        "APPLY_APPROVED_OEM_CRITERIA",
+        "QC_SIGN_OFF"
+      ],
+      "proposed_checklist": [
+        "CONTAIN_VEHICLE",
+        "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+        "MEASURE_DEFECT_EXTENT",
+        "APPLY_APPROVED_OEM_CRITERIA",
+        "QC_SIGN_OFF"
+      ],
+      "citations": [
+        {
+          "id": "FNS-QC-POLICY-DEMO-2026",
+          "document_family": "FNS-QC-POLICY",
+          "revision": "2026.08.1",
+          "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "APPROVED",
+          "authority": "CONTROLLED_POLICY",
+          "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+          "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+          "url": "/api/policies"
+        },
+        {
+          "id": "IATF-16949-2016",
+          "document_family": "IATF-16949",
+          "revision": "2016",
+          "section": "Khung quản lý chất lượng ngành ô tô",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Hệ thống quản lý chất lượng ngành ô tô — Yêu cầu cụ thể khi áp dụng ISO 9001:2015",
+          "scope": "Khung quản trị chất lượng đặc thù ô tô (kiểm soát sản phẩm không phù hợp, hồ sơ, kiểm soát vận hành); không quy định ngưỡng kích thước lỗi cụ thể. Thay thế ISO-4628 (tiêu chuẩn đánh giá suy giảm lớp phủ do thời tiết/lão hóa, không áp dụng cho nghiệm thu lỗi bề mặt trên dây chuyền sản xuất) đã bị trích dẫn sai ngữ cảnh trong bản demo trước.",
+          "url": "https://www.aiag.org/expertise-areas/quality/iatf-16949-2016"
+        },
+        {
+          "id": "ISO-9001-2015",
+          "document_family": "ISO-9001",
+          "revision": "2015",
+          "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+          "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+          "url": "https://www.iso.org/standard/62085.html"
+        },
+        {
+          "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+          "document_family": "FNS-INTERNAL",
+          "revision": "2026.08.1",
+          "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "DRAFT",
+          "authority": "REFERENCE",
+          "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+          "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog, backend/app/database.py). Không phải tiêu chuẩn OEM đã phê duyệt — là giả định làm việc, tham khảo thứ tự độ lớn từ (1) thang phân hạng ô tô cũ USS/JAA Nhật Bản (xước Grade B ~15cm, Grade C ~30cm; A3 ~10-50cm) và (2) so sánh kích thước móp phổ biến trong ngành PDR (đồng xu~2.5cm đến dưa hấu~20cm+). Lưu ý: hai nguồn tham khảo này áp dụng cho xe đã qua sử dụng/định giá lại, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+          "url": "/api/policies"
+        }
+      ],
+      "warnings": []
+    },
+    "production_eligible": false
+  },
+  "reasoning": {
+    "summary_en": "Scratch defect (SCRATCH04) detected with estimated length 241 mm and confidence 0.52. Missing required evidence (controlled light reinspection, defect extent measurement, OEM acceptance criteria). According to policy FNS-SURFACE-001, the vehicle must be re‑inspected under controlled light, defect extent measured, OEM criteria applied, and QC sign‑off. Final status: FAIL. Test drive not allowed.",
+    "summary_vi": "Lỗi trầy xước (SCRATCH04) được phát hiện với độ dài 241 mm và độ tin cậy 0.52. Thiếu bằng chứng cần thiết (đánh giá lại dưới ánh sáng kiểm soát, đo lường phạm vi lỗi, tiêu chí chấp nhận OEM). Theo chính sách FNS-SURFACE-001, xe cần được tái kiểm tra dưới ánh sáng kiểm soát, đo lường phạm vi lỗi, áp dụng tiêu chí OEM và ký QC. Trạng thái cuối cùng: FAIL. Không cho phép lái thử.",
+    "risk_flags": [
+      "Missing required evidence",
+      "Cross‑camera single view",
+      "Confidence moderate"
+    ],
+    "recommended_checks": [
+      "CONTAIN_VEHICLE",
+      "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+      "MEASURE_DEFECT_EXTENT",
+      "APPLY_APPROVED_OEM_CRITERIA",
+      "QC_SIGN_OFF"
+    ],
+    "cited_source_ids": [
+      "FNS-QC-POLICY-DEMO-2026",
+      "IATF-16949-2016",
+      "ISO-9001-2015",
+      "FNS-SEVERITY-CRITERIA-INTERNAL"
+    ],
+    "provider": "groq",
+    "model": "openai/gpt-oss-20b",
+    "severity": "B",
+    "action_code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT",
+    "action_label": "Giữ lại để đánh giá bề mặt có kiểm soát và tái kiểm tra có ghi nhận",
+    "final_status": "FAIL",
+    "allow_test_drive": false,
+    "decision_rationale_vi": "Theo chính sách FNS-SURFACE-001, việc phát hiện trầy xước với độ dài 241 mm và độ tin cậy 0.52 yêu cầu tái kiểm tra dưới ánh sáng kiểm soát, đo lường phạm vi lỗi và áp dụng tiêu chí OEM đã được phê duyệt. Bởi vì thiếu các bằng chứng cần thiết, quyết định là giữ lại và đánh giá lại, dẫn đến trạng thái cuối cùng là FAIL. Lái thử không được phép vì điều kiện test_drive_allowed là false.",
+    "fallback_reason": null
+  },
+  "agent_analysis": {
+    "reasoning_source": "groq",
+    "reasoning_model": "openai/gpt-oss-20b",
+    "llm_used": true,
+    "defect": {
+      "type": "scratch",
+      "code": "SCRATCH04",
+      "family": "SURFACE_SCRATCH_CLUSTER",
+      "confidence": 0.522738,
+      "classification_confidence": 0.7,
+      "classification_reason_vi": "Có hai vùng xước được phát hiện trong cùng một ảnh, đáp ứng quy tắc phân loại \"Cụm nhiều vết xước\"."
+    },
+    "geometry": {
+      "length_mm": 241.39,
+      "width_mm": 241.39,
+      "height_mm": 19.38,
+      "surface_area_mm2": 2585.03,
+      "width_px": 301.74,
+      "height_px": 24.23,
+      "image_area_ratio": 0.004648,
+      "measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+      "calibration_profile_id": "FNS_FRONT_PILOT_1280"
+    },
+    "location": {
+      "zone_name": "truoc",
+      "relative_position": "middle_center",
+      "camera_id": "CAM-01",
+      "bbox": {
+        "x1": 719.93,
+        "y1": 437.4,
+        "x2": 1021.67,
+        "y2": 461.63
+      }
+    },
+    "plan": {
+      "code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT",
+      "label": "Giữ lại để đánh giá bề mặt có kiểm soát và tái kiểm tra có ghi nhận",
+      "final_status": "FAIL",
+      "allow_test_drive": false,
+      "required_steps": [
+        "CONTAIN_VEHICLE",
+        "CAPTURE_CONTROLLED_LIGHT_IMAGE",
+        "MEASURE_DEFECT_EXTENT",
+        "APPLY_APPROVED_OEM_CRITERIA",
+        "QC_SIGN_OFF"
+      ]
+    },
+    "warnings": [
+      "Missing required evidence",
+      "Cross‑camera single view",
+      "Confidence moderate",
+      "MULTIPLE_SIMILAR_DEFECT_REGIONS"
+    ],
+    "missing_evidence": [
+      "controlled_light_reinspection",
+      "defect_extent_measurement",
+      "approved_oem_acceptance_criteria"
+    ]
+  }
+}

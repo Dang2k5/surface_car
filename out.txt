@@ -1,0 +1,25 @@
+{
+  "identity": {
+    "thread_id": "6ec4e5c6-e248-4ab9-b90f-21b9cb685854",
+    "inspection_id": "24a40099-640f-49ec-8049-237aca165a8d",
+    "vehicle_id": "LOT-2026-22-08-A-VF3-27",
+    "vehicle_model": "VF3",
+    "status": "FAIL"
+  },
+  "outcome": {
+    "decision": "DEFECT_CONFIRMED",
+    "recommendation_code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT",
+    "recommendation": "Giữ lại để đánh giá bề mặt có kiểm soát và tái kiểm tra có ghi nhận",
+    "allow_test_drive": false,
+    "severity": "B",
+    "reason": "Lỗi trầy xước (SCRATCH04) được phát hiện trên panel trước với độ dài ước tính 237 mm và mức độ B. Theo chính sách FNS‑SURFACE‑001, cần kiểm tra lại dưới điều kiện ánh sáng kiểm soát, đo lường phạm vi lỗi và tiêu chí chấp nhận OEM, nhưng dữ liệu này còn thiếu. Do đó xe được đánh dấu FAIL và phải giữ lại để kiểm tra thêm.",
+    "final_status": "FAIL"
+  }
+}
+---workflow keys---
+human_required False hitl_status CONFIRMED assessment_route CONFIRMED
+{'node': 'prepare_input', 'status': 'COMPLETED', 'detail': 'Đã xác thực dữ liệu đầu vào cho 2 camera.'}
+{'node': 'detect_defect', 'status': 'COMPLETED', 'detail': 'best.pt trả về defect_detected=True, độ_tin_cậy=0.73, số_phát_hiện=3 trên 2 camera; khớp_danh_mục=5, mã_đã_chọn=SCRATCH04, bộ_phân_loại=groq; khung_bao=296x25px, tỉ_lệ_diện_tích_ảnh=0.5%; kích_thước_mm=cần hiệu chuẩn.'}
+{'node': 'assess_result', 'status': 'COMPLETED', 'detail': 'Định_tuyến=CONFIRMED. Tra cứu chính sách khớp 1 tài liệu kiểm soát, thiếu 3 minh chứng, và phát sinh 0 cảnh báo kiểm soát tài liệu.'}
+{'node': 'generate_recommendation', 'status': 'COMPLETED', 'detail': 'Chính sách FNS-SURFACE-001@2026.08.1 chọn SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT; nguồn_quyết_định=groq.'}
+{'node': 'save_result', 'status': 'COMPLETED', 'detail': 'Đã lưu trạng thái cuối cùng qua repository.'}

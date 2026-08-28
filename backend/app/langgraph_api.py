@@ -252,7 +252,12 @@ def resume_langgraph_inspection(
                 "classified_defect_code": catalog_item["defect_code"],
                 "defect_type": catalog_item["defect_type"],
                 "defect_family": catalog_item.get("defect_family"),
+                # A manual override validates the code against defect_catalog right here
+                # (get_defect_code above), so it counts as a confirmed classification for
+                # Policy just like the automated classify_defect_code path does.
+                "catalog_defect_type": catalog_item["defect_type"],
                 "severity": payload.severity or catalog_item["default_severity"],
+                "severity_source_id": catalog_item.get("source_id"),
             },
         )
     try:
@@ -309,6 +314,9 @@ def get_langgraph_inspection(request: Request, thread_id: str) -> LangGraphRunRe
 @router.get("/agent/runs", response_model=list[LangGraphRunResponse])
 @router.get("/api/agent/runs", response_model=list[LangGraphRunResponse])
 def list_agent_runs(request: Request) -> list[LangGraphRunResponse]:
+    # list_with_metadata (not list) so state["_persisted_at"] is available to the
+    # supervisor escalations queue for a "waiting since" badge (see quality_alerts.py
+    # for the same convention used to compute inspection age elsewhere).
     return [
         LangGraphRunResponse(
             thread_id=state["thread_id"],
@@ -316,7 +324,7 @@ def list_agent_runs(request: Request) -> list[LangGraphRunResponse]:
             state=state,
             interrupt=None,
         )
-        for state in request.app.state.qc_repository.list()
+        for state in request.app.state.qc_repository.list_with_metadata()
     ]
 
 

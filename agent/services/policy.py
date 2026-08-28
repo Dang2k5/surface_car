@@ -141,7 +141,13 @@ class PolicyCatalog:
         if human_action == "REJECT":
             return self._operator_rejected_defect(state)
 
-        defect_type = str(state.get("defect_type") or "unknown")
+        # Match on the defect_catalog-confirmed type, never the raw CV label
+        # (state["defect_type"]) directly — an unclassified finding (no defect_code
+        # confirmed yet) must not let Policy infer an action_code/final_status from an
+        # unvetted YOLO output; it falls through to the manual-reinspection fail-safe below.
+        defect_type = state.get("catalog_defect_type")
+        if defect_type is None:
+            return self._manual_reinspection(state)
         policy = next(
             (
                 item

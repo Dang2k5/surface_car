@@ -70,12 +70,22 @@ backend proxy hoặc presigned URL do backend cấp.
 | `CALIBRATION_MM_PER_PIXEL_X` | `0.8` | Hệ số pilot theo trục X |
 | `CALIBRATION_MM_PER_PIXEL_Y` | `0.8` | Hệ số pilot theo trục Y |
 | `CALIBRATION_PROFILE_ID` | `FNS_FRONT_PILOT_1280` | ID profile được ghi vào audit |
+| `MARKER_CALIBRATION_ENABLED` | `false` | Bật tính mm/pixel theo từng ảnh bằng marker ArUco cố định gắn trên đồ gá, thay vì luôn tin hệ số tĩnh ở trên |
+| `MARKER_SIZE_MM` | `50` | Cạnh thật của marker (mm); phải khớp với marker in ra dán trên đồ gá |
+| `MARKER_DICTIONARY` | `DICT_4X4_50` | Bộ từ điển ArUco dùng để detect marker |
 
-Các giá trị này chỉ là ước lượng demo
+Các giá trị `CALIBRATION_MM_PER_PIXEL_*` vẫn chỉ là ước lượng demo
 (`PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED`), không phải phép đo QC được
-hiệu chuẩn. `area_px`, `centroid`, `orientation_deg`, `aspect_ratio` và các
-đặc trưng pixel khác được Geometry Processor tính deterministic bằng
-OpenCV/NumPy độc lập với các biến calibration này.
+hiệu chuẩn. Khi bật `MARKER_CALIBRATION_ENABLED` và marker được nhận diện
+trong ảnh, tỉ lệ mm/pixel được tính lại riêng cho ảnh đó từ kích thước đo
+được của marker (`physical_size_status=MARKER_CALIBRATED_ESTIMATE_NOT_QC_APPROVED`,
+`calibration_source=ARUCO_MARKER_PER_FRAME`) — bù được sai lệch khi xe đứng
+không đúng vị trí chuẩn; nếu không thấy marker, hệ thống tự rơi về hệ số tĩnh
+(`calibration_source=MARKER_NOT_DETECTED_FALLBACK_STATIC`). Đây vẫn là ước
+lượng 2D, chưa phải phép đo QC chính thức. `area_px`, `centroid`,
+`orientation_deg`, `aspect_ratio` và các đặc trưng pixel khác được Geometry
+Processor tính deterministic bằng OpenCV/NumPy độc lập với các biến
+calibration này.
 
 ### LangGraph reasoning (text)
 

@@ -511,8 +511,6 @@ Scratch
 
 Dent
 
-Paint defect
-
 Other surface anomaly
 
 Có các mức:

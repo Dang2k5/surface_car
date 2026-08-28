@@ -1,6 +1,6 @@
 export type Verdict = "PASS" | "FAIL" | "HITL";
 export type Severity = "Minor" | "Medium" | "Major" | "Critical";
-export type WarningLevel = "NORMAL" | "WATCH" | "WARNING" | "CRITICAL";
+export type WarningLevel = "WATCH" | "WARNING" | "CRITICAL";
 
 export type CameraId = "CAM-01" | "CAM-02" | "CAM-03" | "CAM-04" | "CAM-05";
 export const KNOWN_CAMERA_IDS: CameraId[] = ["CAM-01", "CAM-02", "CAM-03", "CAM-04", "CAM-05"];
@@ -25,7 +25,7 @@ export type Camera = {
 export type Defect = {
   id: string;
   index: number;
-  type: "Scratch" | "Dent" | "Paint defect" | "Surface anomaly";
+  type: "Scratch" | "Dent" | "Surface anomaly";
   location: string;
   severity: Severity;
   confidence: number;

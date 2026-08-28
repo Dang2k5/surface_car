@@ -20,6 +20,61 @@ SAFETY_PRIORITY = {
     "scratch": 10,
 }
 
+_ARUCO_DICTIONARIES = {
+    "DICT_4X4_50": "DICT_4X4_50",
+    "DICT_4X4_100": "DICT_4X4_100",
+    "DICT_5X5_50": "DICT_5X5_50",
+    "DICT_6X6_50": "DICT_6X6_50",
+    "DICT_ARUCO_ORIGINAL": "DICT_ARUCO_ORIGINAL",
+}
+
+
+def detection_priority_key(item: dict[str, Any]) -> tuple[int, float, float]:
+    """Rank a detection for "worst finding wins" selection: defect class safety priority
+    first (a dent always outranks a scratch, regardless of confidence), then estimated
+    physical size, then confidence only as a final tiebreak. Ranking on confidence before
+    size let a small-but-confident finding mask a larger-but-less-confident one of the
+    SAME class — size is what QC severity actually keys off, so it must win the tie."""
+    measurements = item.get("visual_measurements") or {}
+    length_mm = float(measurements.get("estimated_length_mm") or 0.0)
+    return (
+        int(item.get("safety_priority", 0)),
+        length_mm,
+        float(item.get("confidence") or 0.0),
+    )
+
+
+def _detect_marker_scale(
+    image: Any, marker_size_mm: float, dictionary_name: str
+) -> tuple[float, float] | None:
+    """Detect a fixed-size ArUco marker glued to the fixture and derive mm/pixel from
+    its measured side length in THIS frame. Corrects for the vehicle standing slightly
+    off the nominal position/distance each shot, instead of trusting one hardcoded
+    ratio for every image regardless of how the panel was actually positioned."""
+    dict_key = _ARUCO_DICTIONARIES.get(dictionary_name.strip().upper())
+    if dict_key is None or marker_size_mm <= 0:
+        return None
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dict_key))
+    detector = cv2.aruco.ArucoDetector(aruco_dict, cv2.aruco.DetectorParameters())
+    corners, ids, _ = detector.detectMarkers(gray)
+    if ids is None or len(corners) == 0:
+        return None
+    marker = corners[0][0]
+    side_lengths_px = [
+        float(np.linalg.norm(marker[i] - marker[(i + 1) % 4])) for i in range(4)
+    ]
+    avg_side_px = sum(side_lengths_px) / len(side_lengths_px)
+    if avg_side_px <= 0:
+        return None
+    mm_per_pixel = marker_size_mm / avg_side_px
+    return mm_per_pixel, mm_per_pixel
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -70,6 +125,9 @@ class LocalYoloSegmentationDetector:
         mm_per_pixel_x: float = 0.8,
         mm_per_pixel_y: float = 0.8,
         calibration_profile_id: str = "FNS_FRONT_PILOT_1280",
+        marker_calibration_enabled: bool = False,
+        marker_size_mm: float = 0.0,
+        marker_dictionary: str = "DICT_4X4_50",
     ) -> None:
         path = Path(model_path)
         if not path.is_file():
@@ -92,6 +150,9 @@ class LocalYoloSegmentationDetector:
         self.mm_per_pixel_x = mm_per_pixel_x
         self.mm_per_pixel_y = mm_per_pixel_y
         self.calibration_profile_id = calibration_profile_id
+        self.marker_calibration_enabled = marker_calibration_enabled
+        self.marker_size_mm = marker_size_mm
+        self.marker_dictionary = marker_dictionary
         self.model_version = _sha256(self.model_path)[:12]
         self.model = YOLO(str(self.model_path))
         self._lock = Lock()
@@ -123,6 +184,20 @@ class LocalYoloSegmentationDetector:
         for result, camera in zip(results, evidence, strict=True):
             height, width = (int(value) for value in result.orig_shape)
             camera_detections: list[dict[str, Any]] = []
+            frame_mm_per_pixel_x, frame_mm_per_pixel_y = (
+                self.mm_per_pixel_x,
+                self.mm_per_pixel_y,
+            )
+            frame_calibration_source = "STATIC_PROFILE"
+            if self.marker_calibration_enabled:
+                marker_scale = _detect_marker_scale(
+                    result.orig_img, self.marker_size_mm, self.marker_dictionary
+                )
+                if marker_scale is not None:
+                    frame_mm_per_pixel_x, frame_mm_per_pixel_y = marker_scale
+                    frame_calibration_source = "ARUCO_MARKER_PER_FRAME"
+                else:
+                    frame_calibration_source = "MARKER_NOT_DETECTED_FALLBACK_STATIC"
             boxes = result.boxes
             masks = result.masks
             if boxes is not None:
@@ -147,37 +222,44 @@ class LocalYoloSegmentationDetector:
                     mask_area_px = _polygon_area(polygon)
                     physical_measurements = (
                         {
-                            "estimated_width_mm": round(box_width * self.mm_per_pixel_x, 2),
-                            "estimated_height_mm": round(box_height * self.mm_per_pixel_y, 2),
+                            "estimated_width_mm": round(
+                                box_width * frame_mm_per_pixel_x, 2
+                            ),
+                            "estimated_height_mm": round(
+                                box_height * frame_mm_per_pixel_y, 2
+                            ),
                             "estimated_length_mm": round(
                                 max(
-                                    box_width * self.mm_per_pixel_x,
-                                    box_height * self.mm_per_pixel_y,
+                                    box_width * frame_mm_per_pixel_x,
+                                    box_height * frame_mm_per_pixel_y,
                                 ),
                                 2,
                             ),
                             "estimated_bbox_area_mm2": round(
                                 box_width
                                 * box_height
-                                * self.mm_per_pixel_x
-                                * self.mm_per_pixel_y,
+                                * frame_mm_per_pixel_x
+                                * frame_mm_per_pixel_y,
                                 2,
                             ),
                             "estimated_mask_area_mm2": (
                                 round(
                                     mask_area_px
-                                    * self.mm_per_pixel_x
-                                    * self.mm_per_pixel_y,
+                                    * frame_mm_per_pixel_x
+                                    * frame_mm_per_pixel_y,
                                     2,
                                 )
                                 if mask_area_px > 0
                                 else None
                             ),
-                            "mm_per_pixel_x": self.mm_per_pixel_x,
-                            "mm_per_pixel_y": self.mm_per_pixel_y,
+                            "mm_per_pixel_x": frame_mm_per_pixel_x,
+                            "mm_per_pixel_y": frame_mm_per_pixel_y,
                             "calibration_profile_id": self.calibration_profile_id,
+                            "calibration_source": frame_calibration_source,
                             "physical_size_status": (
-                                "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+                                "MARKER_CALIBRATED_ESTIMATE_NOT_QC_APPROVED"
+                                if frame_calibration_source == "ARUCO_MARKER_PER_FRAME"
+                                else "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
                             ),
                         }
                         if self.fixed_calibration_enabled
@@ -195,6 +277,7 @@ class LocalYoloSegmentationDetector:
                             "class_id": class_id,
                             "raw_class_name": raw_name,
                             "class_name": normalized_name,
+                            "safety_priority": SAFETY_PRIORITY.get(normalized_name, 0),
                             "confidence": round(float(score), 6),
                             "bbox": {
                                 "x1": round(x1, 2),
@@ -232,11 +315,7 @@ class LocalYoloSegmentationDetector:
             )
             detections.extend(camera_detections)
 
-        primary = max(
-            detections,
-            key=lambda item: (SAFETY_PRIORITY.get(item["class_name"], 0), item["confidence"]),
-            default=None,
-        )
+        primary = max(detections, key=detection_priority_key, default=None)
         primary_camera = next(
             (item for item in camera_results if primary and item["camera_id"] == primary["camera_id"]),
             camera_results[0],

@@ -155,7 +155,10 @@ def _build_qc_checkpointer(database_url: str, schema: str | None) -> tuple[Any, 
     if schema:
         connect_kwargs["options"] = f"-c search_path={schema}"
     conn = psycopg.connect(
-        pg_url, autocommit=True, prepare_threshold=0, row_factory=dict_row, **connect_kwargs
+        # None disables server-side prepared statements outright (0 merely
+        # prepares on first use, which still breaks under the transaction-mode
+        # pooler -- see backend/app/database.py's matching connect_args).
+        pg_url, autocommit=True, prepare_threshold=None, row_factory=dict_row, **connect_kwargs
     )
     checkpointer = PostgresSaver(conn)
     checkpointer.setup()
@@ -226,6 +229,9 @@ async def lifespan(app: FastAPI):
         mm_per_pixel_x=app.state.model_settings.calibration_mm_per_pixel_x,
         mm_per_pixel_y=app.state.model_settings.calibration_mm_per_pixel_y,
         calibration_profile_id=app.state.model_settings.calibration_profile_id,
+        marker_calibration_enabled=app.state.model_settings.marker_calibration_enabled,
+        marker_size_mm=app.state.model_settings.marker_size_mm,
+        marker_dictionary=app.state.model_settings.marker_dictionary,
     )
     app.state.qc_verifier = ModelVerifier(
         app.state.qc_detector,

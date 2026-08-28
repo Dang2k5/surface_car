@@ -8,6 +8,7 @@ import {
   Field,
   PageHeader,
   Panel,
+  severityTone,
   Timeline,
 } from "@/components/supervisor/ui";
 import { useQualityAlerts } from "@/lib/queries";
@@ -59,7 +60,7 @@ function Anomalies() {
               className="panel flex flex-col gap-2 p-4 text-left transition-colors hover:border-border-strong"
             >
               <div className="flex items-center gap-2">
-                <Badge tone={a.severity === "CRITICAL" ? "fail" : "warn"} dot>
+                <Badge tone={severityTone(a.severity)} dot>
                   {a.severity}
                 </Badge>
                 <span className="truncate text-[13px] font-semibold">
@@ -90,7 +91,7 @@ function Anomalies() {
         {selected && (
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <Badge tone={selected.severity === "CRITICAL" ? "fail" : "warn"}>
+              <Badge tone={severityTone(selected.severity)}>
                 {selected.severity}
               </Badge>
               <Badge tone="info">{selected.status}</Badge>

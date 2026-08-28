@@ -3,9 +3,7 @@ const label = (map: Record<string, string>, code: string) => map[code] ?? code;
 const DEFECT_TYPE_LABELS: Record<string, string> = {
   "*": "Mọi loại lỗi",
   scratch: "Trầy xước",
-  paint_defect: "Lỗi sơn",
   dent: "Móp",
-  crack: "Nứt",
 };
 
 const CHECKLIST_STATUS_LABELS: Record<string, string> = {

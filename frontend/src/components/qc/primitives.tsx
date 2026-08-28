@@ -113,7 +113,6 @@ export function VerdictBadge({
 
 export function LevelBadge({ level }: { level: WarningLevel }) {
   const map: Record<WarningLevel, string> = {
-    NORMAL: "text-muted-foreground border-border bg-muted/40",
     WATCH: "text-info border-info/40 bg-info/10",
     WARNING: "text-warning border-warning/40 bg-warning/10",
     CRITICAL: "text-destructive border-destructive/40 bg-destructive/10 glow-danger",

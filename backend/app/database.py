@@ -57,7 +57,13 @@ class Database:
     def __init__(self, database_url: str, *, schema: str | None = None) -> None:
         self.database_url = normalize_database_url(database_url)
         self.schema = schema
-        connect_args: dict[str, Any] = {}
+        # Transaction-mode pgbouncer (Supabase pooler port 6543) can route each
+        # statement to a different backend connection, so a server-side prepared
+        # statement from one may not exist (or may collide by name) on the next
+        # -- psycopg's default is to prepare after a few uses, so this must be
+        # disabled explicitly (mirrors the checkpointer's own psycopg.connect
+        # in backend/app/main.py's _build_qc_checkpointer).
+        connect_args: dict[str, Any] = {"prepare_threshold": None}
         if schema:
             bootstrap_engine = create_engine(self.database_url, pool_pre_ping=True)
             try:
@@ -65,10 +71,16 @@ class Database:
                     connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
             finally:
                 bootstrap_engine.dispose()
-            connect_args["options"] = f"-csearch_path={schema}"
+            connect_args["options"] = f"-c search_path={schema}"
         self.engine: Engine = create_engine(
             self.database_url,
             pool_pre_ping=True,
+            # Supabase's pooler already pools connections upstream; keep this
+            # app-side pool small so one backend instance can't alone approach
+            # the project's shared connection cap (SQLAlchemy's unset default
+            # is 5 + 10 overflow = 15, enough on its own to exhaust a small cap).
+            pool_size=3,
+            max_overflow=2,
             connect_args=connect_args,
         )
         self.initialize()
@@ -108,6 +120,7 @@ class Database:
                 default_severity TEXT NOT NULL DEFAULT 'UNASSESSED',
                 measurement_required INTEGER NOT NULL DEFAULT 0,
                 active INTEGER NOT NULL DEFAULT 1,
+                source_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""",
@@ -190,7 +203,6 @@ class Database:
             """CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_trend
             ON agent_graph_runs(station_id, shift_id, lot_id, production_date)"""
         )
-        self._seed_defect_catalog()
         self._seed_shifts()
         self._seed_stations()
 
@@ -202,6 +214,7 @@ class Database:
             "measurement_required": "INTEGER NOT NULL DEFAULT 0",
             "defect_family": "TEXT NOT NULL DEFAULT ''",
             "classification_rule": "TEXT NOT NULL DEFAULT ''",
+            "source_id": "TEXT",
         }
         decision_existing = {
             column["name"] for column in inspect(self.engine).get_columns("qc_decisions")
@@ -285,66 +298,6 @@ class Database:
                     text("ALTER TABLE profiles ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
                 )
 
-    def _seed_defect_catalog(self) -> None:
-        now = datetime.now(UTC).isoformat()
-        defaults = (
-            ("SCRATCH01", "scratch", "scratch", "SURFACE_SCRATCH", "Vết xước nhỏ", "Vết xước đơn, chiều dài ước lượng đến 50 mm", "Chọn khi estimated_width_mm <= 50 và chỉ có một vùng xước", "C", 1),
-            ("SCRATCH02", "scratch", "scratch", "SURFACE_SCRATCH", "Vết xước trung bình", "Vết xước đơn dài trên 50 đến 150 mm", "Chọn khi 50 < estimated_width_mm <= 150", "C", 1),
-            ("SCRATCH03", "scratch", "scratch", "SURFACE_SCRATCH", "Vết xước dài", "Vết xước dài trên 150 mm", "Chọn khi estimated_width_mm > 150", "B", 1),
-            ("SCRATCH04", "scratch", "scratch", "SURFACE_SCRATCH_CLUSTER", "Cụm nhiều vết xước", "Nhiều vùng xước cùng xuất hiện trên một ảnh", "Chọn khi có từ 2 detection scratch trở lên", "B", 1),
-            ("SCRATCH05", "scratch", "scratch", "SURFACE_SCRATCH_EDGE", "Vết xước vùng mép", "Vết xước nằm gần mép vùng quan sát hoặc đường ráp", "Chọn khi relative_position nằm sát trái/phải", "B", 1),
-            ("DENT01", "dent", "dent", "PANEL_DENT", "Vết móp nhỏ", "Vết móp đơn, bề rộng ước lượng đến 50 mm", "Chọn khi estimated_width_mm <= 50 và chỉ có một vùng móp", "C", 1),
-            ("DENT02", "dent", "dent", "PANEL_DENT", "Vết móp trung bình", "Vết móp rộng trên 50 đến 150 mm", "Chọn khi 50 < estimated_width_mm <= 150", "B", 1),
-            ("DENT03", "dent", "dent", "PANEL_DENT", "Vết móp lớn", "Vết móp rộng trên 150 mm", "Chọn khi estimated_width_mm > 150", "A", 1),
-            ("DENT04", "dent", "dent", "PANEL_DENT_CREASE", "Móp có nếp gấp", "Vùng móp kéo dài hoặc có tỷ lệ dài/rộng lớn, cần QC xác nhận nếp gấp", "Chọn khi bbox aspect ratio >= 2; luôn yêu cầu QC xác nhận", "A", 1),
-            ("DENT05", "dent", "dent", "PANEL_DENT_CLUSTER", "Cụm nhiều vết móp", "Nhiều vùng móp cùng xuất hiện trên một ảnh", "Chọn khi có từ 2 detection dent trở lên", "A", 1),
-        )
-        statement = text(
-            """INSERT INTO defect_catalog
-            (defect_code, defect_type, cv_label, defect_family, display_name, description,
-             classification_rule, default_severity, measurement_required, active, created_at, updated_at)
-            VALUES (:defect_code, :defect_type, :cv_label, :defect_family, :display_name, :description,
-                    :classification_rule,
-                    :default_severity, :measurement_required, 1, :created_at, :updated_at)
-            ON CONFLICT(defect_code) DO UPDATE SET
-                defect_type = excluded.defect_type,
-                cv_label = excluded.cv_label,
-                defect_family = excluded.defect_family,
-                display_name = excluded.display_name,
-                description = excluded.description,
-                classification_rule = excluded.classification_rule,
-                default_severity = excluded.default_severity,
-                measurement_required = excluded.measurement_required,
-                updated_at = excluded.updated_at"""
-        )
-        with self.begin() as connection:
-            connection.execute(
-                text(
-                    """UPDATE defect_catalog SET active = 0, updated_at = :updated_at
-                    WHERE defect_code IN ('PAINT01', 'CRACK01', 'GLASS01', 'LAMP01', 'TIRE01')"""
-                ),
-                {"updated_at": now},
-            )
-            connection.execute(
-                statement,
-                [
-                    {
-                        "defect_code": item[0],
-                        "defect_type": item[1],
-                        "cv_label": item[2],
-                        "defect_family": item[3],
-                        "display_name": item[4],
-                        "description": item[5],
-                        "classification_rule": item[6],
-                        "default_severity": item[7],
-                        "measurement_required": item[8],
-                        "created_at": now,
-                        "updated_at": now,
-                    }
-                    for item in defaults
-                ],
-            )
-
     def _seed_shifts(self) -> None:
         """Seed the 3 standard shifts so the inspection form's dropdown isn't empty on a fresh
         database. ON CONFLICT DO NOTHING preserves any edits a Supervisor already made."""
@@ -407,6 +360,28 @@ class Database:
                 {**fields, "shift_id": shift_id},
             )
         return self.fetch_one("SELECT * FROM shifts WHERE shift_id = :shift_id", {"shift_id": shift_id})
+
+    def delete_shift(self, shift_id: str) -> bool:
+        """Hard delete -- only when this shift was never referenced by a real inspection
+        (agent_graph_runs) or production lot (production_lots). Shifts/stations have no
+        DB-level foreign key (unlike defect_catalog -> qc_decisions), so this is checked
+        explicitly rather than relying on a database-raised IntegrityError. Returns False
+        if the shift doesn't exist; raises ValueError if it's in use (caller maps to 409)."""
+        if self.get_shift(shift_id) is None:
+            return False
+        in_use = self.fetch_one(
+            """SELECT 1 AS hit FROM agent_graph_runs WHERE shift_id = :shift_id
+            UNION ALL
+            SELECT 1 AS hit FROM production_lots WHERE shift_id = :shift_id
+            LIMIT 1""",
+            {"shift_id": shift_id},
+        )
+        if in_use:
+            raise ValueError(
+                "Ca làm việc đã được dùng trong inspection hoặc lô sản xuất — không thể xóa cứng, chỉ có thể Tắt."
+            )
+        self.execute("DELETE FROM shifts WHERE shift_id = :shift_id", {"shift_id": shift_id})
+        return True
 
     def list_lots(self, *, active_only: bool = True) -> list[dict[str, Any]]:
         query = "SELECT * FROM production_lots"
@@ -567,6 +542,29 @@ class Database:
             )
         return self.fetch_one("SELECT * FROM stations WHERE station_id = :station_id", {"station_id": station_id})
 
+    def delete_station(self, station_id: str) -> bool:
+        """Hard delete -- only when this station was never referenced by a real inspection
+        (agent_graph_runs), production lot (production_lots), or a QC account's assigned
+        station (profiles). Returns False if the station doesn't exist; raises ValueError
+        if it's in use (caller maps to 409)."""
+        if self.get_station(station_id) is None:
+            return False
+        in_use = self.fetch_one(
+            """SELECT 1 AS hit FROM agent_graph_runs WHERE station_id = :station_id
+            UNION ALL
+            SELECT 1 AS hit FROM production_lots WHERE station_id = :station_id
+            UNION ALL
+            SELECT 1 AS hit FROM profiles WHERE station_id = :station_id
+            LIMIT 1""",
+            {"station_id": station_id},
+        )
+        if in_use:
+            raise ValueError(
+                "Trạm đã được dùng trong inspection, lô sản xuất hoặc gán cho tài khoản — không thể xóa cứng, chỉ có thể Tắt."
+            )
+        self.execute("DELETE FROM stations WHERE station_id = :station_id", {"station_id": station_id})
+        return True
+
     def fetch_all(self, query: str, parameters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:
             rows = connection.execute(text(query), parameters or {}).mappings().all()
@@ -607,21 +605,61 @@ class Database:
         self.execute(
             """INSERT INTO defect_catalog
             (defect_code, defect_type, cv_label, defect_family, display_name, description,
-             classification_rule, default_severity, measurement_required, active, created_at, updated_at)
+             classification_rule, default_severity, measurement_required, active, source_id,
+             created_at, updated_at)
             VALUES (:defect_code, :defect_type, :cv_label, :defect_family, :display_name, :description,
                     :classification_rule,
-                    :default_severity, :measurement_required, :active, :created_at, :updated_at)""",
+                    :default_severity, :measurement_required, :active, :source_id, :created_at, :updated_at)""",
             {
                 **record,
                 "defect_family": record.get("defect_family") or record["defect_type"].upper(),
+                "description": record.get("description") or "",
                 "classification_rule": record.get("classification_rule") or "QC confirmation required",
                 "active": 1 if record.get("active", True) else 0,
                 "measurement_required": 1 if record.get("measurement_required", False) else 0,
+                "source_id": record.get("source_id"),
                 "created_at": now,
                 "updated_at": now,
             },
         )
         return self.get_defect_code(record["defect_code"]) or {}
+
+    def update_defect_code(self, defect_code: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        code = defect_code.upper()
+        existing = self.fetch_one(
+            "SELECT * FROM defect_catalog WHERE defect_code = :defect_code", {"defect_code": code}
+        )
+        if not existing:
+            return None
+        fields = {key: value for key, value in patch.items() if value is not None}
+        if "active" in patch:
+            fields["active"] = 1 if patch["active"] else 0
+        if "measurement_required" in patch:
+            fields["measurement_required"] = 1 if patch["measurement_required"] else 0
+        if fields:
+            fields["updated_at"] = datetime.now(UTC).isoformat()
+            assignments = ", ".join(f"{key} = :{key}" for key in fields)
+            self.execute(
+                f"UPDATE defect_catalog SET {assignments} WHERE defect_code = :defect_code",
+                {**fields, "defect_code": code},
+            )
+        return self.fetch_one(
+            "SELECT * FROM defect_catalog WHERE defect_code = :defect_code", {"defect_code": code}
+        )
+
+    def delete_defect_code(self, defect_code: str) -> bool:
+        """Hard delete -- defect_catalog has a real DB-level foreign key from
+        qc_decisions.defect_code (unlike shifts/stations), so a code that was ever used in
+        a real QC decision raises IntegrityError here instead of silently breaking that
+        decision's audit trail; the caller maps it to 409. Returns False if it doesn't exist."""
+        code = defect_code.upper()
+        existing = self.fetch_one(
+            "SELECT 1 FROM defect_catalog WHERE defect_code = :defect_code", {"defect_code": code}
+        )
+        if existing is None:
+            return False
+        self.execute("DELETE FROM defect_catalog WHERE defect_code = :defect_code", {"defect_code": code})
+        return True
 
     def create_qc_decision(self, record: dict[str, Any]) -> dict[str, Any]:
         values = {

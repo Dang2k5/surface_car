@@ -87,7 +87,7 @@ type FormState = {
 // (e.g. a future model class) only requires adding it here -- collectVocab below
 // also folds in anything already used in the catalog, so a value introduced via
 // AI-extraction or a manual JSON edit shows up automatically without a code change.
-const DEFECT_TYPE_OPTIONS = ["scratch", "paint_defect", "dent", "crack", "*"];
+const DEFECT_TYPE_OPTIONS = ["scratch", "dent", "*"];
 
 const emptyForm: FormState = {
   id: "",

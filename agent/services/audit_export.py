@@ -56,10 +56,12 @@ def build_audit_export(state: dict[str, Any]) -> dict[str, Any]:
             "defect_family": state.get("defect_family"),
             "defect_code_classification": state.get("defect_code_classification"),
             "similar_defect_warning": state.get("similar_defect_warning", False),
+            "camera_classifications": state.get("camera_classifications", []),
             "measurements": state.get("measurements", {}),
         },
         "workflow": {
             "assessment_route": state.get("assessment_route"),
+            "camera_policy_decisions": state.get("camera_policy_decisions", []),
             "verify_count": state.get("verify_count", 0),
             "verify_result": state.get("verify_result"),
             "human_required": state.get("human_required", False),

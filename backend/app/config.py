@@ -25,6 +25,9 @@ class ModelSettings:
     calibration_mm_per_pixel_x: float
     calibration_mm_per_pixel_y: float
     calibration_profile_id: str
+    marker_calibration_enabled: bool
+    marker_size_mm: float
+    marker_dictionary: str
     auto_pass_enabled: bool
     confirmed_threshold: float
     verify_threshold: float
@@ -54,6 +57,9 @@ class ModelSettings:
             calibration_profile_id=os.getenv(
                 "CALIBRATION_PROFILE_ID", "FNS_FRONT_PILOT_1280"
             ).strip(),
+            marker_calibration_enabled=_env_bool("MARKER_CALIBRATION_ENABLED", False),
+            marker_size_mm=float(os.getenv("MARKER_SIZE_MM", "0")),
+            marker_dictionary=os.getenv("MARKER_DICTIONARY", "DICT_4X4_50").strip(),
             auto_pass_enabled=_env_bool("AUTO_PASS_ENABLED", True),
             confirmed_threshold=float(os.getenv("CONFIRMED_THRESHOLD", "0.70")),
             verify_threshold=float(os.getenv("VERIFY_THRESHOLD", "0.40")),

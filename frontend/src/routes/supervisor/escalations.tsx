@@ -36,12 +36,32 @@ function isPendingSupervisor(run: GraphRun): boolean {
   return run.status === "INTERRUPTED" && !!run.state.human_decision;
 }
 
+function waitMinutes(run: GraphRun): number {
+  const at = run.state._persisted_at ? Date.parse(run.state._persisted_at) : NaN;
+  if (Number.isNaN(at)) return 0;
+  return Math.max(0, Math.round((Date.now() - at) / 60_000));
+}
+
+function formatWait(minutes: number): string {
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} giờ${rest ? ` ${rest} phút` : ""}`;
+}
+
+function waitTone(minutes: number): "pass" | "warn" | "fail" {
+  if (minutes >= 120) return "fail";
+  if (minutes >= 30) return "warn";
+  return "pass";
+}
+
 function Escalations() {
   const runsQuery = useAgentRuns();
   const { profile } = useAuth();
   const resume = useResumeInspection();
 
   const [station, setStation] = useState("all");
+  const [severity, setSeverity] = useState("all");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState("");
   const [reason, setReason] = useState("");
@@ -55,10 +75,17 @@ function Escalations() {
   const stations = Array.from(
     new Set(pending.map((r) => r.state.station_id).filter(Boolean)),
   ) as string[];
-  const filtered =
-    station === "all" ? pending : pending.filter((r) => r.state.station_id === station);
+  const severities = Array.from(
+    new Set(pending.map((r) => r.state.severity).filter(Boolean)),
+  ) as string[];
+
+  const filtered = pending
+    .filter((r) => station === "all" || r.state.station_id === station)
+    .filter((r) => severity === "all" || r.state.severity === severity)
+    .sort((a, b) => waitMinutes(b) - waitMinutes(a));
 
   const selected = pending.find((r) => r.thread_id === selectedThreadId) ?? null;
+  const longestWaitMinutes = filtered[0] ? waitMinutes(filtered[0]) : 0;
 
   function openCase(run: GraphRun) {
     setSelectedThreadId(run.thread_id);
@@ -92,17 +119,31 @@ function Escalations() {
     <div className="space-y-4">
       <PageHeader
         title="Hàng đợi leo thang"
-        meta={[{ label: "Đang chờ", value: String(pending.length) }]}
+        meta={[
+          { label: "Đang chờ", value: String(pending.length) },
+          { label: "Chờ lâu nhất", value: pending.length ? formatWait(longestWaitMinutes) : "—" },
+        ]}
         right={
-          <Select
-            label="Trạm"
-            value={station}
-            onChange={setStation}
-            options={[
-              { value: "all", label: "Tất cả" },
-              ...stations.map((s) => ({ value: s, label: s })),
-            ]}
-          />
+          <div className="flex items-end gap-2">
+            <Select
+              label="Trạm"
+              value={station}
+              onChange={setStation}
+              options={[
+                { value: "all", label: "Tất cả" },
+                ...stations.map((s) => ({ value: s, label: s })),
+              ]}
+            />
+            <Select
+              label="Mức độ"
+              value={severity}
+              onChange={setSeverity}
+              options={[
+                { value: "all", label: "Tất cả" },
+                ...severities.map((s) => ({ value: s, label: s })),
+              ]}
+            />
+          </div>
         }
       />
 
@@ -122,31 +163,36 @@ function Escalations() {
               <tr>
                 <Th>Xe</Th>
                 <Th>Trạm</Th>
+                <Th>Mức độ</Th>
                 <Th>Loại lỗi</Th>
                 <Th>Người chuyển cấp</Th>
                 <Th>Đề xuất</Th>
-                <Th />
+                <Th>Thời gian chờ</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
-                <Tr
-                  key={r.thread_id}
-                  onClick={() => openCase(r)}
-                  active={r.thread_id === selectedThreadId}
-                >
-                  <Td className="num font-medium">{r.state.vehicle_id}</Td>
-                  <Td>{r.state.station_id || "—"}</Td>
-                  <Td>{r.state.defect_type || "—"}</Td>
-                  <Td>{r.state.human_decision?.reviewer || "—"}</Td>
-                  <Td className="max-w-[280px] truncate text-muted-foreground">
-                    {r.state.human_decision?.recommendation || "—"}
-                  </Td>
-                  <Td>
-                    <Badge tone="warn">CHỜ SUPERVISOR</Badge>
-                  </Td>
-                </Tr>
-              ))}
+              {filtered.map((r) => {
+                const minutes = waitMinutes(r);
+                return (
+                  <Tr
+                    key={r.thread_id}
+                    onClick={() => openCase(r)}
+                    active={r.thread_id === selectedThreadId}
+                  >
+                    <Td className="num font-medium">{r.state.vehicle_id}</Td>
+                    <Td>{r.state.station_id || "—"}</Td>
+                    <Td>{r.state.severity || "—"}</Td>
+                    <Td>{r.state.defect_type || "—"}</Td>
+                    <Td>{r.state.human_decision?.reviewer || "—"}</Td>
+                    <Td className="max-w-[220px] truncate text-muted-foreground">
+                      {r.state.human_decision?.recommendation || "—"}
+                    </Td>
+                    <Td>
+                      <Badge tone={waitTone(minutes)}>{formatWait(minutes)}</Badge>
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
         )}
@@ -167,6 +213,7 @@ function Escalations() {
               <Field label="Model xe">{selected.state.vehicle_model}</Field>
               <Field label="Loại lỗi">{selected.state.defect_type || "—"}</Field>
               <Field label="Mức độ">{selected.state.severity || "—"}</Field>
+              <Field label="Thời gian chờ">{formatWait(waitMinutes(selected))}</Field>
               <Field label="Thread" mono>
                 {selected.thread_id}
               </Field>

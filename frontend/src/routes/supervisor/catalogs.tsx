@@ -12,12 +12,18 @@ import {
   Tr,
 } from "@/components/supervisor/ui";
 import {
+  useCreateDefectCode,
   useCreateLot,
   useCreateShift,
   useCreateStation,
+  useDefectCodes,
+  useDeleteDefectCode,
+  useDeleteShift,
+  useDeleteStation,
   useLots,
   useShifts,
   useStations,
+  useUpdateDefectCode,
   useUpdateLot,
   useUpdateShift,
   useUpdateStation,
@@ -41,6 +47,7 @@ function ShiftsPanel() {
   const shiftsQuery = useShifts(false);
   const createShift = useCreateShift();
   const updateShift = useUpdateShift();
+  const deleteShift = useDeleteShift();
 
   const [shiftId, setShiftId] = useState("");
   const [name, setName] = useState("");
@@ -91,6 +98,18 @@ function ShiftsPanel() {
       payload: { name: editName.trim(), start_time: editStart, end_time: editEnd },
     });
     setEditingId(null);
+  }
+
+  async function handleDelete(s: (typeof shifts)[number]) {
+    if (!window.confirm(`Xóa cứng ca "${s.name}" (${s.shift_id})? Hành động này không thể hoàn tác.`)) {
+      return;
+    }
+    setError("");
+    try {
+      await deleteShift.mutateAsync(s.shift_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Xóa ca thất bại.");
+    }
   }
 
   return (
@@ -222,6 +241,14 @@ function ShiftsPanel() {
                           }
                         >
                           {isActive(s.active) ? "Tắt" : "Bật lại"}
+                        </Btn>
+                        <Btn
+                          variant="danger"
+                          size="xs"
+                          disabled={deleteShift.isPending}
+                          onClick={() => void handleDelete(s)}
+                        >
+                          Xóa
                         </Btn>
                       </div>
                     )}
@@ -559,6 +586,7 @@ function StationsPanel() {
   const stationsQuery = useStations(false);
   const createStation = useCreateStation();
   const updateStation = useUpdateStation();
+  const deleteStation = useDeleteStation();
 
   const [stationId, setStationId] = useState("");
   const [name, setName] = useState("");
@@ -599,6 +627,18 @@ function StationsPanel() {
       payload: { name: editName.trim() },
     });
     setEditingId(null);
+  }
+
+  async function handleDelete(s: (typeof stations)[number]) {
+    if (!window.confirm(`Xóa cứng trạm "${s.name}" (${s.station_id})? Hành động này không thể hoàn tác.`)) {
+      return;
+    }
+    setError("");
+    try {
+      await deleteStation.mutateAsync(s.station_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Xóa trạm thất bại.");
+    }
   }
 
   return (
@@ -693,6 +733,262 @@ function StationsPanel() {
                         >
                           {isActive(s.active) ? "Tắt" : "Bật lại"}
                         </Btn>
+                        <Btn
+                          variant="danger"
+                          size="xs"
+                          disabled={deleteStation.isPending}
+                          onClick={() => void handleDelete(s)}
+                        >
+                          Xóa
+                        </Btn>
+                      </div>
+                    )}
+                  </Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+        </Table>
+      )}
+    </Panel>
+  );
+}
+
+function DefectCodesPanel() {
+  const codesQuery = useDefectCodes(false);
+  const createDefectCode = useCreateDefectCode();
+  const updateDefectCode = useUpdateDefectCode();
+  const deleteDefectCode = useDeleteDefectCode();
+
+  const [newCode, setNewCode] = useState("");
+  const [newType, setNewType] = useState<"scratch" | "dent">("scratch");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [newSeverity, setNewSeverity] = useState("");
+  const [newRule, setNewRule] = useState("");
+  const [createError, setCreateError] = useState("");
+
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [editSeverity, setEditSeverity] = useState("");
+  const [editRule, setEditRule] = useState("");
+
+  const codes = codesQuery.data ?? [];
+  const hasUnapprovedSource = codes.some(
+    (c) => c.source_id && c.source_document_status !== "APPROVED",
+  );
+
+  async function handleCreate() {
+    setCreateError("");
+    const code = newCode.trim().toUpperCase();
+    if (!code || !newDisplayName.trim() || !newSeverity.trim()) {
+      setCreateError("Cần nhập mã lỗi, tên hiển thị và severity.");
+      return;
+    }
+    try {
+      await createDefectCode.mutateAsync({
+        defect_code: code,
+        defect_type: newType,
+        cv_label: newType,
+        display_name: newDisplayName.trim(),
+        default_severity: newSeverity.trim(),
+        ...(newRule.trim() ? { classification_rule: newRule.trim() } : {}),
+      });
+      setNewCode("");
+      setNewDisplayName("");
+      setNewSeverity("");
+      setNewRule("");
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Tạo mã lỗi thất bại.");
+    }
+  }
+
+  function startEdit(c: (typeof codes)[number]) {
+    setEditingCode(c.defect_code);
+    setEditSeverity(c.default_severity);
+    setEditRule(c.classification_rule);
+  }
+
+  async function saveEdit(defectCode: string) {
+    if (!editSeverity.trim()) return;
+    await updateDefectCode.mutateAsync({
+      defectCode,
+      payload: { default_severity: editSeverity.trim(), classification_rule: editRule },
+    });
+    setEditingCode(null);
+  }
+
+  async function handleDelete(c: (typeof codes)[number]) {
+    if (
+      !window.confirm(`Xóa cứng mã lỗi "${c.defect_code}"? Hành động này không thể hoàn tác.`)
+    ) {
+      return;
+    }
+    setCreateError("");
+    try {
+      await deleteDefectCode.mutateAsync(c.defect_code);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Xóa mã lỗi thất bại.");
+    }
+  }
+
+  return (
+    <Panel title="Danh mục lỗi (defect_catalog)">
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-6">
+        <input
+          value={newCode}
+          onChange={(e) => setNewCode(e.target.value)}
+          placeholder="Mã lỗi (vd. SCRATCH06)"
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground"
+        />
+        <select
+          value={newType}
+          onChange={(e) => setNewType(e.target.value as "scratch" | "dent")}
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground"
+        >
+          <option value="scratch">scratch</option>
+          <option value="dent">dent</option>
+        </select>
+        <input
+          value={newDisplayName}
+          onChange={(e) => setNewDisplayName(e.target.value)}
+          placeholder="Tên hiển thị"
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
+        />
+        <input
+          value={newSeverity}
+          onChange={(e) => setNewSeverity(e.target.value)}
+          placeholder="Severity (A/B/C)"
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
+        />
+        <input
+          value={newRule}
+          onChange={(e) => setNewRule(e.target.value)}
+          placeholder="Ngưỡng phân loại"
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
+        />
+        <Btn variant="solid" onClick={() => void handleCreate()} disabled={createDefectCode.isPending}>
+          {createDefectCode.isPending ? "Đang thêm…" : "+ Thêm mã lỗi"}
+        </Btn>
+      </div>
+      {createError ? <p className="mb-3 text-[11px] text-destructive">{createError}</p> : null}
+      <p className="mb-3 text-[11px] text-muted-foreground">
+        Mã lỗi tự thêm ở đây chưa có nguồn trích dẫn (source_id) — sẽ hiện "KHÔNG CÓ NGUỒN" cho tới
+        khi được gắn vào một tài liệu trong danh mục policy.
+      </p>
+      {hasUnapprovedSource ? (
+        <div className="mb-3 rounded-sm border border-warning/45 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Một số ngưỡng severity đang dựa trên tài liệu nội bộ chưa được phê duyệt (DRAFT) —
+          xem cột "Nguồn". Chưa phải control plan OEM đã duyệt cho sản xuất.
+        </div>
+      ) : null}
+      {codesQuery.isPending ? (
+        <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+          Đang tải…
+        </div>
+      ) : codes.length === 0 ? (
+        <EmptyState
+          title="Chưa có mã lỗi nào"
+          description="defect_catalog chưa được khởi tạo."
+        />
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <Th>Mã lỗi</Th>
+              <Th>Loại</Th>
+              <Th>Severity</Th>
+              <Th>Ngưỡng phân loại</Th>
+              <Th>Nguồn</Th>
+              <Th>Trạng thái</Th>
+              <Th></Th>
+            </tr>
+          </thead>
+          <tbody>
+            {codes.map((c) => {
+              const editing = editingCode === c.defect_code;
+              return (
+                <Tr key={c.defect_code}>
+                  <Td className="num">{c.defect_code}</Td>
+                  <Td>{c.defect_type}</Td>
+                  <Td className="num">
+                    {editing ? (
+                      <input
+                        value={editSeverity}
+                        onChange={(e) => setEditSeverity(e.target.value)}
+                        className={editableInputClass}
+                      />
+                    ) : (
+                      c.default_severity
+                    )}
+                  </Td>
+                  <Td>
+                    {editing ? (
+                      <input
+                        value={editRule}
+                        onChange={(e) => setEditRule(e.target.value)}
+                        className={editableInputClass}
+                      />
+                    ) : (
+                      c.classification_rule || "—"
+                    )}
+                  </Td>
+                  <Td>
+                    {c.source_id ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate">{c.source_title ?? c.source_id}</span>
+                        <Badge tone={c.source_document_status === "APPROVED" ? "pass" : "warn"}>
+                          {c.source_document_status ?? "UNKNOWN"}
+                        </Badge>
+                      </div>
+                    ) : (
+                      <Badge tone="fail">KHÔNG CÓ NGUỒN</Badge>
+                    )}
+                  </Td>
+                  <Td>
+                    <Badge tone={isActive(c.active) ? "pass" : "neutral"}>
+                      {isActive(c.active) ? "Đang dùng" : "Đã tắt"}
+                    </Badge>
+                  </Td>
+                  <Td>
+                    {editing ? (
+                      <div className="flex gap-1.5">
+                        <Btn
+                          variant="solid"
+                          size="xs"
+                          disabled={updateDefectCode.isPending}
+                          onClick={() => void saveEdit(c.defect_code)}
+                        >
+                          Lưu
+                        </Btn>
+                        <Btn variant="outline" size="xs" onClick={() => setEditingCode(null)}>
+                          Hủy
+                        </Btn>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <Btn variant="outline" size="xs" onClick={() => startEdit(c)}>
+                          Sửa
+                        </Btn>
+                        <Btn
+                          variant={isActive(c.active) ? "danger" : "success"}
+                          size="xs"
+                          disabled={updateDefectCode.isPending}
+                          onClick={() =>
+                            updateDefectCode.mutate({
+                              defectCode: c.defect_code,
+                              payload: { active: !isActive(c.active) },
+                            })
+                          }
+                        >
+                          {isActive(c.active) ? "Tắt" : "Bật lại"}
+                        </Btn>
+                        <Btn
+                          variant="danger"
+                          size="xs"
+                          disabled={deleteDefectCode.isPending}
+                          onClick={() => void handleDelete(c)}
+                        >
+                          Xóa
+                        </Btn>
                       </div>
                     )}
                   </Td>
@@ -724,6 +1020,11 @@ function Catalogs() {
       <section className="space-y-3">
         <div className="label-caps border-b border-border pb-1.5">Vận hành hàng ngày</div>
         <LotsPanel />
+      </section>
+
+      <section className="space-y-3">
+        <div className="label-caps border-b border-border pb-1.5">Quy chuẩn kỹ thuật</div>
+        <DefectCodesPanel />
       </section>
     </div>
   );

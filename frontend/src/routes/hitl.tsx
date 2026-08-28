@@ -40,17 +40,17 @@ const priorities = ["All", "Critical", "High", "Medium", "Low"] as const;
 type Priority = (typeof priorities)[number];
 
 // The real QCState has no `priority` field — it's derived client-side from `severity`
-// (backend severities: CRITICAL/MAJOR/MEDIUM/MINOR/UNASSESSED) purely to drive this filter.
-// The legacy Lovable "Status" filter (Pending/In Review/Resolved) has no backend equivalent
-// either: a case simply leaves this queue (status flips to COMPLETED) once resumed, so that
-// filter is dropped rather than faked.
+// (real backend grades: A/B/C from the defect catalog's default_severity, plus UNASSESSED)
+// purely to drive this filter. The legacy Lovable "Status" filter (Pending/In Review/Resolved)
+// has no backend equivalent either: a case simply leaves this queue (status flips to COMPLETED)
+// once resumed, so that filter is dropped rather than faked.
 function derivePriority(severity: string | undefined): Exclude<Priority, "All"> {
   switch ((severity || "").toUpperCase()) {
-    case "CRITICAL":
+    case "A":
       return "Critical";
-    case "MAJOR":
+    case "B":
       return "High";
-    case "MINOR":
+    case "C":
       return "Low";
     default:
       return "Medium";
@@ -441,10 +441,9 @@ function HitlQueue() {
                       className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
                     >
                       <option value="">—</option>
-                      <option value="MINOR">MINOR</option>
-                      <option value="MEDIUM">MEDIUM</option>
-                      <option value="MAJOR">MAJOR</option>
-                      <option value="CRITICAL">CRITICAL</option>
+                      <option value="A">A · Nghiêm trọng</option>
+                      <option value="B">B · Nặng</option>
+                      <option value="C">C · Nhẹ</option>
                     </select>
                   </label>
                   <label className="block">

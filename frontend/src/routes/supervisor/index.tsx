@@ -12,6 +12,7 @@ import {
   Panel,
   SegmentedControl,
   Select,
+  severityTone,
   TextField,
 } from "@/components/supervisor/ui";
 import {
@@ -234,7 +235,7 @@ function ControlCenter() {
                 className="block w-full px-4 py-3 text-left transition-colors hover:bg-surface-2"
               >
                 <div className="flex items-center gap-2">
-                  <Badge tone={a.severity === "CRITICAL" ? "fail" : "warn"} dot>
+                  <Badge tone={severityTone(a.severity)} dot>
                     {a.severity}
                   </Badge>
                   <span className="truncate text-[12.5px] font-medium">
@@ -292,7 +293,7 @@ function ControlCenter() {
         {alert && (
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <Badge tone={alert.severity === "CRITICAL" ? "fail" : "warn"}>{alert.severity}</Badge>
+              <Badge tone={severityTone(alert.severity)}>{alert.severity}</Badge>
               <Badge tone="info">{alert.status}</Badge>
             </div>
             <p className="text-[13px] leading-relaxed text-foreground">

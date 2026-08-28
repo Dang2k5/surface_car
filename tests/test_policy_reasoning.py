@@ -15,6 +15,7 @@ def test_surface_policy_is_cited_but_blocked_from_production_release():
     decision = catalog.evaluate(
         {
             "defect_type": "scratch",
+            "catalog_defect_type": "scratch",
             "confidence": 0.88,
             "severity": "UNASSESSED",
         }
@@ -40,7 +41,7 @@ def test_surface_policy_is_cited_but_blocked_from_production_release():
     assert "approved_oem_acceptance_criteria" in review.missing_data
     assert review.approved_checklist
     assert review.proposed_checklist
-    assert {item.revision for item in review.citations} == {"2026.08.1", "2016", "2015"}
+    assert {item.revision for item in review.citations} == {"2026.08.1", "2026.08.2", "2016", "2015"}
     warning_codes = {item.code for item in review.warnings}
     assert "POLICY_QUERY_CONTEXT_INCOMPLETE" in warning_codes
     assert "EFFECTIVE_DATE_UNCONFIRMED" not in warning_codes
@@ -83,6 +84,7 @@ def test_document_review_blocks_expired_and_conflicting_revisions(tmp_path):
         {
             "vehicle_model": "SUV_EV_2026",
             "defect_type": "scratch",
+            "catalog_defect_type": "scratch",
         }
     )
     warning_codes = {item.code for item in decision.document_review.warnings}
@@ -120,7 +122,9 @@ def test_draft_policy_is_skipped_in_favor_of_an_approved_match(tmp_path):
     # scratch already has an APPROVED policy (FNS-SURFACE-001) -- the DRAFT one
     # must never win the match just by being listed first.
     path = _catalog_with_draft_policy(tmp_path, "scratch")
-    decision = PolicyCatalog(path).evaluate({"defect_type": "scratch", "vehicle_model": "unknown_model"})
+    decision = PolicyCatalog(path).evaluate(
+        {"defect_type": "scratch", "catalog_defect_type": "scratch", "vehicle_model": "unknown_model"}
+    )
     assert decision.policy_id == "FNS-SURFACE-001"
 
     # Naming it explicitly (evaluate_named) is an internal/administrative lookup,
@@ -131,6 +135,17 @@ def test_draft_policy_is_skipped_in_favor_of_an_approved_match(tmp_path):
     assert named.policy_id == "FNS-DRAFT-TEST-001"
 
 
+def test_unclassified_finding_never_lets_policy_decide_from_raw_cv_label():
+    # A raw CV label alone (no defect_catalog-confirmed defect_code yet) must never let
+    # Policy infer an action_code/final_status -- even though "scratch" alone would match
+    # FNS-SURFACE-001, evaluate() must fall through to the manual-reinspection fail-safe
+    # because catalog_defect_type is absent (agent/services/policy.py's evaluate()).
+    decision = PolicyCatalog().evaluate({"defect_type": "scratch", "vehicle_model": "unknown_model"})
+    assert decision.policy_id == "FNS-MANUAL-001"
+    assert decision.final_status == "FAIL"
+    assert decision.human_required is True
+
+
 def test_draft_policy_with_no_approved_alternative_falls_back_to_manual_reinspection(tmp_path):
     # A DRAFT policy (freshly saved from the Rules UI, or AI-extracted but not yet
     # reviewed) must not silently start deciding real vehicles -- with no other
@@ -138,7 +153,11 @@ def test_draft_policy_with_no_approved_alternative_falls_back_to_manual_reinspec
     # manual-reinspection fail-safe until a supervisor approves it.
     path = _catalog_with_draft_policy(tmp_path, "custom_test_defect")
     decision = PolicyCatalog(path).evaluate(
-        {"defect_type": "custom_test_defect", "vehicle_model": "unknown_model"}
+        {
+            "defect_type": "custom_test_defect",
+            "catalog_defect_type": "custom_test_defect",
+            "vehicle_model": "unknown_model",
+        }
     )
     assert decision.policy_id == "FNS-MANUAL-001"
     assert decision.final_status == "FAIL"

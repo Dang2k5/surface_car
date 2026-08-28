@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
+  Btn,
   Drawer,
   EmptyState,
   Field,
@@ -14,7 +16,7 @@ import {
   Th,
   Tr,
 } from "@/components/supervisor/ui";
-import { assetUrl } from "@/lib/auth";
+import { camerasFromState, defectsFromState } from "@/lib/detection-geometry";
 import { useAgentRuns } from "@/lib/queries";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -39,6 +41,8 @@ function InspectionExplorer() {
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<ResultFilter>("all");
   const [selected, setSelected] = useState<GraphRun | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   const runs = useMemo(() => runsQuery.data ?? [], [runsQuery.data]);
   const filtered = useMemo(() => {
@@ -53,6 +57,17 @@ function InspectionExplorer() {
       );
     });
   }, [runs, search, result]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, result]);
 
   return (
     <div className="space-y-4">
@@ -108,7 +123,7 @@ function InspectionExplorer() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
+              {paged.map((r) => {
                 const res = resultOf(r);
                 return (
                   <Tr key={r.thread_id} onClick={() => setSelected(r)}>
@@ -128,6 +143,29 @@ function InspectionExplorer() {
             </tbody>
           </Table>
         )}
+        {filtered.length > 0 ? (
+          <div className="flex items-center justify-between border-t border-border px-3 py-2">
+            <span className="text-xs text-muted-foreground">
+              Trang {currentPage}/{pageCount} · {filtered.length} bản ghi
+            </span>
+            <div className="flex items-center gap-1">
+              <Btn
+                variant="outline"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="size-3.5" /> Trước
+              </Btn>
+              <Btn
+                variant="outline"
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                disabled={currentPage === pageCount}
+              >
+                Sau <ChevronRight className="size-3.5" />
+              </Btn>
+            </div>
+          </div>
+        ) : null}
       </Panel>
 
       <Drawer
@@ -162,15 +200,80 @@ function InspectionExplorer() {
               <Field label="Trạng thái cuối">{selected.state.final_status || "—"}</Field>
             </div>
 
-            {selected.state.overlay_image_url || selected.state.crop_image_url ? (
-              <Panel title="Ảnh bằng chứng">
-                <img
-                  src={assetUrl(selected.state.overlay_image_url || selected.state.crop_image_url)}
-                  alt="Bằng chứng lỗi"
-                  className="max-h-[360px] w-full rounded-sm border border-border object-contain"
-                />
-              </Panel>
-            ) : null}
+            {(() => {
+              const cameras = camerasFromState(selected.state).filter((c) => c.image);
+              const defects = defectsFromState(selected.state);
+              if (cameras.length === 0) return null;
+              return (
+                <Panel title={`Ảnh bằng chứng theo camera (${cameras.length})`}>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                    {cameras.map((cam) => {
+                      const camDefects = defects.filter((d) => d.camera === cam.id);
+                      return (
+                        <div key={cam.id} className="space-y-1.5">
+                          <img
+                            src={cam.image}
+                            alt={`${cam.id} ${cam.position}`}
+                            className="aspect-[4/3] w-full rounded-sm border border-border object-cover"
+                          />
+                          <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground">
+                            <span>
+                              {cam.id} · {cam.position}
+                            </span>
+                            <Badge tone={cam.health === "DEGRADED" ? "fail" : "pass"}>
+                              {camDefects.length > 0 ? `${camDefects.length} lỗi` : "OK"}
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Panel>
+              );
+            })()}
+
+            {(() => {
+              const defects = defectsFromState(selected.state);
+              if (defects.length === 0) return null;
+              return (
+                <Panel title={`Chi tiết lỗi theo camera (${defects.length})`}>
+                  <div className="space-y-2">
+                    {defects.map((d) => (
+                      <div
+                        key={d.id}
+                        className="grid grid-cols-[96px_1fr] gap-3 rounded-sm border border-border bg-surface-2 p-2"
+                      >
+                        {d.overlayImageUrl || d.cropImageUrl ? (
+                          <img
+                            src={d.overlayImageUrl || d.cropImageUrl}
+                            alt={`${d.type} tại ${d.camera}`}
+                            className="h-[72px] w-full rounded-sm border border-border object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-[72px] items-center justify-center rounded-sm border border-dashed border-border text-[10px] text-muted-foreground">
+                            Không có ảnh
+                          </div>
+                        )}
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs font-semibold text-foreground">
+                              {d.camera} · {d.type}
+                            </span>
+                            <Badge tone={d.decision === "PASS" ? "pass" : "fail"}>{d.decision}</Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
+                            <span>Vị trí: {d.location}</span>
+                            <span>Độ tin cậy: {d.confidence}%</span>
+                            <span>Kích thước: {d.measurement}</span>
+                            <span>Ngưỡng: {d.threshold}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              );
+            })()}
 
             {selected.state.human_decision ? (
               <Panel title="Quyết định con người">
@@ -188,14 +291,21 @@ function InspectionExplorer() {
                   {selected.state.execution_trace.map((step, i) => (
                     <li
                       key={`${step.node}-${i}`}
-                      className="flex items-center justify-between gap-3 rounded-sm border border-border bg-surface-2 px-3 py-2"
+                      className="space-y-1 rounded-sm border border-border bg-surface-2 px-3 py-2"
                     >
-                      <span className="min-w-0 truncate font-mono text-xs text-foreground">
-                        {step.node}
-                      </span>
-                      <span className="shrink-0 font-mono text-[10px] tracking-wider text-muted-foreground">
-                        {step.status}
-                      </span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate font-mono text-xs font-semibold text-foreground">
+                          {step.node}
+                        </span>
+                        <span className="shrink-0 font-mono text-[10px] tracking-wider text-muted-foreground">
+                          {step.status}
+                        </span>
+                      </div>
+                      {step.detail ? (
+                        <p className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+                          {step.detail}
+                        </p>
+                      ) : null}
                     </li>
                   ))}
                 </ol>

@@ -2,11 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { AlertTriangle, ArrowRight, CircleCheck, Clock, Cpu, Video } from "lucide-react";
 import { Dot, Meter, Panel } from "@/components/qc/primitives";
-import { SystemStatusList } from "@/components/qc/SystemStatus";
 import { cn } from "@/lib/utils";
 import { assetUrl, profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useAgentStatus, useQualityAlerts } from "@/lib/queries";
 import { defectsFromState, SEVERITY_LABEL_VI } from "@/lib/detection-geometry";
+import { defectTypeLabel } from "@/lib/policy-i18n";
 import type { GraphRun } from "@/lib/api-types";
 
 export const Route = createFileRoute("/")({
@@ -122,9 +122,12 @@ function ShiftOverview() {
   const engineOnline = statusQuery.data?.langgraph === "READY";
 
   const alerts = alertsQuery.data?.alerts ?? [];
+  // WATCH is an early, low-urgency signal (see /warnings) — it shouldn't compete for space in
+  // the home dashboard's "needs attention" panel, only WARNING/CRITICAL should.
+  const attentionAlerts = alerts.filter((a) => a.severity !== "WATCH");
   const attentionItems =
-    alerts.length > 0
-      ? alerts.map((a) => ({
+    attentionAlerts.length > 0
+      ? attentionAlerts.map((a) => ({
           key: a.id,
           level: a.severity === "CRITICAL" ? ("critical" as const) : ("warning" as const),
           text: a.message_vi || a.message_en,
@@ -154,6 +157,10 @@ function ShiftOverview() {
     };
   });
   const capturedCount = cameraTiles.filter((c) => c.captured).length;
+
+  // Not deduped by vehicle (unlike displayRuns) -- every pending HITL case matters,
+  // even a second one for the same vehicle_id.
+  const hitlItems = (runsQuery.data ?? []).filter((r) => r.status === "INTERRUPTED").slice(0, 4);
 
   return (
     <div className="space-y-4">
@@ -365,9 +372,34 @@ function ShiftOverview() {
               );
             })}
           </ul>
-          <div className="mt-3 border-t border-border pt-3">
-            <SystemStatusList compact />
-          </div>
+          {hitlItems.length > 0 && (
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="label-caps">Xe đang chờ duyệt (HITL)</span>
+                <Link
+                  to="/hitl"
+                  className="font-mono text-[10px] tracking-wider text-info hover:underline"
+                >
+                  XEM TẤT CẢ
+                </Link>
+              </div>
+              <ul className="space-y-1.5">
+                {hitlItems.map((r) => (
+                  <li
+                    key={r.thread_id}
+                    className="flex items-center justify-between gap-2 rounded-sm border border-warning/35 bg-warning/5 px-2.5 py-1.5"
+                  >
+                    <span className="min-w-0 truncate font-mono text-[11px] text-foreground">
+                      {r.state.vehicle_id}
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] tracking-wider text-warning">
+                      {defectTypeLabel(r.state.defect_type || "").toUpperCase()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Panel>
       </div>
 

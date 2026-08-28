@@ -55,6 +55,20 @@ def update_shift(
     return updated
 
 
+@router.delete("/shifts/{shift_id}", status_code=204)
+def delete_shift(
+    shift_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_role("QC_SUPERVISOR")),
+) -> None:
+    try:
+        deleted = request.app.state.database.delete_shift(shift_id.strip().upper())
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Không tìm thấy ca làm việc.")
+
+
 @router.get("/lots", response_model=list[dict[str, Any]])
 def list_lots(
     request: Request,
@@ -189,3 +203,17 @@ def update_station(
     if updated is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy trạm.")
     return updated
+
+
+@router.delete("/stations/{station_id}", status_code=204)
+def delete_station(
+    station_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_role("QC_SUPERVISOR")),
+) -> None:
+    try:
+        deleted = request.app.state.database.delete_station(station_id.strip())
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Không tìm thấy trạm.")

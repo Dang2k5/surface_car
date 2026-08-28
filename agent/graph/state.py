@@ -36,6 +36,13 @@ class QCState(TypedDict, total=False):
     visual_measurements: dict[str, float | str]
     detections: list[dict[str, Any]]
     primary_detection_id: str | None
+    # One entry per camera that has >=1 detection — each camera's own worst finding,
+    # classified independently against defect_catalog/LLM (see QCNodes.detect_defect).
+    # Lets assess_result decide PASS/FAIL/HITL from EVERY camera's defect, not just the
+    # single global-worst one.
+    camera_classifications: list[dict[str, Any]]
+    unresolved_camera_ids: list[str]
+    camera_policy_decisions: list[dict[str, Any]]
     enriched_defects: list[dict[str, Any]]
     overlay_image_url: str | None
     crop_image_url: str | None
@@ -55,6 +62,10 @@ class QCState(TypedDict, total=False):
     defect_code_classification: dict[str, Any]
     classified_defect_code: str | None
     defect_family: str | None
+    # Set only when defect_catalog confirmed a real defect_code — PolicyCatalog.evaluate()
+    # matches on this, never on the raw CV `defect_type` label directly.
+    catalog_defect_type: str | None
+    severity_source_id: str | None
     similar_defect_warning: bool
     evidence_tags: list[str]
     decision: str
