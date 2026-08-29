@@ -150,7 +150,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   if (!shiftId) missing.push("Ca làm việc");
   if (lotId && !vehicleModel)
     missing.push("Model sản phẩm (lô chưa có model, cập nhật ở Quản lý Lô)");
-  if (!rows.every((r) => r.file)) missing.push("Ảnh cho mỗi camera đã thêm");
+  if (!rows.every((r) => r.file)) missing.push("Ảnh hoặc video cho mỗi camera đã thêm");
 
   const canSubmit = missing.length === 0;
 
@@ -196,7 +196,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   }
 
   return (
-    <Panel title="Gửi yêu cầu kiểm tra" right={<span className="label-caps">1–5 camera</span>}>
+    <Panel title="Gửi yêu cầu kiểm tra" right={<span className="label-caps">1–5 camera · ảnh hoặc video</span>}>
       <div className="grid gap-3 md:grid-cols-2">
         <input
           value={vehicleModel}
@@ -322,13 +322,14 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
             </select>
             <input
               type="file"
-              accept="image/jpeg,image/png"
+              accept="image/jpeg,image/png,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
               onChange={(e) =>
                 setRows((r) =>
                   r.map((x, idx) => (idx === i ? { ...x, file: e.target.files?.[0] ?? null } : x)),
                 )
               }
               className="flex-1 font-mono text-xs text-muted-foreground"
+              title="Image (JPEG, PNG) hoặc Video (MP4, MOV, WebM, AVI, MKV)"
             />
             {rows.length > 1 ? (
               <button

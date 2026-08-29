@@ -11,6 +11,7 @@ import {
   severityTone,
   Timeline,
 } from "@/components/supervisor/ui";
+import { formatZoneName } from "@/lib/detection-geometry";
 import { useQualityAlerts } from "@/lib/queries";
 import type { QualityAlert } from "@/lib/api-types";
 
@@ -64,7 +65,7 @@ function Anomalies() {
                   {a.severity}
                 </Badge>
                 <span className="truncate text-[13px] font-semibold">
-                  {a.defect_type} · {a.zone_name}
+                  {a.defect_type} · {formatZoneName(a.zone_name)}
                 </span>
               </div>
               <p className="line-clamp-2 text-[12.5px] leading-snug text-muted-foreground">
@@ -84,7 +85,7 @@ function Anomalies() {
       <Drawer
         open={!!selected}
         onClose={() => setSelected(null)}
-        title={selected ? `${selected.defect_type} · ${selected.zone_name}` : ""}
+        title={selected ? `${selected.defect_type} · ${formatZoneName(selected.zone_name)}` : ""}
         subtitle={selected ? `Trigger: ${selected.trigger_type}` : ""}
         width="max-w-[680px]"
       >

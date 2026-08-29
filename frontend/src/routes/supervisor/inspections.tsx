@@ -16,7 +16,7 @@ import {
   Th,
   Tr,
 } from "@/components/supervisor/ui";
-import { camerasFromState, defectsFromState } from "@/lib/detection-geometry";
+import { camerasFromState, defectsFromState, formatAffectedZones } from "@/lib/detection-geometry";
 import { useAgentRuns } from "@/lib/queries";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -117,7 +117,7 @@ function InspectionExplorer() {
                 <Th>Inspection</Th>
                 <Th>Xe</Th>
                 <Th>Trạm</Th>
-                <Th>Zone</Th>
+                <Th>Vùng lỗi</Th>
                 <Th>Loại lỗi</Th>
                 <Th>Kết quả</Th>
               </tr>
@@ -130,7 +130,7 @@ function InspectionExplorer() {
                     <Td className="num">{r.state.inspection_id}</Td>
                     <Td className="font-medium">{r.state.vehicle_id}</Td>
                     <Td>{r.state.station_id || "—"}</Td>
-                    <Td>{r.state.zone_name}</Td>
+                    <Td className="font-mono text-xs">{formatAffectedZones(r.state.affected_zones)}</Td>
                     <Td>{r.state.defect_type || "—"}</Td>
                     <Td>
                       <Badge tone={res === "pass" ? "pass" : res === "fail" ? "fail" : "warn"}>
@@ -172,7 +172,11 @@ function InspectionExplorer() {
         open={!!selected}
         onClose={() => setSelected(null)}
         title={selected ? `${selected.state.vehicle_id} · #${selected.state.inspection_id}` : ""}
-        subtitle={selected ? `${selected.state.vehicle_model} · ${selected.state.zone_name}` : ""}
+        subtitle={
+          selected
+            ? `${selected.state.vehicle_model} · ${formatAffectedZones(selected.state.affected_zones)}`
+            : ""
+        }
         width="max-w-[760px]"
       >
         {selected && (

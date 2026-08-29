@@ -57,6 +57,7 @@ def build_audit_export(state: dict[str, Any]) -> dict[str, Any]:
             "defect_code_classification": state.get("defect_code_classification"),
             "similar_defect_warning": state.get("similar_defect_warning", False),
             "camera_classifications": state.get("camera_classifications", []),
+            "affected_zones": state.get("affected_zones", []),
             "measurements": state.get("measurements", {}),
         },
         "workflow": {

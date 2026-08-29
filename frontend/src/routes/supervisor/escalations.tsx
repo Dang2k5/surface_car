@@ -18,6 +18,7 @@ import {
   Tr,
 } from "@/components/supervisor/ui";
 import { profileDisplayName, useAuth } from "@/lib/auth";
+import { formatAffectedZones } from "@/lib/detection-geometry";
 import { useAgentRuns, useResumeInspection } from "@/lib/queries";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -203,7 +204,9 @@ function Escalations() {
         onClose={() => setSelectedThreadId(null)}
         title={selected ? `${selected.state.vehicle_id} · #${selected.state.inspection_id}` : ""}
         subtitle={
-          selected ? `Trạm ${selected.state.station_id || "—"} · ${selected.state.zone_name}` : ""
+          selected
+            ? `Trạm ${selected.state.station_id || "—"} · ${formatAffectedZones(selected.state.affected_zones)}`
+            : ""
         }
         width="max-w-[680px]"
       >

@@ -138,6 +138,10 @@ export type QCState = {
   camera_classifications?: CameraClassification[];
   camera_policy_decisions?: CameraPolicyDecision[];
   unresolved_camera_ids?: string[];
+  /** Every vehicle body side (front/rear/left/right/top) with a defect in this inspection —
+   * one run combines all 5 fixed cameras, so more than one side can be affected at once.
+   * zone_name alone only ever names the single worst one. */
+  affected_zones?: string[];
   overlay_image_url?: string | null;
   crop_image_url?: string | null;
   mask_image_url?: string | null;

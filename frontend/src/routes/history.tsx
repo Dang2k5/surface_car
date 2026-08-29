@@ -6,6 +6,7 @@ import type { HistoryRow, Verdict } from "@/lib/qc-data";
 import { Field, Panel, VerdictBadge } from "@/components/qc/primitives";
 import { cn } from "@/lib/utils";
 import { assetUrl } from "@/lib/auth";
+import { formatZoneName } from "@/lib/detection-geometry";
 import { useAgentRuns } from "@/lib/queries";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -397,7 +398,7 @@ function InspectionHistory() {
                       className="flex items-center justify-between font-mono text-[11px] text-foreground"
                     >
                       <span>
-                        {d.class_name} — {d.zone_name}
+                        {d.class_name} — {formatZoneName(d.zone_name)}
                       </span>
                       <span className="text-muted-foreground">
                         {d.camera_id} · {Math.round(d.confidence * (d.confidence <= 1 ? 100 : 1))}%

@@ -64,6 +64,29 @@ export function mapSeverity(severityRank: string | undefined): Severity {
   return "Medium";
 }
 
+// zone_name is a fixed vehicle body side (agent/graph/nodes.py's _CAMERA_ZONE_NAMES) — each of
+// the 5 camera mounts is physically fixed to photograph one specific side of the vehicle, so
+// which camera saw a defect really does tell you which side it's on.
+const ZONE_LABEL_VI: Record<string, string> = {
+  truoc: "Trước",
+  sau: "Sau",
+  trai: "Trái",
+  phai: "Phải",
+  tren_toan_canh: "Trên / Toàn cảnh",
+};
+
+export function formatZoneName(zone: string | undefined): string {
+  if (!zone || zone === "unknown_zone") return "—";
+  return ZONE_LABEL_VI[zone] || zone;
+}
+
+// One inspection combines all 5 fixed cameras, so it can have simultaneous defects on more
+// than one side of the vehicle — join every affected zone instead of showing only one.
+export function formatAffectedZones(zones: string[] | undefined): string {
+  if (!zones || zones.length === 0) return "—";
+  return zones.map(formatZoneName).join(", ");
+}
+
 export const SEVERITY_LABEL_VI: Record<Severity, string> = {
   Critical: "Nghiêm trọng",
   Major: "Nặng",

@@ -43,6 +43,10 @@ class QCState(TypedDict, total=False):
     camera_classifications: list[dict[str, Any]]
     unresolved_camera_ids: list[str]
     camera_policy_decisions: list[dict[str, Any]]
+    # Every vehicle body side (front/rear/left/right/top) that has a defect in THIS
+    # inspection — one inspection combines all 5 fixed cameras, so more than one side can
+    # legitimately be affected at once. `zone_name` alone only ever names ONE (the worst).
+    affected_zones: list[str]
     enriched_defects: list[dict[str, Any]]
     overlay_image_url: str | None
     crop_image_url: str | None

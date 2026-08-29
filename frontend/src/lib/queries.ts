@@ -154,14 +154,19 @@ export function useSubmitInspection() {
     mutationFn: async (payload: SubmitSingleInspection | SubmitMultiInspection) => {
       const form = new FormData();
       const isMulti = "cameras" in payload;
+
+      // Detect file type (image vs video)
+      let isVideo = false;
       if (isMulti) {
         for (const cam of payload.cameras) {
           form.append("files", cam.file);
           form.append("camera_ids", cam.cameraId);
+          if (cam.file.type.startsWith("video/")) isVideo = true;
         }
       } else {
         form.append("file", payload.file);
         form.append("camera_id", payload.cameraId);
+        if (payload.file.type.startsWith("video/")) isVideo = true;
       }
       form.append("vehicle_id", payload.vehicleId);
       form.append("vehicle_model", payload.vehicleModel);
@@ -169,13 +174,20 @@ export function useSubmitInspection() {
       if (payload.lotId) form.append("lot_id", payload.lotId);
       if (payload.shiftId) form.append("shift_id", payload.shiftId);
       if (payload.productionDate) form.append("production_date", payload.productionDate);
+
+      // Select endpoint based on file type
+      let endpoint = "/inspections/from-image";
+      if (isMulti && isVideo) endpoint = "/inspections/from-videos";
+      else if (isMulti) endpoint = "/inspections/from-images";
+      else if (isVideo) endpoint = "/inspections/from-video";
+
       const response = await authedFetch(
-        isMulti ? "/inspections/from-images" : "/inspections/from-image",
+        endpoint,
         {
           method: "POST",
           body: form,
         },
-        60_000,
+        120_000,  // Increased timeout for video processing
       );
       return json<GraphRun>(response);
     },

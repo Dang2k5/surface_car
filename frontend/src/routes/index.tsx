@@ -5,7 +5,7 @@ import { Dot, Meter, Panel } from "@/components/qc/primitives";
 import { cn } from "@/lib/utils";
 import { assetUrl, profileDisplayName, useAuth } from "@/lib/auth";
 import { useAgentRuns, useAgentStatus, useQualityAlerts } from "@/lib/queries";
-import { defectsFromState, SEVERITY_LABEL_VI } from "@/lib/detection-geometry";
+import { defectsFromState, formatAffectedZones, SEVERITY_LABEL_VI } from "@/lib/detection-geometry";
 import { defectTypeLabel } from "@/lib/policy-i18n";
 import type { GraphRun } from "@/lib/api-types";
 
@@ -263,7 +263,8 @@ function ShiftOverview() {
                     {latestRun.state.vehicle_id}
                   </div>
                   <div className="mt-1 font-mono text-[11px] tracking-wider text-muted-foreground">
-                    {latestRun.state.vehicle_model} · {latestRun.state.zone_name} · #
+                    {latestRun.state.vehicle_model} ·{" "}
+                    {formatAffectedZones(latestRun.state.affected_zones)} · #
                     {latestRun.state.inspection_id}
                   </div>
                 </div>

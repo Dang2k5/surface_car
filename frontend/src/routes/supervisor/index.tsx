@@ -31,6 +31,7 @@ import {
   severityMixFromRuns,
   trendToPoints,
 } from "@/lib/supervisor-aggregate";
+import { formatZoneName } from "@/lib/detection-geometry";
 import type { QualityAlert } from "@/lib/api-types";
 
 export const Route = createFileRoute("/supervisor/")({
@@ -239,7 +240,7 @@ function ControlCenter() {
                     {a.severity}
                   </Badge>
                   <span className="truncate text-[12.5px] font-medium">
-                    {a.defect_type} · {a.zone_name}
+                    {a.defect_type} · {formatZoneName(a.zone_name)}
                   </span>
                   <span className="num ml-auto text-[11px] text-muted-foreground">
                     {a.last_seen}
@@ -286,7 +287,7 @@ function ControlCenter() {
       <Drawer
         open={!!alert}
         onClose={() => setAlert(null)}
-        title={alert ? `${alert.defect_type} · ${alert.zone_name}` : ""}
+        title={alert ? `${alert.defect_type} · ${formatZoneName(alert.zone_name)}` : ""}
         subtitle={alert ? `${alert.camera_id} · phát hiện lần đầu ${alert.first_seen}` : ""}
         width="max-w-[680px]"
       >

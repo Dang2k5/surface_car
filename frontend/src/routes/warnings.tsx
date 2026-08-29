@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CheckSquare, Images, Search, Square, TrendingUp, Wrench } from "lucide-react";
 import type { WarningLevel } from "@/lib/qc-data";
 import { LevelBadge, Panel } from "@/components/qc/primitives";
+import { formatZoneName } from "@/lib/detection-geometry";
 import { cn } from "@/lib/utils";
 import { useQualityAlerts } from "@/lib/queries";
 import type { QualityAlert } from "@/lib/api-types";
@@ -27,7 +28,7 @@ function toPattern(alert: QualityAlert): DisplayPattern {
   return {
     id: alert.id,
     defect: alert.defect_type,
-    location: alert.zone_name,
+    location: formatZoneName(alert.zone_name),
     occurrences: alert.occurrence_count,
     window: alert.window_size,
     level: levelFromSeverity(alert.severity),
@@ -126,8 +127,7 @@ function EarlyWarnings() {
                   <div key={alert.id} className="rounded-sm border border-border bg-surface-2 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-xs font-bold tracking-[0.1em] text-foreground">
-                        {alert.defect_type.toUpperCase()} · {alert.zone_name.toUpperCase()} ·{" "}
-                        {alert.camera_id}
+                        {alert.defect_type.toUpperCase()} · {formatZoneName(alert.zone_name)}
                       </span>
                       <LevelBadge level={levelFromSeverity(alert.severity)} />
                     </div>

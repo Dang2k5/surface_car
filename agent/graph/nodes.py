@@ -22,18 +22,6 @@ def _trace(node: str, detail: str, status: str = "COMPLETED") -> list[TraceEvent
     return [{"node": node, "status": status, "detail": detail}]
 
 
-# Static position labels for the 5 fixed camera mounts, mirroring the frontend's
-# CAMERA_POSITION_LABELS (frontend/src/lib/detection-geometry.ts) — there's no backend camera
-# catalog to derive this from, so the mount layout is duplicated here on purpose.
-_CAMERA_ZONE_NAMES: dict[str, str] = {
-    "CAM-01": "truoc",
-    "CAM-02": "sau",
-    "CAM-03": "trai",
-    "CAM-04": "phai",
-    "CAM-05": "tren_toan_canh",
-}
-
-
 def _detection_priority_key(item: dict[str, Any]) -> tuple[int, float, float]:
     """Mirrors yolo_detector.py's detection_priority_key (duplicated, not imported, to keep
     this module working against the DetectorService Protocol rather than the concrete YOLO
@@ -59,10 +47,24 @@ def _classification_rank(item: dict[str, Any]) -> tuple[int, float]:
     return (_SEVERITY_LETTER_RANK.get(str(item.get("severity") or "").upper(), 0), length_mm)
 
 
+# Each of the 5 camera mounts is physically fixed to point at one specific side of the
+# vehicle body (confirmed by the plant setup — this is a real fixture fact, not a guess):
+# CAM-01=front, CAM-02=rear, CAM-03=left, CAM-04=right, CAM-05=top/overview. A defect seen by
+# a given camera really is on that side of the vehicle.
+_CAMERA_ZONE_NAMES: dict[str, str] = {
+    "CAM-01": "truoc",
+    "CAM-02": "sau",
+    "CAM-03": "trai",
+    "CAM-04": "phai",
+    "CAM-05": "tren_toan_canh",
+}
+
+
 def _zone_name_for_camera(camera_id: Any, fallback: str) -> str:
     """A caller never explicitly picks a zone in the upload form (there's no such field), so
-    the request always arrives with the Pydantic default "unknown_zone" — derive a real zone
-    from which camera mount actually saw the finding instead of leaving it unknown."""
+    the request always arrives with the Pydantic default "unknown_zone" — derive the real
+    zone from which fixed camera mount actually saw the finding instead of leaving it
+    unknown."""
     zone = _CAMERA_ZONE_NAMES.get(str(camera_id or "").strip().upper())
     return zone or fallback
 
@@ -251,9 +253,21 @@ class QCNodes:
         )
         raw_zone_name = str(state.get("zone_name") or "unknown_zone")
         zone_name = (
-            _zone_name_for_camera(state.get("camera_id"), raw_zone_name)
+            _zone_name_for_camera(detection.get("camera_id"), raw_zone_name)
             if raw_zone_name == "unknown_zone"
             else raw_zone_name
+        )
+        # Every zone (vehicle body side) that actually has a defect in THIS inspection — not
+        # just the single worst one. One inspection combines all 5 fixed cameras, so it can
+        # genuinely have simultaneous findings on more than one side (e.g. front AND left);
+        # collapsing that down to one `zone_name` would hide the other side's defect from any
+        # "vùng lỗi" log/summary.
+        affected_zones = sorted(
+            {
+                _zone_name_for_camera(camera["camera_id"], "unknown_zone")
+                for camera in detection.get("camera_results", [])
+                if camera.get("defect_detected")
+            }
         )
         return {
             **detection,
@@ -273,12 +287,14 @@ class QCNodes:
             "similar_defect_warning": similar_defect_warning,
             "camera_classifications": camera_classifications,
             "unresolved_camera_ids": unresolved_camera_ids,
+            "affected_zones": affected_zones,
             "execution_trace": _trace(
                 "detect_defect",
                 f"{model_name} trả về defect_detected={detected}, "
                 f"độ_tin_cậy={float(detection.get('confidence', 0.0)):.2f}, "
                 f"số_phát_hiện={len(detection.get('detections', []))} trên "
                 f"{len(detection.get('camera_results', [])) or 1} camera; "
+                f"vùng_lỗi={', '.join(affected_zones) or 'không có'}; "
                 f"phân_loại_độc_lập_theo_camera={len(camera_classifications)} "
                 f"(chưa_khớp_danh_mục={len(unresolved_camera_ids)}); "
                 f"mã_đã_chọn={classified_defect_code};{geometry_detail}"
