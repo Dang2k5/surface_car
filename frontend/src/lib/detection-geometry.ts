@@ -157,7 +157,7 @@ function numericThresholdFromRule(rule: string): string {
     return `${COMPARATOR_SYMBOL[mm[3]!]} ${mm[4]} mm`;
   }
   const count = rule.match(/^at least (\d+)/i);
-  if (count) return `≥ ${count[1]}`;
+  if (count) return `≥ ${count[1]} vết`;
   const ratio = rule.match(/aspect ratio\s*(<=|<|>=|>)\s*(\d+(?:\.\d+)?)/i);
   if (ratio) return `${COMPARATOR_SYMBOL[ratio[1]!]} ${ratio[2]}`;
   return "—";
@@ -169,9 +169,26 @@ function thresholdFor(
 ): string {
   const own = cameraClassifications?.find((c) => c.detection_id === d.detection_id);
   if (!own?.classified_defect_code) return "—";
-  const rule = own.suggested_defect_codes.find((c) => c.defect_code === own.classified_defect_code)
-    ?.classification_rule;
-  return rule ? numericThresholdFromRule(rule) : "—";
+  const code = own.suggested_defect_codes.find((c) => c.defect_code === own.classified_defect_code);
+  if (!code) return "—";
+  // Prefer the structured, machine-evaluable fields (agent/services/defect_rule_engine.py's
+  // actual inputs) over parsing `classification_rule` — that field is free text a supervisor
+  // edits independently on the Catalogs page (frontend/src/routes/supervisor/catalogs.tsx) and
+  // commonly no longer matches numericThresholdFromRule's expected syntax, which made this
+  // column show "—" even when a valid numeric threshold was still saved.
+  if (code.rule_type === "THRESHOLD_MM" && (code.min_mm != null || code.max_mm != null)) {
+    if (code.min_mm != null && code.max_mm != null) return `${code.min_mm}–${code.max_mm} mm`;
+    if (code.max_mm != null) return `≤ ${code.max_mm} mm`;
+    return `> ${code.min_mm} mm`;
+  }
+  if (code.rule_type === "MIN_COUNT" && code.min_detection_count != null) {
+    // Show what actually decided this classification (achieved/needed), not just the bare
+    // threshold — mirrors agent/services/defect_rule_engine.py's own sibling_count: how many
+    // detections across all 5 cameras share this finding's defect_type.
+    const achieved = cameraClassifications?.filter((c) => c.defect_type === own.defect_type).length ?? 0;
+    return `${achieved}/${code.min_detection_count} vết`;
+  }
+  return code.classification_rule ? numericThresholdFromRule(code.classification_rule) : "—";
 }
 
 // The vehicle-level final_status is a single PASS/FAIL, but each finding was

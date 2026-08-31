@@ -596,6 +596,17 @@ def run_uploaded_image_inspection(
         )
         initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
         initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()
+        # Without this the frontend's camerasFromState (which only reads camera_evidence,
+        # never the legacy top-level image_url/camera_id) finds no evidence for any camera
+        # and the uploaded image never renders on the camera feed card.
+        initial_state["camera_evidence"] = [
+            {
+                "camera_id": camera_id,
+                "image_url": f"/assets/objects/{object_key}",
+                "image_path": str(scratch_path),
+                "image_sha256": hashlib.sha256(data).hexdigest(),
+            }
+        ]
         initial_state["force_human_review"] = force_human_review
         initial_state["submitted_by"] = _submitter_name(user)
         graph = request.app.state.qc_langgraph
