@@ -63,6 +63,20 @@ chưa qua kiểm chứng. Lý do an toàn: một nhãn CV thô (vd. "scratch") k
 nó đủ căn cứ để chọn `action_code`/`final_status` — phải đi qua bước phân
 loại có kiểm soát của `defect_catalog` trước.
 
+## Tổng hợp nhiều lỗi phát hiện thành 1 quyết định PASS/FAIL
+
+Một inspection có thể có nhiều lỗi (nhiều detection trên cùng 1 camera, hoặc
+trải nhiều camera). `QCNodes.detect_defect` phân loại **từng detection một**
+độc lập qua `defect_catalog`/LLM (không chỉ lỗi nặng nhất mỗi camera), rồi
+`QCNodes.assess_result` gọi `PolicyCatalog.evaluate()` độc lập cho từng lỗi đã
+phân loại đó. Quyết định PASS/FAIL cấp xe là **worst-wins**: bất kỳ lỗi nào
+được đánh giá `FAIL` thì cả xe `FAIL`; xe chỉ `PASS` khi mọi lỗi đã đánh giá
+đều `PASS`. Rule này hiện chưa cấu hình được qua `qc_policy_catalog.json` (mọi
+policy hiện tại gán `final_status` cố định theo `defect_type`, không phân biệt
+severity) — nếu sau này policy được tinh chỉnh để PASS một số mức độ nhẹ, cơ
+chế worst-wins ở trên vẫn áp dụng đúng vì nó đánh giá trên từng lỗi thật, không
+gộp/bỏ sót lỗi nào.
+
 ## Policy `checklist_status`: DRAFT vs APPROVED
 
 Each policy in `qc_policy_catalog.json` carries its own `checklist_status`
@@ -72,13 +86,19 @@ a policy in the Rules screen (`frontend/src/routes/supervisor/rules.tsx`).
 
 `PolicyCatalog.evaluate()` (`agent/services/policy.py`) only matches a policy
 for automatic routing when `checklist_status == "APPROVED"`
-(`_is_approved()`). A `DRAFT` policy — freshly saved, or an AI-extracted draft
+(`is_approved()`). A `DRAFT` policy — freshly saved, or an AI-extracted draft
 the supervisor has not reviewed yet — is skipped and the inspection falls
 through to the fail-safe manual-reinspection policy (`FNS-MANUAL-001`,
 `final_status=FAIL`, `human_required=true`) instead of silently deciding a
 real vehicle. Only flipping `checklist_status` to `APPROVED` puts a policy
-into production routing. `evaluate_named()` (used only for the internal
-`FNS-TREND-001` alert lookup, not per-defect routing) is not gated this way.
+into production routing. `evaluate_named()` itself is not gated this way — it
+is used for the internal `FNS-TREND-001` alert lookup, and for a supervisor
+applying one specific policy to resolve an escalation
+(`QCNodes.supervisor_review`/`generate_recommendation` in
+`agent/graph/nodes.py`); the latter caller re-checks `is_approved()` itself
+before calling it, and only ever offers approved policies as a choice in the
+first place (`PolicyCatalog.list_approved_policies()`), so a DRAFT policy can
+still never end up deciding a real vehicle.
 
 ## Component responsibilities and decision authority
 

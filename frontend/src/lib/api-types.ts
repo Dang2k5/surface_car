@@ -51,6 +51,11 @@ export type EnrichedDefect = {
   overlay_image_url?: string;
   crop_image_url?: string;
   mask_image_url?: string;
+  /** Set only for a video-sourced camera (backend/app/langgraph_api.py's
+   * _track_camera_across_frames): every video-playback second (relative to that camera's own
+   * clip) this tracked defect was actually observed in, so the player can show its box only
+   * near those moments instead of burning it onto the whole clip. */
+  track_timestamps?: number[];
 };
 
 // One entry per camera that had >=1 detection — each camera's own worst finding,
@@ -84,13 +89,23 @@ export type CameraPolicyDecision = {
   >;
 };
 
-export type CameraEvidence = { camera_id: string; image_path?: string; image_url?: string };
+export type CameraEvidence = {
+  camera_id: string;
+  image_path?: string;
+  image_url?: string;
+  /** Set only when this camera's evidence came from an uploaded video (langgraph_api.py's
+   * run_uploaded_videos_inspection) — the original clip, for real video playback instead of
+   * just the one representative still frame `image_url` points at. */
+  video_url?: string;
+};
 export type CameraResult = {
   camera_id: string;
   defect_detected: boolean;
   detections?: EnrichedDefect[];
   image_width?: number;
   image_height?: number;
+  video_url?: string;
+  frame_tracking?: { tracked_frame_count: number; frame_interval_seconds: number };
 };
 
 export type QCDecisionRecord = {
@@ -161,6 +176,10 @@ export type QCState = {
     supervisor_reason?: string;
   };
   qc_decision_record?: QCDecisionRecord;
+  /** The operator who submitted this inspection (backend/app/langgraph_api.py's
+   * _submitter_name) — set for every run, unlike human_decision.reviewer which only exists
+   * once a HITL case has been resolved. */
+  submitted_by?: string | null;
   suggested_defect_codes?: DefectCode[];
   classified_defect_code?: string | null;
   defect_family?: string | null;
@@ -291,8 +310,11 @@ export type QualityAlertSummary = {
 };
 
 export type ResumeAction = "APPROVE" | "REJECT" | "OVERRIDE";
+// Second HITL gate only (supervisor_review): either uphold the automated policy decision,
+// or apply one specific APPROVED catalog policy id as the case's final disposition.
+export type SupervisorResumeAction = "UPHOLD_POLICY" | (string & {});
 export type ResumePayload = {
-  action: ResumeAction;
+  action: ResumeAction | SupervisorResumeAction;
   reviewer: string;
   reason: string;
   defect_code?: string;

@@ -37,6 +37,7 @@ export function camerasFromState(state: QCState | undefined): Camera[] {
       health: result?.defect_detected ? "DEGRADED" : "OK",
       imageWidth: result?.image_width,
       imageHeight: result?.image_height,
+      videoUrl: assetUrl(evidence?.video_url || result?.video_url) || undefined,
     };
   });
 }
@@ -124,12 +125,32 @@ export function segmentationToPercentPoints(
   }));
 }
 
-// Each camera that has its own detection gets its own independent classification
-// (agent/graph/nodes.py's QCNodes._classify_local_detection, one call per camera with a
-// finding — see state.camera_classifications). A detection that lost out to another one
-// WITHIN the same camera was never run through classify_defect_code, so it has no real
-// threshold/rule to show; showing another finding's rule on it would misattribute that
-// finding's size bucket.
+// Every detection gets its own independent classification (agent/graph/nodes.py's
+// QCNodes._classify_local_detection, one call per detection — see
+// state.camera_classifications). A finding with no match here (e.g. an inference error,
+// or a truly unclassifiable CV label) has no real threshold/rule to show; showing another
+// finding's rule on it would misattribute that finding's size bucket.
+// classification_rule (agent/services/defect_catalog.py) is a condition expression meant for
+// the policy engine, e.g. "25 < estimated_width_mm <= 50" or "at least 2 dent detections" — not
+// display copy. QC only needs the numeric bound(s) that decide the size class, not the full
+// "when to pick this" sentence, so pull just the number(s)/unit out of it.
+const COMPARATOR_SYMBOL: Record<string, string> = { "<=": "≤", ">=": "≥", "<": "<", ">": ">" };
+
+function numericThresholdFromRule(rule: string): string {
+  const mm = rule.match(
+    /^(?:(\d+(?:\.\d+)?)\s*<\s*estimated_width_mm\s*<=\s*(\d+(?:\.\d+)?)|estimated_width_mm\s*(<=|<|>=|>)\s*(\d+(?:\.\d+)?))$/,
+  );
+  if (mm) {
+    if (mm[1] && mm[2]) return `${mm[1]}–${mm[2]} mm`;
+    return `${COMPARATOR_SYMBOL[mm[3]!]} ${mm[4]} mm`;
+  }
+  const count = rule.match(/^at least (\d+)/i);
+  if (count) return `≥ ${count[1]}`;
+  const ratio = rule.match(/aspect ratio\s*(<=|<|>=|>)\s*(\d+(?:\.\d+)?)/i);
+  if (ratio) return `${COMPARATOR_SYMBOL[ratio[1]!]} ${ratio[2]}`;
+  return "—";
+}
+
 function thresholdFor(
   d: EnrichedDefect,
   cameraClassifications: CameraClassification[] | undefined,
@@ -138,14 +159,14 @@ function thresholdFor(
   if (!own?.classified_defect_code) return "—";
   const rule = own.suggested_defect_codes.find((c) => c.defect_code === own.classified_defect_code)
     ?.classification_rule;
-  return rule || "—";
+  return rule ? numericThresholdFromRule(rule) : "—";
 }
 
-// The vehicle-level final_status is a single PASS/FAIL, but each camera's finding was
+// The vehicle-level final_status is a single PASS/FAIL, but each finding was
 // policy-evaluated independently (agent/graph/nodes.py's assess_result, state.camera_policy_
-// decisions) — show THAT camera's own verdict when it exists instead of blindly copying the
-// overall vehicle verdict onto every finding (which would hide a PASS-eligible camera behind
-// a different camera's FAIL, or vice versa).
+// decisions) — show THAT finding's own verdict when it exists instead of blindly copying the
+// overall vehicle verdict onto every finding (which would hide a PASS-eligible finding behind
+// a different finding's FAIL, or vice versa).
 function decisionFor(
   d: EnrichedDefect,
   cameraPolicyDecisions: CameraPolicyDecision[] | undefined,
@@ -187,6 +208,7 @@ function toDefect(
     polygon: segmentationToPercentPoints(d.segmentation, imageWidth, imageHeight),
     cropImageUrl: assetUrl(d.crop_image_url) || undefined,
     overlayImageUrl: assetUrl(d.overlay_image_url) || undefined,
+    trackTimestamps: d.track_timestamps,
   };
 }
 

@@ -26,6 +26,13 @@ class QCState(TypedDict, total=False):
     camera_id: str
     camera_evidence: list[dict[str, Any]]
     camera_results: list[dict[str, Any]]
+    # Set only by the video-upload endpoint (backend/app/langgraph_api.py), which already ran
+    # detection across every extracted frame per camera and merged same-defect observations
+    # via agent.services.video_processor.DefectDeduplicator before invoking the graph. Shaped
+    # identically to DetectorService.detect()'s return value; QCNodes.detect_defect uses it
+    # verbatim instead of re-running detection on a single frame, so multi-frame tracking
+    # survives into the same downstream policy/assessment logic unchanged.
+    precomputed_detection: dict[str, Any] | None
     finding_groups: list[dict[str, Any]]
     zone_name: str
     defect_detected: bool
@@ -36,10 +43,10 @@ class QCState(TypedDict, total=False):
     visual_measurements: dict[str, float | str]
     detections: list[dict[str, Any]]
     primary_detection_id: str | None
-    # One entry per camera that has >=1 detection — each camera's own worst finding,
+    # One entry per DETECTION (not per camera) — every finding on every camera is
     # classified independently against defect_catalog/LLM (see QCNodes.detect_defect).
-    # Lets assess_result decide PASS/FAIL/HITL from EVERY camera's defect, not just the
-    # single global-worst one.
+    # Lets assess_result decide PASS/FAIL/HITL from EVERY defect, not just the single
+    # worst finding per camera.
     camera_classifications: list[dict[str, Any]]
     unresolved_camera_ids: list[str]
     camera_policy_decisions: list[dict[str, Any]]
@@ -96,4 +103,18 @@ class QCState(TypedDict, total=False):
     auto_pass_enabled: bool
     confirmed_threshold: float
     verify_threshold: float
+    # Set by the upload endpoints (backend/app/langgraph_api.py) from a live
+    # HitlRateAlertService.analyze() call, never persisted as sticky state — a CRITICAL HITL
+    # escalation rate at this station forces EVERY new inspection through human_review
+    # regardless of what assess_result would otherwise decide (agent/graph/nodes.py).
+    force_human_review: bool
+    # True only when force_human_review actually changed this inspection's route (i.e. it
+    # would have been PASS/CONFIRMED without it) — lets the audit export and HITL UI show
+    # WHY a human was asked to look at an otherwise-routine case.
+    mandatory_review_forced: bool
+    # Set once at submission time (backend/app/langgraph_api.py's _submitter_name, from the
+    # authenticated CurrentUser) — the operator who ran this inspection. Distinct from
+    # human_decision.reviewer, which is whoever later resolved a HITL case and is absent for
+    # the common case of a run that never needed human review.
+    submitted_by: str | None
     execution_trace: Annotated[list[TraceEvent], operator.add]

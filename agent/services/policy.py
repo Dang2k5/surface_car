@@ -80,6 +80,7 @@ ACTION_LABELS = {
     "IMMOBILIZE_FOR_TIRE_SERVICE": "Cố định xe và chuyển đi bảo dưỡng lốp",
     "HOLD_FOR_WELD_ENGINEERING_REVIEW": "Giữ lại để kỹ thuật hàn xem xét",
     "HOLD_FOR_VIN_VERIFICATION": "Giữ lại để xác minh VIN có kiểm soát",
+    "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE": "QC xác nhận lỗi nhỏ nằm trong dung sai thẩm mỹ cho phép — cho phép xuất xưởng",
 }
 
 
@@ -148,17 +149,19 @@ class PolicyCatalog:
         defect_type = state.get("catalog_defect_type")
         if defect_type is None:
             return self._manual_reinspection(state)
+        classified_code = state.get("classified_defect_code")
         policy = next(
             (
                 item
                 for item in self.document["policies"]
                 if defect_type in item.get("defect_types", [])
+                and self._matches_defect_code(item, classified_code)
                 and self._matches_context(item, state)
                 # A DRAFT policy (e.g. freshly saved from the Rules UI, or an
                 # AI-extracted-but-not-yet-reviewed one) must not silently start
                 # deciding real vehicles — fall through to the manual-reinspection
                 # fail-safe below until a supervisor flips it to APPROVED.
-                and self._is_approved(item)
+                and self.is_approved(item)
             ),
             None,
         )
@@ -167,8 +170,27 @@ class PolicyCatalog:
 
         return self._decision_from_policy(policy, state)
 
-    def _is_approved(self, policy: dict[str, Any]) -> bool:
+    def is_approved(self, policy: dict[str, Any]) -> bool:
         return str(policy.get("checklist_status") or self.document["status"]) == "APPROVED"
+
+    def list_approved_policies(self) -> list[dict[str, Any]]:
+        """Every policy a human (e.g. a supervisor resolving an escalation) may legitimately
+        pick as a case's final disposition — never a DRAFT/unreviewed one, for the same reason
+        `evaluate()` itself refuses to auto-apply those (see the comment above)."""
+        return [item for item in self.document["policies"] if self.is_approved(item)]
+
+    @staticmethod
+    def _matches_defect_code(policy: dict[str, Any], classified_code: str | None) -> bool:
+        """An optional, finer-grained gate on top of `defect_types`: a policy that lists
+        `defect_codes` only governs those specific severity-band codes (e.g. DENT01 =
+        small, DENT04/05 = crease/cluster needing QC judgement) instead of every finding
+        of that defect_type. A policy with no `defect_codes` key is unrestricted, exactly
+        like before this field existed — this keeps every pre-existing policy matching
+        every code of its defect_type unchanged."""
+        codes = policy.get("defect_codes")
+        if not codes:
+            return True
+        return classified_code in codes
 
     def evaluate_named(self, policy_id: str, state: QCState) -> PolicyDecision:
         policy = next(

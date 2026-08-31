@@ -26,7 +26,12 @@ class LangGraphInspectionCreate(BaseModel):
 
 
 class LangGraphResumeRequest(BaseModel):
-    action: Literal["APPROVE", "REJECT", "OVERRIDE"]
+    # Not a Literal: the first HITL gate (human_review) only ever sends APPROVE/REJECT/OVERRIDE,
+    # but the second gate (supervisor_review) sends either UPHOLD_POLICY or the id of whichever
+    # APPROVED catalog policy the supervisor chose to apply — an open-ended, catalog-driven set
+    # the HTTP layer can't enumerate. Each graph node validates its own allowed values and raises
+    # ValueError (-> HTTP 422) for anything else; this schema only bounds the string's shape.
+    action: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z][A-Za-z0-9_:-]*$")
     reviewer: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=1, max_length=1000)
     recommendation: str | None = Field(default=None, max_length=200)

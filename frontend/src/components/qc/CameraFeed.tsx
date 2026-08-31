@@ -1,8 +1,19 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 import { Maximize2, VideoOff } from "lucide-react";
 import type { Camera, Defect } from "@/lib/qc-data";
 import { cn } from "@/lib/utils";
 import { Dot } from "./primitives";
+
+// Matches the video-upload endpoint's default frame_interval (backend/app/langgraph_api.py) —
+// a tracked defect's box shows while the video is within one extraction interval of a moment
+// it was actually observed in, instead of only at the exact frame timestamp.
+const TRACK_WINDOW_SECONDS = 0.75;
+
+function isDefectVisibleAt(defect: Defect, videoTime: number | null): boolean {
+  if (videoTime === null || !defect.trackTimestamps?.length) return true;
+  return defect.trackTimestamps.some((t) => Math.abs(t - videoTime) <= TRACK_WINDOW_SECONDS);
+}
 
 export function DefectOverlay({
   defect,
@@ -73,7 +84,12 @@ export function CameraFeed({
   onSelectCamera?: () => void;
   selected?: boolean;
 }) {
-  const withMask = defects.filter((d) => d.polygon && d.polygon.length >= 3);
+  // Only meaningful while an actual <video> plays back (null for a static-photo camera, where
+  // every defect stays visible) -- tracks the player's currentTime so defects with
+  // trackTimestamps can fade in/out at the moments they were actually observed.
+  const [videoTime, setVideoTime] = useState<number | null>(camera.videoUrl ? 0 : null);
+  const visibleDefects = defects.filter((d) => isDefectVisibleAt(d, videoTime));
+  const withMask = visibleDefects.filter((d) => d.polygon && d.polygon.length >= 3);
   // The image renders with object-contain, so it's letterboxed to the real photo's own aspect
   // ratio inside this fixed aspect-[16/10] card. A viewBox of "0 0 100 100" with
   // preserveAspectRatio="none" (stretch) assumed the photo filled the card edge-to-edge, which
@@ -98,19 +114,72 @@ export function CameraFeed({
       )}
     >
       {camera.image ? (
-        <img
-          src={camera.image}
-          alt={`${camera.id} ${camera.position} capture`}
-          loading="lazy"
-          width={1024}
-          height={640}
-          // object-contain (not object-cover) is required so the box/mask overlay below — computed
-          // as a percentage of the photo's own pixel dimensions — lines up with what's actually
-          // drawn on screen. object-cover crops+scales non-uniformly whenever a camera's real photo
-          // aspect ratio doesn't match this card's fixed aspect-[16/10], which silently shifted
-          // every overlay off the real defect on any camera whose native aspect ratio differed.
-          className="h-full w-full object-contain opacity-90"
-        />
+        // The SVG mask below already accounts for letterboxing (its viewBox is the photo's own
+        // pixel size, so its "meet" scaling matches object-contain). DefectOverlay's box, though,
+        // is plain % positioning — it needs its containing block to BE the letterboxed image area,
+        // not the fixed aspect-[16/10] card, or its box drifts off the real defect whenever a
+        // camera's native aspect ratio differs from the card's. Sizing this wrapper to the photo's
+        // own aspect ratio (absolute + inset-0 + m-auto + max-h/w-full centers and contain-fits it,
+        // same result object-contain gives the <img>) makes every % overlay inside it line up.
+        <div
+          className="absolute inset-0 m-auto max-h-full max-w-full"
+          style={{ aspectRatio: `${imgW} / ${imgH}` }}
+        >
+          {camera.videoUrl ? (
+            <video
+              src={camera.videoUrl}
+              poster={camera.image}
+              controls
+              muted
+              playsInline
+              onClick={(e) => e.stopPropagation()}
+              onTimeUpdate={(e) => setVideoTime(e.currentTarget.currentTime)}
+              onSeeked={(e) => setVideoTime(e.currentTarget.currentTime)}
+              className="h-full w-full object-contain opacity-90"
+            />
+          ) : (
+            <img
+              src={camera.image}
+              alt={`${camera.id} ${camera.position} capture`}
+              loading="lazy"
+              width={1024}
+              height={640}
+              className="h-full w-full object-contain opacity-90"
+            />
+          )}
+
+          {withMask.length > 0 ? (
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              viewBox={`0 0 ${imgW} ${imgH}`}
+            >
+              {withMask.map((d) => (
+                <polygon
+                  key={d.id}
+                  points={d
+                    .polygon!.map((p) => `${(p.x / 100) * imgW},${(p.y / 100) * imgH}`)
+                    .join(" ")}
+                  vectorEffect="non-scaling-stroke"
+                  className={cn(
+                    d.decision === "FAIL"
+                      ? "fill-destructive/25 stroke-destructive"
+                      : "fill-warning/25 stroke-warning",
+                    selectedDefect === d.id ? "stroke-[2.5]" : "stroke-[1.5]",
+                  )}
+                />
+              ))}
+            </svg>
+          ) : null}
+
+          {visibleDefects.map((d) => (
+            <DefectOverlay
+              key={d.id}
+              defect={d}
+              active={selectedDefect === d.id}
+              onSelect={() => onSelectDefect?.(d.id)}
+            />
+          ))}
+        </div>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-surface-2 text-muted-foreground">
           <VideoOff className="size-6" />
@@ -118,38 +187,6 @@ export function CameraFeed({
         </div>
       )}
       <div className="scan-lines pointer-events-none absolute inset-0" />
-
-      {withMask.length > 0 ? (
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          viewBox={`0 0 ${imgW} ${imgH}`}
-        >
-          {withMask.map((d) => (
-            <polygon
-              key={d.id}
-              points={d
-                .polygon!.map((p) => `${(p.x / 100) * imgW},${(p.y / 100) * imgH}`)
-                .join(" ")}
-              vectorEffect="non-scaling-stroke"
-              className={cn(
-                d.decision === "FAIL"
-                  ? "fill-destructive/25 stroke-destructive"
-                  : "fill-warning/25 stroke-warning",
-                selectedDefect === d.id ? "stroke-[2.5]" : "stroke-[1.5]",
-              )}
-            />
-          ))}
-        </svg>
-      ) : null}
-
-      {defects.map((d) => (
-        <DefectOverlay
-          key={d.id}
-          defect={d}
-          active={selectedDefect === d.id}
-          onSelect={() => onSelectDefect?.(d.id)}
-        />
-      ))}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-background/90 to-transparent px-2.5 py-2">
         <span className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-wider text-foreground">

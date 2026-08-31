@@ -187,8 +187,19 @@ class Database:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""",
+            """CREATE TABLE IF NOT EXISTS production_line_status (
+                station_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'RUNNING',
+                stop_reason TEXT,
+                stopped_by TEXT,
+                stopped_at TEXT,
+                resumed_by TEXT,
+                resumed_at TEXT,
+                updated_at TEXT NOT NULL
+            )""",
             "CREATE INDEX IF NOT EXISTS idx_lot_products_lot ON lot_products(lot_id, seq)",
         "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_vehicle_updated ON agent_graph_runs(vehicle_id, updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_station_updated ON agent_graph_runs(station_id, updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_vehicle_created ON qc_decisions(vehicle_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_inspection ON qc_decisions(inspection_id)",
         )
@@ -863,6 +874,70 @@ class Database:
                 }
             )
         return results
+
+    def get_recent_outcomes_by_station(self, station_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Most recent inspection outcomes for one station, newest first.
+
+        Used by HitlRateAlertService to compute the HITL streak/rate signals — deliberately
+        a lightweight, station-scoped query instead of PostgresQCRepository.list_with_metadata()
+        (which loads every station's latest-per-vehicle rows with no LIMIT).
+
+        Returns `state_json` (not the `status` column): `status` is overwritten with the
+        final PASS/FAIL once a HITL case is resumed (backend/app/langgraph_api.py's
+        resume_langgraph_inspection re-saves with the completed state), so it can no longer
+        tell "this case needed a human" after the fact. `assessment_route` inside the saved
+        state is set once in assess_result and never reset by human_review/supervisor_review/
+        generate_recommendation, so it stays a reliable "did this need HITL" marker whether
+        the case is still pending or already resolved.
+        """
+        return self.fetch_all(
+            """SELECT state_json, updated_at FROM agent_graph_runs
+            WHERE station_id = :station_id
+            ORDER BY updated_at DESC
+            LIMIT :limit""",
+            {"station_id": station_id, "limit": limit},
+        )
+
+    def get_line_status(self, station_id: str) -> dict[str, Any] | None:
+        return self.fetch_one(
+            "SELECT * FROM production_line_status WHERE station_id = :station_id",
+            {"station_id": station_id},
+        )
+
+    def stop_line(self, station_id: str, user_id: str, reason: str) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """INSERT INTO production_line_status
+            (station_id, status, stop_reason, stopped_by, stopped_at, resumed_by, resumed_at, updated_at)
+            VALUES (:station_id, 'STOPPED', :reason, :user_id, :now, NULL, NULL, :now)
+            ON CONFLICT(station_id) DO UPDATE SET
+                status = 'STOPPED',
+                stop_reason = excluded.stop_reason,
+                stopped_by = excluded.stopped_by,
+                stopped_at = excluded.stopped_at,
+                resumed_by = NULL,
+                resumed_at = NULL,
+                updated_at = excluded.updated_at""",
+            {"station_id": station_id, "reason": reason, "user_id": user_id, "now": now},
+        )
+        return self.get_line_status(station_id) or {}
+
+    def resume_line(self, station_id: str, user_id: str) -> dict[str, Any] | None:
+        """Returns None if the station has no status row at all (never stopped)."""
+        existing = self.get_line_status(station_id)
+        if existing is None:
+            return None
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """UPDATE production_line_status SET
+                status = 'RUNNING',
+                resumed_by = :user_id,
+                resumed_at = :now,
+                updated_at = :now
+            WHERE station_id = :station_id""",
+            {"station_id": station_id, "user_id": user_id, "now": now},
+        )
+        return self.get_line_status(station_id)
 
     def close(self) -> None:
         self.engine.dispose()

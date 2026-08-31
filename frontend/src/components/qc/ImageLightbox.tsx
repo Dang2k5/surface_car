@@ -12,12 +12,18 @@ export function ImageLightbox({
   src,
   alt,
   defects,
+  videoSrc,
   onClose,
 }: {
   src: string;
   alt: string;
   /** Box/polygon overlay drawn on top of the image, in the same % coordinates as CameraFeed. */
   defects?: Defect[] | undefined;
+  /** Set when this camera's evidence is a video clip (Camera.videoUrl) — renders a real
+   * <video> player instead of the static `src` photo, matching what CameraFeed already shows
+   * inline. Without this the lightbox always zoomed into the still frame even when the card
+   * being zoomed was actually playing video. */
+  videoSrc?: string | undefined;
   onClose: () => void;
 }) {
   const [scale, setScale] = useState(1);
@@ -96,12 +102,23 @@ export function ImageLightbox({
           className={cn("relative inline-block", scale > MIN_SCALE && "cursor-grab")}
           style={{ transform: `scale(${scale})`, transition: "transform 0.15s ease-out" }}
         >
-          <img
-            src={src}
-            alt={alt}
-            draggable={false}
-            className="block max-h-[85vh] max-w-[90vw] select-none object-contain"
-          />
+          {videoSrc ? (
+            <video
+              src={videoSrc}
+              poster={src}
+              controls
+              playsInline
+              onClick={(e) => e.stopPropagation()}
+              className="block max-h-[85vh] max-w-[90vw] select-none object-contain"
+            />
+          ) : (
+            <img
+              src={src}
+              alt={alt}
+              draggable={false}
+              className="block max-h-[85vh] max-w-[90vw] select-none object-contain"
+            />
+          )}
           {defects && defects.length > 0 ? (
             <>
               <svg

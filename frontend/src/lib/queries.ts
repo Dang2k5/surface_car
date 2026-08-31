@@ -154,19 +154,26 @@ export function useSubmitInspection() {
     mutationFn: async (payload: SubmitSingleInspection | SubmitMultiInspection) => {
       const form = new FormData();
       const isMulti = "cameras" in payload;
+      const files = isMulti ? payload.cameras.map((cam) => cam.file) : [payload.file];
+      const isVideo = files.some((file) => file.type.startsWith("video/"));
 
-      // Detect file type (image vs video)
-      let isVideo = false;
-      if (isMulti) {
-        for (const cam of payload.cameras) {
-          form.append("files", cam.file);
-          form.append("camera_ids", cam.cameraId);
-          if (cam.file.type.startsWith("video/")) isVideo = true;
+      // The backend only exposes plural /inspections/from-images and /inspections/from-videos
+      // (both already accept 1-5 cameras) -- there is no singular /inspections/from-video, so a
+      // single-camera video submission must use the plural `files`/`camera_ids` fields too, not
+      // just multi-camera ones.
+      if (isMulti || isVideo) {
+        if (isMulti) {
+          for (const cam of payload.cameras) {
+            form.append("files", cam.file);
+            form.append("camera_ids", cam.cameraId);
+          }
+        } else {
+          form.append("files", payload.file);
+          form.append("camera_ids", payload.cameraId);
         }
       } else {
         form.append("file", payload.file);
         form.append("camera_id", payload.cameraId);
-        if (payload.file.type.startsWith("video/")) isVideo = true;
       }
       form.append("vehicle_id", payload.vehicleId);
       form.append("vehicle_model", payload.vehicleModel);
@@ -177,9 +184,8 @@ export function useSubmitInspection() {
 
       // Select endpoint based on file type
       let endpoint = "/inspections/from-image";
-      if (isMulti && isVideo) endpoint = "/inspections/from-videos";
+      if (isVideo) endpoint = "/inspections/from-videos";
       else if (isMulti) endpoint = "/inspections/from-images";
-      else if (isVideo) endpoint = "/inspections/from-video";
 
       const response = await authedFetch(
         endpoint,

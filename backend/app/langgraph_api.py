@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import tempfile
 from datetime import UTC, datetime
 from io import BytesIO
@@ -24,6 +25,7 @@ from agent.services.video_processor import (
     MultiCameraAggregator,
     VideoProcessingError,
 )
+from agent.services.yolo_detector import _group_findings, detection_priority_key
 
 from .auth import CurrentUser, get_current_user
 from .langgraph_schemas import (
@@ -77,6 +79,28 @@ def _snapshot_interrupt(snapshot: Any) -> dict[str, Any] | None:
     return None
 
 
+def _apply_operator_classification(
+    item: dict[str, Any], catalog_item: dict[str, Any]
+) -> dict[str, Any]:
+    """Fold an operator's HITL defect_code choice into one previously-unresolved
+    camera_classifications entry, mirroring what _classify_local_detection (agent/graph/
+    nodes.py) would have set had the catalog/LLM matched it automatically -- including
+    the classification_rule the operator's code carries, since a manually-picked code
+    isn't guaranteed to already be in this detection's own suggested_defect_codes list."""
+    suggested = list(item.get("suggested_defect_codes") or [])
+    if not any(c.get("defect_code") == catalog_item["defect_code"] for c in suggested):
+        suggested.append(catalog_item)
+    return {
+        **item,
+        "suggested_defect_codes": suggested,
+        "classified_defect_code": catalog_item["defect_code"],
+        "defect_family": catalog_item.get("defect_family"),
+        "catalog_defect_type": catalog_item["defect_type"],
+        "severity": catalog_item["default_severity"],
+        "severity_source_id": catalog_item.get("source_id"),
+    }
+
+
 def _initial_state(
     payload: LangGraphInspectionCreate,
     thread_id: str,
@@ -109,6 +133,44 @@ def _save_waiting_state(request: Request, state: dict[str, Any]) -> None:
     request.app.state.qc_repository.save({**state, "final_status": "WAITING_FOR_HITL"})
 
 
+def _submitter_name(user: CurrentUser) -> str:
+    """The person who ran this inspection (supervisor's "Người thực hiện" column) — never
+    the HITL reviewer, which is a separate, later, and often-absent field."""
+    return user.full_name or user.email or user.user_id
+
+
+def _enforce_line_gate(request: Request, station_id: str) -> bool:
+    """Andon-style line control, checked once at the top of every inspection-submitting
+    endpoint (docs discussion: HITL rate response ladder).
+
+    - STOPPED (a QC_SUPERVISOR explicitly stopped this station via
+      backend/app/hitl_alerts_api.py) rejects the submission outright with 423 — this is the
+      ONLY place a human decision (never an automatic threshold) blocks new inspections.
+    - CRITICAL HITL rate (computed live, never persisted — see HitlRateAlertService) does NOT
+      block anything; it returns True so the caller sets QCState.force_human_review, which
+      routes every new inspection through human_review instead of letting it auto-PASS/CONFIRM
+      silently (agent/graph/nodes.py's assess_result).
+
+    Returns whether this station's new inspection must be forced through human_review.
+    """
+    line_status = request.app.state.database.get_line_status(station_id)
+    if line_status is not None and line_status.get("status") == "STOPPED":
+        raise HTTPException(
+            status_code=423,
+            detail={
+                "code": "LINE_STOPPED",
+                "message_vi": (
+                    f"Trạm {station_id} đang tạm dừng: {line_status.get('stop_reason') or 'không rõ lý do'}. "
+                    "Liên hệ QC Supervisor để tiếp tục."
+                ),
+                "stopped_by": line_status.get("stopped_by"),
+                "stopped_at": line_status.get("stopped_at"),
+            },
+        )
+    alert = request.app.state.hitl_alert_service.analyze(station_id=station_id)
+    return bool(alert and alert.severity == "CRITICAL")
+
+
 def _write_scratch_image(data: bytes, suffix: str) -> Path:
     """Write uploaded bytes to a private temp file for the local YOLO
     detector to read during this request only.
@@ -129,19 +191,27 @@ def _attach_rendered_defect_images(
     state: dict[str, Any],
     inspection_id: str,
     scratch_path_by_camera: dict[str, Path],
+    scratch_path_by_detection: dict[str, Path] | None = None,
 ) -> None:
     """Render overlay/crop/mask PNGs for every detection (not just the primary one) and store
     them in object storage (FR-17, API_CONTRACT.md), so a secondary-camera finding gets its own
     real crop instead of the UI falling back to that camera's uncropped full photo. Skips a
     detection when there is nothing to render for it, and never fails the inspection response
-    if rendering one detection fails — the rest still get rendered."""
+    if rendering one detection fails — the rest still get rendered.
+
+    `scratch_path_by_detection` (video inspections only, see _track_camera_across_frames) takes
+    priority per-detection: a camera can have several merged defects each observed in a
+    different extracted frame, so falling back to the single camera-wide representative frame
+    for every one of them would crop the wrong image for any defect not observed in that frame."""
     primary_detection_id = state.get("primary_detection_id")
     enriched_by_id = {
         item.get("detection_id"): item for item in state.get("enriched_defects") or []
     }
     for detection in state.get("detections") or []:
         detection_id = detection.get("detection_id")
-        scratch_path = scratch_path_by_camera.get(str(detection.get("camera_id")))
+        scratch_path = (scratch_path_by_detection or {}).get(detection_id) or scratch_path_by_camera.get(
+            str(detection.get("camera_id"))
+        )
         if scratch_path is None:
             continue
         try:
@@ -173,9 +243,12 @@ def run_langgraph_inspection(
     payload: LangGraphInspectionCreate,
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
+    force_human_review = _enforce_line_gate(request, payload.station_id)
     graph = request.app.state.qc_langgraph
     thread_id = str(uuid4())
     initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
+    initial_state["force_human_review"] = force_human_review
+    initial_state["submitted_by"] = _submitter_name(user)
     result = graph.invoke(initial_state, config=_config(thread_id))
     response = _graph_response(graph, thread_id, result)
     if response.status == "INTERRUPTED":
@@ -245,28 +318,46 @@ def resume_langgraph_inspection(
     if (pending_interrupt or {}).get("type") == "supervisor_escalation_review" and user.role != "QC_SUPERVISOR":
         raise HTTPException(status_code=403, detail="Requires role: QC_SUPERVISOR")
     catalog_item = None
+    state_update = None
     if payload.defect_code:
         catalog_item = request.app.state.database.get_defect_code(payload.defect_code)
         if catalog_item is None:
             raise HTTPException(status_code=422, detail="Unknown or inactive defect code")
-        graph.update_state(
-            _config(thread_id),
-            {
-                "classified_defect_code": catalog_item["defect_code"],
-                "defect_type": catalog_item["defect_type"],
-                "defect_family": catalog_item.get("defect_family"),
-                "catalog_defect_type": catalog_item["defect_type"],
-                "severity": payload.severity or catalog_item["default_severity"],
-                "severity_source_id": catalog_item.get("source_id"),
-            },
-        )
+        state_update = {
+            "classified_defect_code": catalog_item["defect_code"],
+            "defect_type": catalog_item["defect_type"],
+            "defect_family": catalog_item.get("defect_family"),
+            "catalog_defect_type": catalog_item["defect_type"],
+            "severity": payload.severity or catalog_item["default_severity"],
+            "severity_source_id": catalog_item.get("source_id"),
+            # detect_defect (agent/graph/nodes.py) only ever leaves classified_defect_code
+            # unset on a per-detection camera_classifications entry when it required HITL
+            # (unresolved_camera_ids / LLM unavailable). The top-level fields above resolve
+            # the vehicle's own verdict, but the frontend's per-finding "Ngưỡng" card
+            # (frontend/src/lib/detection-geometry.ts's thresholdFor) reads the *per-detection*
+            # classified_defect_code -- without also patching these entries here, that field
+            # stays permanently null after the operator resolves it, showing "—" forever even
+            # though Mức độ/Kết luận already reflect the operator's decision correctly.
+            "camera_classifications": [
+                _apply_operator_classification(item, catalog_item)
+                if item.get("classified_defect_code") is None
+                else item
+                for item in (snapshot.values.get("camera_classifications") or [])
+            ],
+        }
     try:
-        result = graph.invoke(Command(resume=payload.model_dump()), config=_config(thread_id))
+        # Command carries the defect_code state update alongside the resume value so this
+        # only writes one checkpoint round-trip to the (remote) Postgres checkpointer instead
+        # of two sequential ones (a separate graph.update_state() call followed by invoke()) --
+        # that extra round-trip was adding noticeable latency to every resume that includes a
+        # defect_code, which is effectively every APPROVE/OVERRIDE submission.
+        result = graph.invoke(
+            Command(resume=payload.model_dump(), update=state_update),
+            config=_config(thread_id),
+        )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     response = _graph_response(graph, thread_id, result)
-    if response.status == "INTERRUPTED":
-        _save_waiting_state(request, response.state)
     if catalog_item:
         qc_record = request.app.state.database.create_qc_decision(
             {
@@ -288,6 +379,14 @@ def resume_langgraph_inspection(
             }
         )
         response.state["qc_decision_record"] = qc_record
+    # Persist exactly once: an INTERRUPTED response (e.g. an operator's OVERRIDE now waiting
+    # on supervisor_review) must keep the "WAITING_FOR_HITL" final_status marker that
+    # list_agent_runs relies on to report status=INTERRUPTED -- a second unconditional save
+    # here (after _save_waiting_state) used to overwrite it back to unset, making the case
+    # silently report as COMPLETED and vanish from the supervisor's escalation queue.
+    if response.status == "INTERRUPTED":
+        _save_waiting_state(request, response.state)
+    elif catalog_item:
         request.app.state.qc_repository.save(response.state)
     return response
 
@@ -405,6 +504,7 @@ def run_uploaded_image_inspection(
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     """Persist the validated image to object storage and run the model-backed graph."""
+    force_human_review = _enforce_line_gate(request, station_id)
     allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=415, detail="Only JPEG and PNG images are accepted")
@@ -444,6 +544,8 @@ def run_uploaded_image_inspection(
         )
         initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
         initial_state["image_sha256"] = hashlib.sha256(data).hexdigest()
+        initial_state["force_human_review"] = force_human_review
+        initial_state["submitted_by"] = _submitter_name(user)
         graph = request.app.state.qc_langgraph
         result = graph.invoke(initial_state, config=_config(thread_id))
         response = _graph_response(graph, thread_id, result)
@@ -484,6 +586,7 @@ def run_uploaded_images_inspection(
     results before the LangGraph policy decision; it never silently treats two
     camera observations as the same physical defect without calibration data.
     """
+    force_human_review = _enforce_line_gate(request, station_id)
     allowed_types = {"image/jpeg": ".jpg", "image/png": ".png"}
     max_file_size = 15 * 1024 * 1024
     if not 1 <= len(files) <= 5:
@@ -551,6 +654,8 @@ def run_uploaded_images_inspection(
         initial_state = _initial_state(payload, thread_id, request.app.state.model_settings)
         initial_state["image_sha256"] = primary["image_sha256"]
         initial_state["camera_evidence"] = camera_evidence
+        initial_state["force_human_review"] = force_human_review
+        initial_state["submitted_by"] = _submitter_name(user)
         graph = request.app.state.qc_langgraph
         result = graph.invoke(initial_state, config=_config(thread_id))
         response = _graph_response(graph, thread_id, result)
@@ -567,6 +672,112 @@ def run_uploaded_images_inspection(
     finally:
         for scratch_path in scratch_paths:
             scratch_path.unlink(missing_ok=True)
+
+
+def _track_camera_across_frames(
+    detector: Any, camera_id: str, frames: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Run detection on every frame extracted from one camera's video and merge repeated
+    observations of the same physical defect across frames (DefectDeduplicator's Tier-1
+    spatial+temporal merge), so a scratch visible for several seconds is tracked as ONE
+    defect instead of counted once per frame it happens to appear in.
+
+    `frames`: [{"timestamp": float, "image_path": str}, ...], in extraction order.
+    All of this camera's frames are sent to the detector in a SINGLE batched detect() call
+    (like the multi-camera photo upload already does) instead of one call per frame --
+    detect() returns camera_results in the same order as the submitted evidence list, so
+    the i-th result maps directly back to frames[i].
+
+    Returns a dict with the merged `unique_defects` plus the representative frame (the one
+    the highest-priority merged defect was actually observed in) whose image should be
+    shown/stored for this camera, so the % bounding box the frontend draws stays aligned
+    with the photo it is drawn over.
+    """
+    frame_state: dict[str, Any] = {
+        "camera_evidence": [
+            {"camera_id": camera_id, "image_url": "", "image_path": frame["image_path"]}
+            for frame in frames
+        ]
+    }
+    result = detector.detect(frame_state)
+    camera_results = result["camera_results"]
+
+    detections_by_frame: list[dict[str, Any]] = []
+    frame_meta: dict[float, dict[str, Any]] = {}
+    model_meta: dict[str, Any] = {
+        "model_name": result.get("model_name"),
+        "model_version": result.get("model_version"),
+        "model_task": result.get("model_task"),
+    }
+
+    for frame_index, (frame, camera_result) in enumerate(zip(frames, camera_results, strict=True)):
+        # Each per-frame result restarts detection_id numbering from 0 (e.g. "CAM-01_0"),
+        # so two different frames' detections would collide once flattened together for
+        # merging -- prefix with the frame index to keep every raw observation's id unique.
+        frame_detections = []
+        for detection in camera_result["detections"]:
+            detection = dict(detection)
+            local_index = detection["detection_id"].rsplit("_", 1)[-1]
+            detection["detection_id"] = f"{camera_id}_f{frame_index}_{local_index}"
+            frame_detections.append(detection)
+        detections_by_frame.append({"timestamp": frame["timestamp"], "detections": frame_detections})
+        frame_meta[frame["timestamp"]] = {
+            "image_width": camera_result["image_width"],
+            "image_height": camera_result["image_height"],
+            "frame": frame,
+        }
+
+    total_inference_ms = float(result.get("inference_ms") or 0.0)
+
+    merged = DefectDeduplicator().deduplicate_camera_detections(camera_id, detections_by_frame)
+    unique_defects = merged["unique_defects"]
+
+    representative_ts = frames[0]["timestamp"]
+    if unique_defects:
+        best = max(unique_defects, key=detection_priority_key)
+        candidate_ts = best.get("_frame_timestamp")
+        if candidate_ts in frame_meta:
+            representative_ts = candidate_ts
+
+    # Merge bookkeeping keys are private (leading "_") except _frame_timestamps, which the
+    # frontend needs to know exactly when (in video-playback time) this tracked defect was
+    # actually observed, so it can show the box only while the video is near one of those
+    # moments instead of burning it onto the whole clip -- keep that one under a public name.
+    clean_defects = [
+        {
+            **{key: value for key, value in defect.items() if not key.startswith("_")},
+            "track_timestamps": sorted(defect.get("_frame_timestamps") or [defect.get("_frame_timestamp", 0.0)]),
+        }
+        for defect in unique_defects
+    ]
+
+    # A camera can have several *different* merged defects, each actually observed (and its
+    # bbox measured) in a different extracted frame -- only ONE frame becomes this camera's
+    # displayed evidence photo (`representative_frame` below), but cropping every defect
+    # against that single frame is wrong for any defect whose own bbox came from a different
+    # frame (image_render.py's render_defect_images crops THAT image at THIS bbox, so a
+    # mismatched frame either crops the wrong region or a visually different moment).
+    # Keep each defect's own source frame path so the caller can render its crop/overlay/mask
+    # from the frame it was actually detected in.
+    frame_path_by_detection_id = {
+        defect.get("detection_id"): frame_meta[defect["_frame_timestamp"]]["frame"]["image_path"]
+        for defect in unique_defects
+        if defect.get("detection_id") and defect.get("_frame_timestamp") in frame_meta
+    }
+
+    representative = frame_meta[representative_ts]
+    return {
+        "camera_id": camera_id,
+        "representative_frame": representative["frame"],
+        "image_width": representative["image_width"],
+        "image_height": representative["image_height"],
+        "unique_defects": clean_defects,
+        "frame_path_by_detection_id": frame_path_by_detection_id,
+        "merge_info": merged["merge_info"],
+        "tracked_frame_count": len(frames),
+        "inference_ms": total_inference_ms,
+        **model_meta,
+    }
 
 
 @router.post("/inspections/from-videos", response_model=LangGraphRunResponse, status_code=201)
@@ -586,14 +797,20 @@ def run_uploaded_videos_inspection(
     shift_id: str | None = Form(default=None),
     production_date: str | None = Form(default=None),
     station_id: str = Form("FNS_LINE_HA_01"),
-    frame_interval: float = Form(default=1.0),
+    frame_interval: float = Form(default=0.75),
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     """Run one vehicle inspection from 1-5 video files (one per camera).
 
-    Extracts frames from each video at specified interval, deduplicates detections
-    per camera (Tier-1), then aggregates across cameras (Tier-2) before LangGraph processing.
+    Extracts frames from each video every `frame_interval` seconds (0.5-1s), runs detection
+    on EVERY extracted frame per camera, and merges repeated observations of the same
+    physical defect across frames (Tier-1, DefectDeduplicator's spatial+temporal merge) so a
+    defect visible for several seconds is tracked as one finding, not one per frame. The
+    frame each surviving defect was actually observed in becomes that camera's evidence
+    photo, then the merged, multi-frame-tracked result feeds the normal LangGraph pipeline
+    exactly like a photo upload (see QCNodes.detect_defect's `precomputed_detection`).
     """
+    force_human_review = _enforce_line_gate(request, station_id)
     max_file_size = 500 * 1024 * 1024
     if not 1 <= len(files) <= 5:
         raise HTTPException(status_code=422, detail="Submit between 1 and 5 camera videos")
@@ -608,8 +825,8 @@ def run_uploaded_videos_inspection(
 
     try:
         frame_interval = float(frame_interval)
-        if not (0.5 <= frame_interval <= 2.0):
-            raise ValueError("frame_interval must be between 0.5 and 2.0 seconds")
+        if not (0.5 <= frame_interval <= 1.0):
+            raise ValueError("frame_interval must be between 0.5 and 1.0 seconds")
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=422, detail=f"Invalid frame_interval: {str(e)}")
 
@@ -634,20 +851,20 @@ def run_uploaded_videos_inspection(
     thread_id = str(uuid4())
     inspection_id = str(uuid4())
 
-    temp_video_paths: list[Path] = []
+    temp_dir = Path(tempfile.gettempdir()) / f"qc_videos_{inspection_id}"
+    scratch_paths_by_camera: dict[str, Path] = {}
     try:
-        temp_dir = Path(tempfile.gettempdir()) / f"qc_videos_{inspection_id}"
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         video_processor = VideoProcessor(extract_interval=frame_interval, temp_dir=str(temp_dir))
+        detector = request.app.state.qc_detector
 
-        camera_evidence: list[dict[str, str]] = []
-        scratch_paths_by_camera: dict[str, Path] = {}
+        camera_tracks: list[dict[str, Any]] = []
+        video_url_by_camera: dict[str, str] = {}
 
         for (filename, video_data), camera_id in zip(validated_videos, normalized_camera_ids):
             temp_video_path = temp_dir / f"{camera_id}.mp4"
             temp_video_path.write_bytes(video_data)
-            temp_video_paths.append(temp_video_path)
 
             try:
                 extraction_result = video_processor.extract_frames(
@@ -663,41 +880,23 @@ def run_uploaded_videos_inspection(
 
                 video_key = f"inspections/{inspection_id}/videos/{camera_id}.mp4"
                 request.app.state.object_storage.put(video_key, video_data, "video/mp4")
+                video_url_by_camera[camera_id] = f"/assets/objects/{video_key}"
 
                 frame_dir = temp_dir / camera_id
                 frame_dir.mkdir(parents=True, exist_ok=True)
 
-                for i, frame_info in enumerate(extraction_result["frames"]):
-                    import cv2
+                import cv2
 
+                frames: list[dict[str, Any]] = []
+                for i, frame_info in enumerate(extraction_result["frames"]):
                     frame_path = frame_dir / f"frame_{i:03d}_{frame_info['timestamp']:.2f}s.jpg"
                     cv2.imwrite(str(frame_path), frame_info["frame_data"])
+                    frames.append({"timestamp": frame_info["timestamp"], "image_path": str(frame_path)})
 
-                if extraction_result["frames"]:
-                    import cv2
+                if not frames:
+                    continue
 
-                    first_frame = cv2.imread(str(frame_dir / "frame_000_0.00s.jpg"))
-                    if first_frame is not None:
-                        _, first_frame_jpg = cv2.imencode(".jpg", first_frame)
-                        first_frame_data = first_frame_jpg.tobytes()
-                        image_key = f"inspections/{inspection_id}/camera-{camera_id}-frame0.jpg"
-                        request.app.state.object_storage.put(
-                            image_key, first_frame_data, "image/jpeg"
-                        )
-
-                        scratch_path = _write_scratch_image(first_frame_data, ".jpg")
-                        scratch_paths_by_camera[camera_id] = scratch_path
-
-                        camera_evidence.append(
-                            {
-                                "camera_id": camera_id,
-                                "image_url": f"/assets/objects/{image_key}",
-                                "image_path": str(scratch_path),
-                                "image_sha256": hashlib.sha256(first_frame_data).hexdigest(),
-                                "video_source": True,
-                                "source_frames": extraction_result["extracted_frame_count"],
-                            }
-                        )
+                camera_tracks.append(_track_camera_across_frames(detector, camera_id, frames))
 
             except VideoProcessingError as e:
                 raise HTTPException(status_code=422, detail=f"Video error ({camera_id}): {str(e)}")
@@ -705,8 +904,93 @@ def run_uploaded_videos_inspection(
                 logger.exception(f"Error processing video {camera_id}")
                 raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
 
-        if not camera_evidence:
+        if not camera_tracks:
             raise HTTPException(status_code=422, detail="No valid frames extracted from videos")
+
+        camera_evidence: list[dict[str, str]] = []
+        camera_results: list[dict[str, Any]] = []
+        all_detections: list[dict[str, Any]] = []
+        scratch_path_by_detection: dict[str, Path] = {}
+        total_inference_ms = 0.0
+        model_meta: dict[str, Any] = {}
+
+        for track in camera_tracks:
+            camera_id = track["camera_id"]
+            frame_data = Path(track["representative_frame"]["image_path"]).read_bytes()
+            image_key = f"inspections/{inspection_id}/camera-{camera_id}-frame.jpg"
+            request.app.state.object_storage.put(image_key, frame_data, "image/jpeg")
+            image_url = f"/assets/objects/{image_key}"
+
+            scratch_path = _write_scratch_image(frame_data, ".jpg")
+            scratch_paths_by_camera[camera_id] = scratch_path
+
+            camera_evidence.append(
+                {
+                    "camera_id": camera_id,
+                    "image_url": image_url,
+                    "image_path": str(scratch_path),
+                    "image_sha256": hashlib.sha256(frame_data).hexdigest(),
+                    "video_source": True,
+                    "video_url": video_url_by_camera.get(camera_id, ""),
+                    "source_frames": track["tracked_frame_count"],
+                }
+            )
+            camera_results.append(
+                {
+                    "camera_id": camera_id,
+                    "image_url": image_url,
+                    "video_url": video_url_by_camera.get(camera_id, ""),
+                    "image_width": track["image_width"],
+                    "image_height": track["image_height"],
+                    "defect_detected": bool(track["unique_defects"]),
+                    "detections": track["unique_defects"],
+                    "frame_tracking": {
+                        "tracked_frame_count": track["tracked_frame_count"],
+                        "frame_interval_seconds": frame_interval,
+                        "merge_info": track["merge_info"],
+                    },
+                }
+            )
+            all_detections.extend(track["unique_defects"])
+            for detection_id, frame_path in track.get("frame_path_by_detection_id", {}).items():
+                scratch_path_by_detection[detection_id] = Path(frame_path)
+            total_inference_ms += track["inference_ms"]
+            if not model_meta:
+                model_meta = {
+                    "model_name": track.get("model_name"),
+                    "model_version": track.get("model_version"),
+                    "model_task": track.get("model_task"),
+                }
+
+        primary_defect = max(all_detections, key=detection_priority_key, default=None)
+        primary_camera = next(
+            (
+                camera
+                for camera in camera_results
+                if primary_defect and camera["camera_id"] == primary_defect["camera_id"]
+            ),
+            camera_results[0],
+        )
+        precomputed_detection: dict[str, Any] = {
+            "detections": all_detections,
+            "camera_results": camera_results,
+            "finding_groups": _group_findings(all_detections),
+            "camera_id": primary_camera["camera_id"],
+            "primary_detection_id": primary_defect["detection_id"] if primary_defect else None,
+            "image_width": primary_camera["image_width"],
+            "image_height": primary_camera["image_height"],
+            "inference_ms": round(total_inference_ms, 1),
+            "inference_status": "SUCCESS",
+            "defect_detected": bool(primary_defect),
+            "defect_type": primary_defect["class_name"] if primary_defect else "none",
+            "raw_class_name": primary_defect["raw_class_name"] if primary_defect else None,
+            "confidence": primary_defect["confidence"] if primary_defect else 0.0,
+            "bbox": primary_defect["bbox"] if primary_defect else None,
+            "segmentation_result": primary_defect["segmentation"] if primary_defect else None,
+            "visual_measurements": primary_defect["visual_measurements"] if primary_defect else {},
+            "severity": "UNASSESSED",
+            **model_meta,
+        }
 
         primary = camera_evidence[0]
         payload = LangGraphInspectionCreate(
@@ -727,12 +1011,21 @@ def run_uploaded_videos_inspection(
         initial_state["image_sha256"] = primary["image_sha256"]
         initial_state["camera_evidence"] = camera_evidence
         initial_state["video_source"] = True
+        initial_state["precomputed_detection"] = precomputed_detection
+        initial_state["force_human_review"] = force_human_review
+        initial_state["submitted_by"] = _submitter_name(user)
 
         graph = request.app.state.qc_langgraph
         result = graph.invoke(initial_state, config=_config(thread_id))
         response = _graph_response(graph, thread_id, result)
 
-        _attach_rendered_defect_images(request, response.state, inspection_id, scratch_paths_by_camera)
+        _attach_rendered_defect_images(
+            request,
+            response.state,
+            inspection_id,
+            scratch_paths_by_camera,
+            scratch_path_by_detection=scratch_path_by_detection,
+        )
 
         if response.status == "INTERRUPTED":
             _save_waiting_state(request, response.state)
@@ -747,12 +1040,7 @@ def run_uploaded_videos_inspection(
         logger.exception("Error in video inspection")
         raise HTTPException(status_code=500, detail=f"Video inspection failed: {str(e)}")
     finally:
-        for path in temp_video_paths:
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                pass
-
+        shutil.rmtree(temp_dir, ignore_errors=True)
         for scratch_path in scratch_paths_by_camera.values():
             try:
                 scratch_path.unlink(missing_ok=True)

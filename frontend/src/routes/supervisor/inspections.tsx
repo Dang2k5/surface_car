@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Btn,
@@ -36,19 +36,62 @@ function resultOf(r: GraphRun): ResultFilter {
   return "pending";
 }
 
+const NO_LOT = "Không có lô";
+
+function lotOf(r: GraphRun): string {
+  return r.state.lot_id || NO_LOT;
+}
+
+// submitted_by (set for every run since the HITL/line-control rollout) is who actually ran
+// the inspection. Older runs predating that field fall back to the HITL reviewer, which is
+// the closest available signal but only exists once a case has been resolved.
+function performerOf(r: GraphRun): string {
+  return (
+    r.state.submitted_by ||
+    r.state.human_decision?.reviewer ||
+    r.state.qc_decision_record?.reviewer ||
+    "—"
+  );
+}
+
+function timeOf(r: GraphRun): string {
+  return r.state._persisted_at ?? r.state.qc_decision_record?.created_at ?? "";
+}
+
+function formatDateTime(time: string): string {
+  if (!time) return "—";
+  const d = new Date(time);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function InspectionExplorer() {
   const runsQuery = useAgentRuns();
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<ResultFilter>("all");
+  const [lotFilter, setLotFilter] = useState("all");
   const [selected, setSelected] = useState<GraphRun | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
   const runs = useMemo(() => runsQuery.data ?? [], [runsQuery.data]);
+
+  const lotOptions = useMemo(() => {
+    const ids = new Set(runs.map((r) => r.state.lot_id).filter((id): id is string => !!id));
+    return Array.from(ids).sort((a, b) => a.localeCompare(b));
+  }, [runs]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return runs.filter((r) => {
+    const matches = runs.filter((r) => {
       if (result !== "all" && resultOf(r) !== result) return false;
+      if (lotFilter !== "all" && lotOf(r) !== lotFilter) return false;
       if (!q) return true;
       return (
         r.state.vehicle_id.toLowerCase().includes(q) ||
@@ -56,7 +99,18 @@ function InspectionExplorer() {
         (r.state.station_id ?? "").toLowerCase().includes(q)
       );
     });
-  }, [runs, search, result]);
+    // Group by lot: stable-sort by lot id so every inspection from the same lot renders
+    // together, preserving each lot's own recency order (runs arrive newest-first).
+    // No-lot inspections sort last rather than first.
+    return [...matches].sort((a, b) => {
+      const la = lotOf(a);
+      const lb = lotOf(b);
+      if (la === lb) return 0;
+      if (la === NO_LOT) return 1;
+      if (lb === NO_LOT) return -1;
+      return la.localeCompare(lb);
+    });
+  }, [runs, search, result, lotFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -67,7 +121,7 @@ function InspectionExplorer() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, result]);
+  }, [search, result, lotFilter]);
 
   return (
     <div className="space-y-4">
@@ -96,6 +150,15 @@ function InspectionExplorer() {
                 { value: "pending", label: "Đang chờ" },
               ]}
             />
+            <Select
+              label="Lô"
+              value={lotFilter}
+              onChange={setLotFilter}
+              options={[
+                { value: "all", label: "Tất cả lô" },
+                ...lotOptions.map((id) => ({ value: id, label: id })),
+              ]}
+            />
           </div>
         }
       />
@@ -115,29 +178,49 @@ function InspectionExplorer() {
             <thead>
               <tr>
                 <Th>Inspection</Th>
+                <Th>Thời gian</Th>
                 <Th>Xe</Th>
                 <Th>Trạm</Th>
                 <Th>Vùng lỗi</Th>
                 <Th>Loại lỗi</Th>
                 <Th>Kết quả</Th>
+                <Th>Người thực hiện</Th>
               </tr>
             </thead>
             <tbody>
-              {paged.map((r) => {
+              {paged.map((r, i) => {
                 const res = resultOf(r);
+                const lotId = lotOf(r);
+                const showLotHeader = i === 0 || lotOf(paged[i - 1]!) !== lotId;
                 return (
-                  <Tr key={r.thread_id} onClick={() => setSelected(r)}>
-                    <Td className="num">{r.state.inspection_id}</Td>
-                    <Td className="font-medium">{r.state.vehicle_id}</Td>
-                    <Td>{r.state.station_id || "—"}</Td>
-                    <Td className="font-mono text-xs">{formatAffectedZones(r.state.affected_zones)}</Td>
-                    <Td>{r.state.defect_type || "—"}</Td>
-                    <Td>
-                      <Badge tone={res === "pass" ? "pass" : res === "fail" ? "fail" : "warn"}>
-                        {res === "pass" ? "PASS" : res === "fail" ? "FAIL" : "CHỜ DUYỆT"}
-                      </Badge>
-                    </Td>
-                  </Tr>
+                  <Fragment key={r.thread_id}>
+                    {showLotHeader ? (
+                      <tr className="bg-surface-2">
+                        <td
+                          colSpan={7}
+                          className="px-3 py-1.5 font-mono text-[11px] font-semibold tracking-wider text-muted-foreground"
+                        >
+                          LÔ: {lotId}
+                        </td>
+                      </tr>
+                    ) : null}
+                    <Tr onClick={() => setSelected(r)}>
+                      <Td className="num">{r.state.inspection_id}</Td>
+                      <Td className="font-mono text-xs">{formatDateTime(timeOf(r))}</Td>
+                      <Td className="font-medium">{r.state.vehicle_id}</Td>
+                      <Td>{r.state.station_id || "—"}</Td>
+                      <Td className="font-mono text-xs">
+                        {formatAffectedZones(r.state.affected_zones)}
+                      </Td>
+                      <Td>{r.state.defect_type || "—"}</Td>
+                      <Td>
+                        <Badge tone={res === "pass" ? "pass" : res === "fail" ? "fail" : "warn"}>
+                          {res === "pass" ? "PASS" : res === "fail" ? "FAIL" : "CHỜ DUYỆT"}
+                        </Badge>
+                      </Td>
+                      <Td>{performerOf(r)}</Td>
+                    </Tr>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -182,6 +265,9 @@ function InspectionExplorer() {
         {selected && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Field label="Thời gian" mono>
+                {formatDateTime(timeOf(selected))}
+              </Field>
               <Field label="Trạm" mono>
                 {selected.state.station_id || "—"}
               </Field>
@@ -202,6 +288,7 @@ function InspectionExplorer() {
                   : "—"}
               </Field>
               <Field label="Trạng thái cuối">{selected.state.final_status || "—"}</Field>
+              <Field label="Người thực hiện">{performerOf(selected)}</Field>
             </div>
 
             {(() => {

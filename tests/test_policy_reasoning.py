@@ -16,6 +16,11 @@ def test_surface_policy_is_cited_but_blocked_from_production_release():
         {
             "defect_type": "scratch",
             "catalog_defect_type": "scratch",
+            # SCRATCH02 (medium) -- FNS-SURFACE-001 now only governs the medium/large
+            # severity band; SCRATCH01 (small) and SCRATCH04/05 (cluster/edge) route to
+            # their own PASS/HITL policies instead (agent/services/policy.py's
+            # _matches_defect_code).
+            "classified_defect_code": "SCRATCH02",
             "confidence": 0.88,
             "severity": "UNASSESSED",
         }
@@ -85,6 +90,7 @@ def test_document_review_blocks_expired_and_conflicting_revisions(tmp_path):
             "vehicle_model": "SUV_EV_2026",
             "defect_type": "scratch",
             "catalog_defect_type": "scratch",
+            "classified_defect_code": "SCRATCH02",
         }
     )
     warning_codes = {item.code for item in decision.document_review.warnings}
@@ -123,7 +129,12 @@ def test_draft_policy_is_skipped_in_favor_of_an_approved_match(tmp_path):
     # must never win the match just by being listed first.
     path = _catalog_with_draft_policy(tmp_path, "scratch")
     decision = PolicyCatalog(path).evaluate(
-        {"defect_type": "scratch", "catalog_defect_type": "scratch", "vehicle_model": "unknown_model"}
+        {
+            "defect_type": "scratch",
+            "catalog_defect_type": "scratch",
+            "classified_defect_code": "SCRATCH02",
+            "vehicle_model": "unknown_model",
+        }
     )
     assert decision.policy_id == "FNS-SURFACE-001"
 

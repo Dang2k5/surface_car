@@ -1,0 +1,926 @@
+{
+  "schema": "visual-qc-agent-audit/v1",
+  "exported_at": "2026-08-30T09:20:15.685548+00:00",
+  "identity": {
+    "thread_id": "5f9b9991-a332-4c23-a2a8-a06472cddc46",
+    "inspection_id": "52f8fb7e-80f1-4c92-9de6-c211ade21d5f",
+    "vehicle_id": "LOT-2026-22-08-A-VF3-23",
+    "vehicle_model": "VF3",
+    "status": "PASS"
+  },
+  "evidence": {
+    "image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/camera-CAM-01-frame.jpg",
+    "image_sha256": "3daf5a22e0155e5566efcefd85817d7c202b652704f19f06cf466afdcfb4ca78",
+    "camera_id": "CAM-01",
+    "camera_evidence": [
+      {
+        "camera_id": "CAM-01",
+        "image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/camera-CAM-01-frame.jpg",
+        "image_sha256": "3daf5a22e0155e5566efcefd85817d7c202b652704f19f06cf466afdcfb4ca78"
+      },
+      {
+        "camera_id": "CAM-02",
+        "image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/camera-CAM-02-frame.jpg",
+        "image_sha256": "cd134b21ca7af7c8f03689cb42746eff43713d12660e93008f6c3df5128c44b0"
+      }
+    ],
+    "zone_name": "truoc"
+  },
+  "model_result": {
+    "model_name": "best.pt",
+    "model_version": "56fdead603ca",
+    "model_task": "segment",
+    "inference_ms": 22028.7,
+    "defect_detected": true,
+    "defect_type": "scratch",
+    "confidence": 0.315364,
+    "severity": "C",
+    "bbox": {
+      "x1": 454.77,
+      "y1": 427.05,
+      "x2": 457.34,
+      "y2": 433.67
+    },
+    "segmentation_result": {
+      "format": "polygon",
+      "points": [
+        [
+          455.0,
+          428.0
+        ],
+        [
+          455.0,
+          433.0
+        ],
+        [
+          457.0,
+          433.0
+        ],
+        [
+          457.0,
+          428.0
+        ]
+      ]
+    },
+    "detections": [
+      {
+        "detection_id": "CAM-01_f2_0",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "safety_priority": 10,
+        "confidence": 0.315364,
+        "bbox": {
+          "x1": 454.77,
+          "y1": 427.05,
+          "x2": 457.34,
+          "y2": 433.67
+        },
+        "visual_measurements": {
+          "width_px": 2.57,
+          "height_px": 6.62,
+          "bbox_area_px": 17.03,
+          "mask_area_px": 10.0,
+          "image_area_ratio": 4.2e-05,
+          "center_x_ratio": 0.712585,
+          "center_y_ratio": 0.672436,
+          "relative_position": "lower_right",
+          "estimated_width_mm": 2.06,
+          "estimated_height_mm": 5.3,
+          "estimated_length_mm": 5.3,
+          "estimated_bbox_area_mm2": 10.9,
+          "estimated_mask_area_mm2": 6.4,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "calibration_source": "STATIC_PROFILE",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              455.0,
+              428.0
+            ],
+            [
+              455.0,
+              433.0
+            ],
+            [
+              457.0,
+              433.0
+            ],
+            [
+              457.0,
+              428.0
+            ]
+          ]
+        },
+        "track_timestamps": [
+          1.5
+        ]
+      }
+    ],
+    "enriched_defects": [
+      {
+        "detection_id": "CAM-01_f2_0",
+        "camera_id": "CAM-01",
+        "class_id": 1,
+        "raw_class_name": "Scratch",
+        "class_name": "scratch",
+        "safety_priority": 10,
+        "confidence": 0.315364,
+        "bbox": {
+          "x1": 454.77,
+          "y1": 427.05,
+          "x2": 457.34,
+          "y2": 433.67
+        },
+        "visual_measurements": {
+          "width_px": 2.57,
+          "height_px": 6.62,
+          "bbox_area_px": 17.03,
+          "mask_area_px": 10.0,
+          "image_area_ratio": 4.2e-05,
+          "center_x_ratio": 0.712585,
+          "center_y_ratio": 0.672436,
+          "relative_position": "lower_right",
+          "estimated_width_mm": 2.06,
+          "estimated_height_mm": 5.3,
+          "estimated_length_mm": 5.3,
+          "estimated_bbox_area_mm2": 10.9,
+          "estimated_mask_area_mm2": 6.4,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "calibration_source": "STATIC_PROFILE",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "segmentation": {
+          "format": "polygon",
+          "points": [
+            [
+              455.0,
+              428.0
+            ],
+            [
+              455.0,
+              433.0
+            ],
+            [
+              457.0,
+              433.0
+            ],
+            [
+              457.0,
+              428.0
+            ]
+          ]
+        },
+        "track_timestamps": [
+          1.5
+        ],
+        "zone_name": "truoc",
+        "estimated_depth_mm": null,
+        "estimated_width_mm": 2.06,
+        "estimated_height_mm": 5.3,
+        "surface_area_mm2": 6.4,
+        "physical_measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+        "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+        "severity_rank": "C",
+        "is_primary": true,
+        "overlay_image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/CAM-01_f2_0/overlay.png",
+        "crop_image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/CAM-01_f2_0/crop.png",
+        "mask_image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/CAM-01_f2_0/mask.png"
+      }
+    ],
+    "camera_results": [
+      {
+        "camera_id": "CAM-01",
+        "image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/camera-CAM-01-frame.jpg",
+        "video_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/videos/CAM-01.mp4",
+        "image_width": 640,
+        "image_height": 640,
+        "defect_detected": true,
+        "detections": [
+          {
+            "detection_id": "CAM-01_f2_0",
+            "camera_id": "CAM-01",
+            "class_id": 1,
+            "raw_class_name": "Scratch",
+            "class_name": "scratch",
+            "safety_priority": 10,
+            "confidence": 0.315364,
+            "bbox": {
+              "x1": 454.77,
+              "y1": 427.05,
+              "x2": 457.34,
+              "y2": 433.67
+            },
+            "visual_measurements": {
+              "width_px": 2.57,
+              "height_px": 6.62,
+              "bbox_area_px": 17.03,
+              "mask_area_px": 10.0,
+              "image_area_ratio": 4.2e-05,
+              "center_x_ratio": 0.712585,
+              "center_y_ratio": 0.672436,
+              "relative_position": "lower_right",
+              "estimated_width_mm": 2.06,
+              "estimated_height_mm": 5.3,
+              "estimated_length_mm": 5.3,
+              "estimated_bbox_area_mm2": 10.9,
+              "estimated_mask_area_mm2": 6.4,
+              "mm_per_pixel_x": 0.8,
+              "mm_per_pixel_y": 0.8,
+              "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+              "calibration_source": "STATIC_PROFILE",
+              "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+            },
+            "segmentation": {
+              "format": "polygon",
+              "points": [
+                [
+                  455.0,
+                  428.0
+                ],
+                [
+                  455.0,
+                  433.0
+                ],
+                [
+                  457.0,
+                  433.0
+                ],
+                [
+                  457.0,
+                  428.0
+                ]
+              ]
+            },
+            "track_timestamps": [
+              1.5
+            ]
+          }
+        ],
+        "frame_tracking": {
+          "tracked_frame_count": 9,
+          "frame_interval_seconds": 0.75,
+          "merge_info": {
+            "total_raw_detections": 1,
+            "merged_into": 1,
+            "merge_groups": []
+          }
+        }
+      },
+      {
+        "camera_id": "CAM-02",
+        "image_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/camera-CAM-02-frame.jpg",
+        "video_url": "/assets/objects/inspections/52f8fb7e-80f1-4c92-9de6-c211ade21d5f/videos/CAM-02.mp4",
+        "image_width": 640,
+        "image_height": 640,
+        "defect_detected": false,
+        "detections": [],
+        "frame_tracking": {
+          "tracked_frame_count": 9,
+          "frame_interval_seconds": 0.75,
+          "merge_info": {
+            "total_raw_detections": 0,
+            "merged_into": 0,
+            "merge_groups": []
+          }
+        }
+      }
+    ],
+    "finding_groups": [
+      {
+        "defect_type": "scratch",
+        "observation_count": 1,
+        "camera_ids": [
+          "CAM-01"
+        ],
+        "max_confidence": 0.315364,
+        "deduplication_status": "SINGLE_VIEW"
+      }
+    ],
+    "suggested_defect_codes": [
+      {
+        "defect_code": "SCRATCH01",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước nhỏ",
+        "description": "Vết xước đơn, chiều dài ước lượng đến 50 mm",
+        "classification_rule": "Chọn khi estimated_width_mm <= 50 và chỉ có một vùng xước",
+        "default_severity": "C",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-29T13:02:26.736924+00:00",
+        "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+      },
+      {
+        "defect_code": "SCRATCH02",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước trung bình",
+        "description": "Vết xước đơn dài trên 50 đến 150 mm",
+        "classification_rule": "Chọn khi 50 < estimated_width_mm <= 150",
+        "default_severity": "C",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-29T13:02:26.736924+00:00",
+        "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+      },
+      {
+        "defect_code": "SCRATCH03",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH",
+        "display_name": "Vết xước dài",
+        "description": "Vết xước dài trên 150 mm",
+        "classification_rule": "Chọn khi estimated_width_mm > 150",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-29T13:02:26.736924+00:00",
+        "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+      },
+      {
+        "defect_code": "SCRATCH04",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH_CLUSTER",
+        "display_name": "Cụm nhiều vết xước",
+        "description": "Nhiều vùng xước cùng xuất hiện trên một ảnh",
+        "classification_rule": "Chọn khi có từ 2 detection scratch trở lên",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-29T13:02:26.736924+00:00",
+        "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+      },
+      {
+        "defect_code": "SCRATCH05",
+        "defect_type": "scratch",
+        "cv_label": "scratch",
+        "defect_family": "SURFACE_SCRATCH_EDGE",
+        "display_name": "Vết xước vùng mép",
+        "description": "Vết xước nằm gần mép vùng quan sát hoặc đường ráp",
+        "classification_rule": "Chọn khi relative_position nằm sát trái/phải",
+        "default_severity": "B",
+        "measurement_required": 1,
+        "active": 1,
+        "created_at": "2026-08-22 11:31:21.016051+00",
+        "updated_at": "2026-08-29T13:02:26.736924+00:00",
+        "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+      }
+    ],
+    "classified_defect_code": "SCRATCH01",
+    "defect_family": "SURFACE_SCRATCH",
+    "defect_code_classification": {
+      "defect_code": "SCRATCH01",
+      "defect_family": "SURFACE_SCRATCH",
+      "confidence": 0.7,
+      "rationale_vi": "LLM phân loại theo evidence CV và rule danh mục.",
+      "candidate_codes": [
+        "SCRATCH01",
+        "SCRATCH02",
+        "SCRATCH03",
+        "SCRATCH04",
+        "SCRATCH05"
+      ],
+      "similar_observation_warning": false,
+      "provider": "groq",
+      "model": "openai/gpt-oss-20b",
+      "fallback_reason": null
+    },
+    "similar_defect_warning": false,
+    "camera_classifications": [
+      {
+        "detection_id": "CAM-01_f2_0",
+        "camera_id": "CAM-01",
+        "defect_type": "scratch",
+        "confidence": 0.315364,
+        "bbox": {
+          "x1": 454.77,
+          "y1": 427.05,
+          "x2": 457.34,
+          "y2": 433.67
+        },
+        "visual_measurements": {
+          "width_px": 2.57,
+          "height_px": 6.62,
+          "bbox_area_px": 17.03,
+          "mask_area_px": 10.0,
+          "image_area_ratio": 4.2e-05,
+          "center_x_ratio": 0.712585,
+          "center_y_ratio": 0.672436,
+          "relative_position": "lower_right",
+          "estimated_width_mm": 2.06,
+          "estimated_height_mm": 5.3,
+          "estimated_length_mm": 5.3,
+          "estimated_bbox_area_mm2": 10.9,
+          "estimated_mask_area_mm2": 6.4,
+          "mm_per_pixel_x": 0.8,
+          "mm_per_pixel_y": 0.8,
+          "calibration_profile_id": "FNS_FRONT_PILOT_1280",
+          "calibration_source": "STATIC_PROFILE",
+          "physical_size_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED"
+        },
+        "suggested_defect_codes": [
+          {
+            "defect_code": "SCRATCH01",
+            "defect_type": "scratch",
+            "cv_label": "scratch",
+            "defect_family": "SURFACE_SCRATCH",
+            "display_name": "Vết xước nhỏ",
+            "description": "Vết xước đơn, chiều dài ước lượng đến 50 mm",
+            "classification_rule": "Chọn khi estimated_width_mm <= 50 và chỉ có một vùng xước",
+            "default_severity": "C",
+            "measurement_required": 1,
+            "active": 1,
+            "created_at": "2026-08-22 11:31:21.016051+00",
+            "updated_at": "2026-08-29T13:02:26.736924+00:00",
+            "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+          },
+          {
+            "defect_code": "SCRATCH02",
+            "defect_type": "scratch",
+            "cv_label": "scratch",
+            "defect_family": "SURFACE_SCRATCH",
+            "display_name": "Vết xước trung bình",
+            "description": "Vết xước đơn dài trên 50 đến 150 mm",
+            "classification_rule": "Chọn khi 50 < estimated_width_mm <= 150",
+            "default_severity": "C",
+            "measurement_required": 1,
+            "active": 1,
+            "created_at": "2026-08-22 11:31:21.016051+00",
+            "updated_at": "2026-08-29T13:02:26.736924+00:00",
+            "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+          },
+          {
+            "defect_code": "SCRATCH03",
+            "defect_type": "scratch",
+            "cv_label": "scratch",
+            "defect_family": "SURFACE_SCRATCH",
+            "display_name": "Vết xước dài",
+            "description": "Vết xước dài trên 150 mm",
+            "classification_rule": "Chọn khi estimated_width_mm > 150",
+            "default_severity": "B",
+            "measurement_required": 1,
+            "active": 1,
+            "created_at": "2026-08-22 11:31:21.016051+00",
+            "updated_at": "2026-08-29T13:02:26.736924+00:00",
+            "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+          },
+          {
+            "defect_code": "SCRATCH04",
+            "defect_type": "scratch",
+            "cv_label": "scratch",
+            "defect_family": "SURFACE_SCRATCH_CLUSTER",
+            "display_name": "Cụm nhiều vết xước",
+            "description": "Nhiều vùng xước cùng xuất hiện trên một ảnh",
+            "classification_rule": "Chọn khi có từ 2 detection scratch trở lên",
+            "default_severity": "B",
+            "measurement_required": 1,
+            "active": 1,
+            "created_at": "2026-08-22 11:31:21.016051+00",
+            "updated_at": "2026-08-29T13:02:26.736924+00:00",
+            "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+          },
+          {
+            "defect_code": "SCRATCH05",
+            "defect_type": "scratch",
+            "cv_label": "scratch",
+            "defect_family": "SURFACE_SCRATCH_EDGE",
+            "display_name": "Vết xước vùng mép",
+            "description": "Vết xước nằm gần mép vùng quan sát hoặc đường ráp",
+            "classification_rule": "Chọn khi relative_position nằm sát trái/phải",
+            "default_severity": "B",
+            "measurement_required": 1,
+            "active": 1,
+            "created_at": "2026-08-22 11:31:21.016051+00",
+            "updated_at": "2026-08-29T13:02:26.736924+00:00",
+            "source_id": "FNS-SEVERITY-CRITERIA-INTERNAL"
+          }
+        ],
+        "defect_code_classification": {
+          "defect_code": "SCRATCH01",
+          "defect_family": "SURFACE_SCRATCH",
+          "confidence": 0.7,
+          "rationale_vi": "LLM phân loại theo evidence CV và rule danh mục.",
+          "candidate_codes": [
+            "SCRATCH01",
+            "SCRATCH02",
+            "SCRATCH03",
+            "SCRATCH04",
+            "SCRATCH05"
+          ],
+          "similar_observation_warning": false,
+          "provider": "groq",
+          "model": "openai/gpt-oss-20b",
+          "fallback_reason": null
+        },
+        "reasoning_status": "LLM_CLASSIFICATION_COMPLETED",
+        "classified_defect_code": "SCRATCH01",
+        "defect_family": "SURFACE_SCRATCH",
+        "catalog_defect_type": "scratch",
+        "severity": "C",
+        "severity_source_id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+        "similar_defect_warning": false
+      }
+    ],
+    "affected_zones": [
+      "truoc"
+    ],
+    "measurements": {}
+  },
+  "workflow": {
+    "assessment_route": "CONFIRMED",
+    "camera_policy_decisions": [
+      {
+        "camera_id": "CAM-01",
+        "detection_id": "CAM-01_f2_0",
+        "policy_decision": {
+          "policy_id": "FNS-SURFACE-PASS-001",
+          "policy_revision": "2026.08.1",
+          "policy_status": "APPROVED",
+          "approval_scope": "DEMO_BASELINE_ONLY",
+          "policy_title": "Vết xước nhỏ trong dung sai thẩm mỹ — cho qua",
+          "action_code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE",
+          "action_label": "QC xác nhận lỗi nhỏ nằm trong dung sai thẩm mỹ cho phép — cho phép xuất xưởng",
+          "final_status": "PASS",
+          "test_drive_allowed": true,
+          "human_required": false,
+          "required_evidence": [],
+          "missing_evidence": [],
+          "required_steps": [
+            "QC_SIGN_OFF"
+          ],
+          "references": [
+            {
+              "id": "FNS-QC-POLICY-DEMO-2026",
+              "document_family": "FNS-QC-POLICY",
+              "revision": "2026.08.1",
+              "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+              "effective_date": "2026-08-12",
+              "expiry_date": null,
+              "document_status": "APPROVED",
+              "authority": "CONTROLLED_POLICY",
+              "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+              "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+              "url": "/api/policies"
+            },
+            {
+              "id": "ISO-9001-2015",
+              "document_family": "ISO-9001",
+              "revision": "2015",
+              "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+              "effective_date": null,
+              "expiry_date": null,
+              "document_status": "REFERENCE_ONLY",
+              "authority": "REFERENCE",
+              "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+              "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+              "url": "https://www.iso.org/standard/62085.html"
+            },
+            {
+              "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+              "document_family": "FNS-INTERNAL",
+              "revision": "2026.08.2",
+              "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+              "effective_date": "2026-08-28",
+              "expiry_date": null,
+              "document_status": "DRAFT",
+              "authority": "REFERENCE",
+              "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+              "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog.py, backend/app/database.py, agent/services/reasoning.py) — 3 nơi này phải luôn khớp số với mô tả dưới đây. Không phải tiêu chuẩn OEM đã phê duyệt — quy đổi trực tiếp từ 2 quy chuẩn ngành công khai, có thể tra cứu độc lập: (1) thang chấm điểm vết xước trên phiếu đấu giá ô tô cũ Nhật Bản (quy ước USS/JAA): A1 xước nhỏ ≤5cm, A2 xước vừa 5-10cm, A3/W xước dài hoặc lan rộng >10cm — áp cho SCRATCH01 (≤50mm, severity C), SCRATCH02 (50-100mm, severity B), SCRATCH03 (>100mm, severity A); (2) bảng quy đổi kích thước móp theo đường kính dùng trong đào tạo kỹ thuật viên PDR (Paintless Dent Repair): nhỏ (đồng xu, ≤2.5cm) xử lý được bằng PDR không cần sơn lại, trung bình (đồng nửa dollar-bóng golf, 2.5-5cm) PDR xử lý được nhưng tốn công hơn, lớn (bóng tennis trở lên, >5cm) thường vượt khả năng PDR — áp cho DENT01 (≤25mm, severity C), DENT02 (25-50mm, severity B), DENT03 (>50mm, severity A). SCRATCH04/05 và DENT04/05 dùng tiêu chí hình học (số lượng phát hiện, vị trí, tỷ lệ khung) chứ không theo kích thước nên không nằm trong 2 thang trên, giữ nguyên severity A/B đã gán theo mức rủi ro. Lưu ý: cả 2 quy chuẩn tham chiếu đều dành cho xe đã qua sử dụng/PDR dân dụng, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+              "url": "/api/policies"
+            }
+          ],
+          "document_review": {
+            "query": {
+              "vehicle_model": "VF3",
+              "defect_type": "scratch"
+            },
+            "roles_completed": [
+              "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+              "EXTRACT_RELEVANT_CONDITIONS",
+              "COMPARE_EVIDENCE_TO_POLICY",
+              "DETECT_MISSING_DATA",
+              "EXPLAIN_DECISION_PLAINLY",
+              "PROPOSE_APPROVED_CHECKLIST",
+              "CITE_DOCUMENT_METADATA",
+              "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+            ],
+            "matched_document_count": 1,
+            "extracted_conditions": [
+              "Loại lỗi là trầy xước, mã SCRATCH01 (nhỏ, <=50mm)",
+              "Nằm trong dung sai thẩm mỹ cho phép, không cần sửa chữa"
+            ],
+            "evidence_comparison": [],
+            "missing_data": [],
+            "checklist_status": "APPROVED",
+            "approved_checklist": [
+              "QC_SIGN_OFF"
+            ],
+            "proposed_checklist": [
+              "QC_SIGN_OFF"
+            ],
+            "citations": [
+              {
+                "id": "FNS-QC-POLICY-DEMO-2026",
+                "document_family": "FNS-QC-POLICY",
+                "revision": "2026.08.1",
+                "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+                "effective_date": "2026-08-12",
+                "expiry_date": null,
+                "document_status": "APPROVED",
+                "authority": "CONTROLLED_POLICY",
+                "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+                "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+                "url": "/api/policies"
+              },
+              {
+                "id": "ISO-9001-2015",
+                "document_family": "ISO-9001",
+                "revision": "2015",
+                "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+                "effective_date": null,
+                "expiry_date": null,
+                "document_status": "REFERENCE_ONLY",
+                "authority": "REFERENCE",
+                "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+                "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+                "url": "https://www.iso.org/standard/62085.html"
+              },
+              {
+                "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+                "document_family": "FNS-INTERNAL",
+                "revision": "2026.08.2",
+                "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+                "effective_date": "2026-08-28",
+                "expiry_date": null,
+                "document_status": "DRAFT",
+                "authority": "REFERENCE",
+                "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+                "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog.py, backend/app/database.py, agent/services/reasoning.py) — 3 nơi này phải luôn khớp số với mô tả dưới đây. Không phải tiêu chuẩn OEM đã phê duyệt — quy đổi trực tiếp từ 2 quy chuẩn ngành công khai, có thể tra cứu độc lập: (1) thang chấm điểm vết xước trên phiếu đấu giá ô tô cũ Nhật Bản (quy ước USS/JAA): A1 xước nhỏ ≤5cm, A2 xước vừa 5-10cm, A3/W xước dài hoặc lan rộng >10cm — áp cho SCRATCH01 (≤50mm, severity C), SCRATCH02 (50-100mm, severity B), SCRATCH03 (>100mm, severity A); (2) bảng quy đổi kích thước móp theo đường kính dùng trong đào tạo kỹ thuật viên PDR (Paintless Dent Repair): nhỏ (đồng xu, ≤2.5cm) xử lý được bằng PDR không cần sơn lại, trung bình (đồng nửa dollar-bóng golf, 2.5-5cm) PDR xử lý được nhưng tốn công hơn, lớn (bóng tennis trở lên, >5cm) thường vượt khả năng PDR — áp cho DENT01 (≤25mm, severity C), DENT02 (25-50mm, severity B), DENT03 (>50mm, severity A). SCRATCH04/05 và DENT04/05 dùng tiêu chí hình học (số lượng phát hiện, vị trí, tỷ lệ khung) chứ không theo kích thước nên không nằm trong 2 thang trên, giữ nguyên severity A/B đã gán theo mức rủi ro. Lưu ý: cả 2 quy chuẩn tham chiếu đều dành cho xe đã qua sử dụng/PDR dân dụng, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+                "url": "/api/policies"
+              }
+            ],
+            "warnings": []
+          },
+          "production_eligible": false
+        }
+      }
+    ],
+    "verify_count": 0,
+    "verify_result": "NOT_RUN",
+    "human_required": false,
+    "hitl_status": "CONFIRMED",
+    "human_decision": null,
+    "qc_decision_record": null,
+    "execution_trace": [
+      {
+        "node": "prepare_input",
+        "status": "COMPLETED",
+        "detail": "Đã xác thực dữ liệu đầu vào cho 2 camera."
+      },
+      {
+        "node": "detect_defect",
+        "status": "COMPLETED",
+        "detail": "best.pt trả về defect_detected=True, độ_tin_cậy=0.32, số_phát_hiện=1 trên 2 camera; vùng_lỗi=truoc; phân_loại_độc_lập_theo_camera=1 (chưa_khớp_danh_mục=0); mã_đã_chọn=SCRATCH01; khung_bao=3x7px, tỉ_lệ_diện_tích_ảnh=0.0%; kích_thước_ước_lượng=5.3mm (hiệu_chuẩn=FNS_FRONT_PILOT_1280, trạng_thái=PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED)."
+      },
+      {
+        "node": "assess_result",
+        "status": "COMPLETED",
+        "detail": "Định_tuyến=CONFIRMED. Đánh giá chính sách độc lập cho 1 camera; tra cứu chính sách khớp 1 tài liệu kiểm soát, thiếu 0 minh chứng, và phát sinh 0 cảnh báo kiểm soát tài liệu."
+      },
+      {
+        "node": "generate_recommendation",
+        "status": "COMPLETED",
+        "detail": "Chính sách FNS-SURFACE-PASS-001@2026.08.1 chọn PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE; nguồn_quyết_định=groq."
+      },
+      {
+        "node": "save_result",
+        "status": "COMPLETED",
+        "detail": "Đã lưu trạng thái cuối cùng qua repository."
+      }
+    ]
+  },
+  "outcome": {
+    "decision": "DEFECT_CONFIRMED",
+    "recommendation_code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE",
+    "recommendation": "QC xác nhận lỗi nhỏ nằm trong dung sai thẩm mỹ cho phép — cho phép xuất xưởng",
+    "allow_test_drive": true,
+    "severity": "C",
+    "reason": "Vết xước SCRATCH01 được phát hiện ở vùng trước phải, độ dài 5.3 mm, độ tin cậy 0.32. Theo chính sách FNS‑SURFACE‑PASS‑001, vết xước này nằm trong dung sai thẩm mỹ và được cho phép xuất xưởng. Không cần kiểm tra thêm ngoài QC sign‑off. Test drive được phép.",
+    "final_status": "PASS"
+  },
+  "policy": {
+    "policy_id": "FNS-SURFACE-PASS-001",
+    "policy_revision": "2026.08.1",
+    "policy_status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "policy_title": "Vết xước nhỏ trong dung sai thẩm mỹ — cho qua",
+    "action_code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE",
+    "action_label": "QC xác nhận lỗi nhỏ nằm trong dung sai thẩm mỹ cho phép — cho phép xuất xưởng",
+    "final_status": "PASS",
+    "test_drive_allowed": true,
+    "human_required": false,
+    "required_evidence": [],
+    "missing_evidence": [],
+    "required_steps": [
+      "QC_SIGN_OFF"
+    ],
+    "references": [
+      {
+        "id": "FNS-QC-POLICY-DEMO-2026",
+        "document_family": "FNS-QC-POLICY",
+        "revision": "2026.08.1",
+        "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+        "effective_date": "2026-08-12",
+        "expiry_date": null,
+        "document_status": "APPROVED",
+        "authority": "CONTROLLED_POLICY",
+        "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+        "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+        "url": "/api/policies"
+      },
+      {
+        "id": "ISO-9001-2015",
+        "document_family": "ISO-9001",
+        "revision": "2015",
+        "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+        "effective_date": null,
+        "expiry_date": null,
+        "document_status": "REFERENCE_ONLY",
+        "authority": "REFERENCE",
+        "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+        "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+        "url": "https://www.iso.org/standard/62085.html"
+      },
+      {
+        "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+        "document_family": "FNS-INTERNAL",
+        "revision": "2026.08.2",
+        "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+        "effective_date": "2026-08-28",
+        "expiry_date": null,
+        "document_status": "DRAFT",
+        "authority": "REFERENCE",
+        "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+        "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog.py, backend/app/database.py, agent/services/reasoning.py) — 3 nơi này phải luôn khớp số với mô tả dưới đây. Không phải tiêu chuẩn OEM đã phê duyệt — quy đổi trực tiếp từ 2 quy chuẩn ngành công khai, có thể tra cứu độc lập: (1) thang chấm điểm vết xước trên phiếu đấu giá ô tô cũ Nhật Bản (quy ước USS/JAA): A1 xước nhỏ ≤5cm, A2 xước vừa 5-10cm, A3/W xước dài hoặc lan rộng >10cm — áp cho SCRATCH01 (≤50mm, severity C), SCRATCH02 (50-100mm, severity B), SCRATCH03 (>100mm, severity A); (2) bảng quy đổi kích thước móp theo đường kính dùng trong đào tạo kỹ thuật viên PDR (Paintless Dent Repair): nhỏ (đồng xu, ≤2.5cm) xử lý được bằng PDR không cần sơn lại, trung bình (đồng nửa dollar-bóng golf, 2.5-5cm) PDR xử lý được nhưng tốn công hơn, lớn (bóng tennis trở lên, >5cm) thường vượt khả năng PDR — áp cho DENT01 (≤25mm, severity C), DENT02 (25-50mm, severity B), DENT03 (>50mm, severity A). SCRATCH04/05 và DENT04/05 dùng tiêu chí hình học (số lượng phát hiện, vị trí, tỷ lệ khung) chứ không theo kích thước nên không nằm trong 2 thang trên, giữ nguyên severity A/B đã gán theo mức rủi ro. Lưu ý: cả 2 quy chuẩn tham chiếu đều dành cho xe đã qua sử dụng/PDR dân dụng, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+        "url": "/api/policies"
+      }
+    ],
+    "document_review": {
+      "query": {
+        "vehicle_model": "VF3",
+        "defect_type": "scratch"
+      },
+      "roles_completed": [
+        "RETRIEVE_CONTEXT_MATCHED_DOCUMENTS",
+        "EXTRACT_RELEVANT_CONDITIONS",
+        "COMPARE_EVIDENCE_TO_POLICY",
+        "DETECT_MISSING_DATA",
+        "EXPLAIN_DECISION_PLAINLY",
+        "PROPOSE_APPROVED_CHECKLIST",
+        "CITE_DOCUMENT_METADATA",
+        "DETECT_EXPIRY_AND_REVISION_CONFLICTS"
+      ],
+      "matched_document_count": 1,
+      "extracted_conditions": [
+        "Loại lỗi là trầy xước, mã SCRATCH01 (nhỏ, <=50mm)",
+        "Nằm trong dung sai thẩm mỹ cho phép, không cần sửa chữa"
+      ],
+      "evidence_comparison": [],
+      "missing_data": [],
+      "checklist_status": "APPROVED",
+      "approved_checklist": [
+        "QC_SIGN_OFF"
+      ],
+      "proposed_checklist": [
+        "QC_SIGN_OFF"
+      ],
+      "citations": [
+        {
+          "id": "FNS-QC-POLICY-DEMO-2026",
+          "document_family": "FNS-QC-POLICY",
+          "revision": "2026.08.1",
+          "section": "FNS-SURFACE-001 đến FNS-TREND-001",
+          "effective_date": "2026-08-12",
+          "expiry_date": null,
+          "document_status": "APPROVED",
+          "authority": "CONTROLLED_POLICY",
+          "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)",
+          "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.",
+          "url": "/api/policies"
+        },
+        {
+          "id": "ISO-9001-2015",
+          "document_family": "ISO-9001",
+          "revision": "2015",
+          "section": "Thông tin dạng văn bản và kiểm soát vận hành",
+          "effective_date": null,
+          "expiry_date": null,
+          "document_status": "REFERENCE_ONLY",
+          "authority": "REFERENCE",
+          "title": "Hệ thống quản lý chất lượng — Các yêu cầu",
+          "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.",
+          "url": "https://www.iso.org/standard/62085.html"
+        },
+        {
+          "id": "FNS-SEVERITY-CRITERIA-INTERNAL",
+          "document_family": "FNS-INTERNAL",
+          "revision": "2026.08.2",
+          "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)",
+          "effective_date": "2026-08-28",
+          "expiry_date": null,
+          "document_status": "DRAFT",
+          "authority": "REFERENCE",
+          "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng",
+          "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog.py, backend/app/database.py, agent/services/reasoning.py) — 3 nơi này phải luôn khớp số với mô tả dưới đây. Không phải tiêu chuẩn OEM đã phê duyệt — quy đổi trực tiếp từ 2 quy chuẩn ngành công khai, có thể tra cứu độc lập: (1) thang chấm điểm vết xước trên phiếu đấu giá ô tô cũ Nhật Bản (quy ước USS/JAA): A1 xước nhỏ ≤5cm, A2 xước vừa 5-10cm, A3/W xước dài hoặc lan rộng >10cm — áp cho SCRATCH01 (≤50mm, severity C), SCRATCH02 (50-100mm, severity B), SCRATCH03 (>100mm, severity A); (2) bảng quy đổi kích thước móp theo đường kính dùng trong đào tạo kỹ thuật viên PDR (Paintless Dent Repair): nhỏ (đồng xu, ≤2.5cm) xử lý được bằng PDR không cần sơn lại, trung bình (đồng nửa dollar-bóng golf, 2.5-5cm) PDR xử lý được nhưng tốn công hơn, lớn (bóng tennis trở lên, >5cm) thường vượt khả năng PDR — áp cho DENT01 (≤25mm, severity C), DENT02 (25-50mm, severity B), DENT03 (>50mm, severity A). SCRATCH04/05 và DENT04/05 dùng tiêu chí hình học (số lượng phát hiện, vị trí, tỷ lệ khung) chứ không theo kích thước nên không nằm trong 2 thang trên, giữ nguyên severity A/B đã gán theo mức rủi ro. Lưu ý: cả 2 quy chuẩn tham chiếu đều dành cho xe đã qua sử dụng/PDR dân dụng, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.",
+          "url": "/api/policies"
+        }
+      ],
+      "warnings": []
+    },
+    "production_eligible": false
+  },
+  "reasoning": {
+    "summary_en": "Scratch defect SCRATCH01 detected in front right zone with estimated length 5.3 mm and confidence 0.32. According to policy FNS‑SURFACE‑PASS‑001, this falls within cosmetic tolerance and is approved for release. No additional checks beyond QC sign‑off are required. Test drive is allowed.",
+    "summary_vi": "Vết xước SCRATCH01 được phát hiện ở vùng trước phải, độ dài 5.3 mm, độ tin cậy 0.32. Theo chính sách FNS‑SURFACE‑PASS‑001, vết xước này nằm trong dung sai thẩm mỹ và được cho phép xuất xưởng. Không cần kiểm tra thêm ngoài QC sign‑off. Test drive được phép.",
+    "risk_flags": [],
+    "recommended_checks": [
+      "QC_SIGN_OFF"
+    ],
+    "cited_source_ids": [
+      "FNS-QC-POLICY-DEMO-2026",
+      "ISO-9001-2015",
+      "FNS-SEVERITY-CRITERIA-INTERNAL"
+    ],
+    "provider": "groq",
+    "model": "openai/gpt-oss-20b",
+    "severity": "C",
+    "action_code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE",
+    "action_label": "QC xác nhận lỗi nhỏ nằm trong dung sai thẩm mỹ cho phép — cho phép xuất xưởng",
+    "final_status": "PASS",
+    "allow_test_drive": true,
+    "decision_rationale_vi": "Chính sách FNS‑SURFACE‑PASS‑001 đã được phê duyệt (APPROVED) với phạm vi DEMO_BASELINE_ONLY, không có quyền phát hành xe sản xuất. Tuy nhiên, trong phạm vi demo, defect này được chấp nhận vì mã defect SCRATCH01 (xước nhỏ ≤50 mm) nằm trong dung sai thẩm mỹ. Độ tin cậy 0.32 và độ dài 5.3 mm đáp ứng tiêu chí severity C. Không có cảnh báo nào được ghi nhận. Không có quan sát đa camera, vì vậy không cần xác nhận đa‑view. Hành động: QC sign‑off và cho phép xuất xưởng, test drive được phép.",
+    "fallback_reason": null
+  },
+  "agent_analysis": {
+    "reasoning_source": "groq",
+    "reasoning_model": "openai/gpt-oss-20b",
+    "llm_used": true,
+    "defect": {
+      "type": "scratch",
+      "code": "SCRATCH01",
+      "family": "SURFACE_SCRATCH",
+      "confidence": 0.315364,
+      "classification_confidence": 0.7,
+      "classification_reason_vi": "LLM phân loại theo evidence CV và rule danh mục."
+    },
+    "geometry": {
+      "length_mm": 5.3,
+      "width_mm": 2.06,
+      "height_mm": 5.3,
+      "surface_area_mm2": 6.4,
+      "width_px": 2.57,
+      "height_px": 6.62,
+      "image_area_ratio": 4.2e-05,
+      "measurement_status": "PILOT_FIXED_CAMERA_ESTIMATE_NOT_QC_APPROVED",
+      "calibration_profile_id": "FNS_FRONT_PILOT_1280"
+    },
+    "location": {
+      "zone_name": "truoc",
+      "relative_position": "lower_right",
+      "camera_id": "CAM-01",
+      "bbox": {
+        "x1": 454.77,
+        "y1": 427.05,
+        "x2": 457.34,
+        "y2": 433.67
+      }
+    },
+    "plan": {
+      "code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE",
+      "label": "QC xác nhận lỗi nhỏ nằm trong dung sai thẩm mỹ cho phép — cho phép xuất xưởng",
+      "final_status": "PASS",
+      "allow_test_drive": true,
+      "required_steps": [
+        "QC_SIGN_OFF"
+      ]
+    },
+    "warnings": [],
+    "missing_evidence": []
+  }
+}

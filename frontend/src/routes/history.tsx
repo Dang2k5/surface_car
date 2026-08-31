@@ -44,13 +44,12 @@ function toRow(run: GraphRun): Row {
   const defects = s.enriched_defects?.length ?? (s.defect_detected ? 1 : 0);
   return {
     threadId: run.thread_id,
-    time: s.qc_decision_record?.created_at ?? "—",
+    time: s._persisted_at ?? s.qc_decision_record?.created_at ?? "—",
     vin: s.vehicle_id,
     model: s.vehicle_model,
     result: verdictFor(run),
     defects,
     confidence: s.confidence != null ? Math.round(s.confidence * (s.confidence <= 1 ? 100 : 1)) : 0,
-    operator: s.human_decision?.reviewer || s.qc_decision_record?.reviewer || "—",
     severity: (s.severity as HistoryRow["severity"]) || "—",
     defectType: s.defect_type || s.classified_defect_code || "—",
     enrichedCount: defects,
@@ -79,7 +78,6 @@ function toCsv(rows: Row[]): string {
     "Result",
     "Defects",
     "AI conf.",
-    "Operator",
     "Severity",
     "Defect type",
   ];
@@ -91,7 +89,6 @@ function toCsv(rows: Row[]): string {
       r.result,
       r.defects,
       `${r.confidence}%`,
-      r.operator,
       r.severity,
       r.defectType,
     ]
@@ -244,7 +241,6 @@ function InspectionHistory() {
                     "Kết quả",
                     "Số lỗi",
                     "Độ tin cậy AI",
-                    "Người xử lý",
                   ].map((h) => (
                     <th key={h} className="label-caps px-3 py-2 font-normal">
                       {h}
@@ -277,13 +273,12 @@ function InspectionHistory() {
                     >
                       {r.confidence}%
                     </td>
-                    <td className="px-3 py-2 text-muted-foreground">{r.operator}</td>
                   </tr>
                 ))}
                 {rows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={6}
                       className="px-3 py-8 text-center font-mono text-[11px] tracking-wider text-muted-foreground"
                     >
                       {isLoading
@@ -381,7 +376,6 @@ function InspectionHistory() {
                 <Field label="Số lỗi" value={selected.defects} tone="danger" />
                 <Field label="Mức độ" value={selected.severity} tone="warning" />
                 <Field label="Loại lỗi" value={selected.defectType} />
-                <Field label="Người xử lý" value={selected.operator} />
                 <Field
                   label="Quyết định con người"
                   value={selected.result === "HITL" ? "ĐANG CHỜ" : "—"}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from langgraph.types import interrupt
@@ -39,9 +40,9 @@ _SEVERITY_LETTER_RANK = {"A": 3, "B": 2, "C": 1}
 
 
 def _classification_rank(item: dict[str, Any]) -> tuple[int, float]:
-    """Ranks a per-camera classification for "which camera's finding is worst" —
-    used to pick the single decision that drives the LLM narrative once every camera's
-    finding has already been independently classified and policy-evaluated."""
+    """Ranks a single classified finding for "which finding is worst overall" —
+    used to pick the single decision that drives the LLM narrative once every finding
+    has already been independently classified and policy-evaluated."""
     measurements = item.get("visual_measurements") or {}
     length_mm = float(measurements.get("estimated_length_mm") or 0.0)
     return (_SEVERITY_LETTER_RANK.get(str(item.get("severity") or "").upper(), 0), length_mm)
@@ -172,7 +173,8 @@ class QCNodes:
 
     def detect_defect(self, state: QCState) -> dict[str, Any]:
         try:
-            detection = self.detector.detect(state)
+            precomputed = state.get("precomputed_detection")
+            detection = precomputed if precomputed is not None else self.detector.detect(state)
         except Exception as error:
             return {
                 "defect_detected": False,
@@ -194,25 +196,44 @@ class QCNodes:
         detected = bool(detection.get("defect_detected"))
         model_name = str(detection.get("model_name") or type(self.detector).__name__)
 
-        # One classification per camera that actually has a detection — each of the 5
-        # fixed camera mounts observes a different panel of the vehicle, so a finding on
-        # any one of them must independently be able to drive PASS/FAIL/HITL, not just
-        # whichever camera happens to hold the single worst finding overall.
-        camera_classifications: list[dict[str, Any]] = [
-            self._classify_local_detection(
-                state, detection, max(camera["detections"], key=_detection_priority_key)
-            )
+        # One classification per DETECTION, not per camera — a camera can hold several
+        # findings (e.g. two separate scratches), and each one must independently be able
+        # to drive PASS/FAIL/HITL. Picking only that camera's single worst finding would
+        # silently drop every other finding from classification and policy evaluation,
+        # letting several real (if individually minor) defects go unassessed.
+        local_detections = [
+            local
             for camera in detection.get("camera_results", [])
             if camera.get("defect_detected")
+            for local in camera["detections"]
         ]
+        # Each classification is an independent, blocking Groq HTTP call -- run them
+        # concurrently instead of one-at-a-time so N findings cost ~one round-trip instead
+        # of N of them summed.
+        if len(local_detections) <= 1:
+            camera_classifications: list[dict[str, Any]] = [
+                self._classify_local_detection(state, detection, local)
+                for local in local_detections
+            ]
+        else:
+            with ThreadPoolExecutor(max_workers=min(len(local_detections), 8)) as executor:
+                camera_classifications = list(
+                    executor.map(
+                        lambda local: self._classify_local_detection(state, detection, local),
+                        local_detections,
+                    )
+                )
         primary_detection_id = detection.get("primary_detection_id")
         worst = next(
             (item for item in camera_classifications if item["detection_id"] == primary_detection_id),
             None,
         )
-        unresolved_camera_ids = [
-            item["camera_id"] for item in camera_classifications if item["catalog_defect_type"] is None
-        ]
+        # A camera can now appear more than once here (one entry per detection on it), so
+        # dedupe — otherwise an unresolved camera with N unmatched findings would repeat
+        # its id N times in the HITL trace message below.
+        unresolved_camera_ids = sorted(
+            {item["camera_id"] for item in camera_classifications if item["catalog_defect_type"] is None}
+        )
 
         if worst is not None:
             suggested_codes = worst["suggested_defect_codes"]
@@ -325,8 +346,26 @@ class QCNodes:
             route = "CONFIRMED"
             decision = "DEFECT_CONFIRMED"
             reason = (
-                f"Agent đã phân loại độc lập {len(camera_classifications)} camera có lỗi "
-                "và chọn được mã QC đang hoạt động cho từng camera."
+                f"Agent đã phân loại độc lập {len(camera_classifications)} lỗi phát hiện "
+                "và chọn được mã QC đang hoạt động cho từng lỗi."
+            )
+
+        # Andon-style escalation gate (backend/app/hitl_alerts.py's HitlRateAlertService):
+        # when this station's HITL rate is CRITICAL, every new inspection is forced through
+        # human_review regardless of what it would otherwise have decided — PASS and CONFIRMED
+        # both normally skip straight to save_result with no human ever seeing them (see
+        # agent/graph/builder.py's edges), which is exactly the silent-failure risk this closes.
+        # `force_human_review` is computed fresh per-request (never persisted), so this simply
+        # stops firing on its own once the rate/streak drops back down — there is no sticky flag
+        # to remember to clear.
+        mandatory_review_forced = bool(state.get("force_human_review")) and route != "HITL"
+        if mandatory_review_forced:
+            original_route = route
+            route = "HITL"
+            decision = "MANDATORY_REVIEW_LINE_ALERT"
+            reason = (
+                f"Trạm đang có tỷ lệ HITL bất thường (chế độ Duyệt Bắt Buộc đang bật); "
+                f"kết quả gốc lẽ ra là {original_route} nhưng bắt buộc chuyển sang QC xét duyệt."
             )
 
         camera_policy_decisions: list[dict[str, Any]] = []
@@ -342,6 +381,7 @@ class QCNodes:
                     **state,
                     "defect_type": item["defect_type"],
                     "catalog_defect_type": item["catalog_defect_type"],
+                    "classified_defect_code": item["classified_defect_code"],
                     "confidence": item["confidence"],
                     "severity": item["severity"],
                     "bbox": item["bbox"],
@@ -359,32 +399,51 @@ class QCNodes:
                 for item, decision in evaluated
             ]
 
-            # Worst-wins, deterministically: ANY camera FAILing fails the whole vehicle.
-            # The single decision that drives the LLM narrative is the highest-severity
-            # FAIL (or, if nothing fails, just the highest-severity finding overall).
-            failing = [pair for pair in evaluated if pair[1].final_status == "FAIL"]
-            _worst_item, policy = max(failing or evaluated, key=lambda pair: _classification_rank(pair[0]))
-            aggregate_final_status = "FAIL" if failing else "PASS"
-
-            try:
-                analysis = self.reasoning.analyze(state, policy)
-            except ReasoningUnavailableError as error:
+            # A PolicyDecision with human_required=True means no APPROVED, context-matched
+            # policy could authorize an automated disposition for that camera's finding
+            # (PolicyCatalog._manual_reinspection's fail-safe, or an explicit human_required
+            # policy) — that must reach a QC inspector through the HITL queue instead of
+            # silently auto-saving as FAIL, which previously made every unmatched-policy
+            # case look identical to a real, catalog-confirmed FAIL.
+            needs_human = [pair for pair in evaluated if pair[1].human_required]
+            if needs_human:
                 route = "HITL"
-                decision = "LLM_AGENT_UNAVAILABLE"
-                reason = f"LLM Agent không thể đưa ra quyết định hợp lệ: {error}."
+                decision = "MANUAL_REINSPECTION_REQUIRED"
+                _worst_item, policy = max(needs_human, key=lambda pair: _classification_rank(pair[0]))
+                cameras = ", ".join(sorted({item["camera_id"] for item, _ in needs_human}))
+                reason = (
+                    f"Không tìm được chính sách đã duyệt phù hợp cho camera {cameras}; "
+                    "cần QC xét duyệt thủ công."
+                )
             else:
-                # The LLM only ever reasons about ONE camera's policy — it cannot know a
-                # DIFFERENT camera's defect is what actually fails the vehicle, so the
-                # deterministic cross-camera aggregate always overrides its free-form status.
-                if analysis.final_status != aggregate_final_status:
-                    analysis = analysis.model_copy(
-                        update={
-                            "final_status": aggregate_final_status,
-                            "allow_test_drive": (
-                                aggregate_final_status == "PASS" and analysis.allow_test_drive
-                            ),
-                        }
-                    )
+                # Worst-wins, deterministically: ANY camera FAILing fails the whole vehicle.
+                # The single decision that drives the LLM narrative is the highest-severity
+                # FAIL (or, if nothing fails, just the highest-severity finding overall).
+                failing = [pair for pair in evaluated if pair[1].final_status == "FAIL"]
+                _worst_item, policy = max(
+                    failing or evaluated, key=lambda pair: _classification_rank(pair[0])
+                )
+                aggregate_final_status = "FAIL" if failing else "PASS"
+
+                try:
+                    analysis = self.reasoning.analyze(state, policy)
+                except ReasoningUnavailableError as error:
+                    route = "HITL"
+                    decision = "LLM_AGENT_UNAVAILABLE"
+                    reason = f"LLM Agent không thể đưa ra quyết định hợp lệ: {error}."
+                else:
+                    # The LLM only ever reasons about ONE camera's policy — it cannot know a
+                    # DIFFERENT camera's defect is what actually fails the vehicle, so the
+                    # deterministic cross-camera aggregate always overrides its free-form status.
+                    if analysis.final_status != aggregate_final_status:
+                        analysis = analysis.model_copy(
+                            update={
+                                "final_status": aggregate_final_status,
+                                "allow_test_drive": (
+                                    aggregate_final_status == "PASS" and analysis.allow_test_drive
+                                ),
+                            }
+                        )
         else:
             policy = self.policy_catalog.evaluate(state)
 
@@ -396,6 +455,7 @@ class QCNodes:
             "enriched_defects": _enrich_defects(state),
             "reason": reason,
             "human_required": route == "HITL",
+            "mandatory_review_forced": mandatory_review_forced,
             "policy_decision": policy.model_dump(mode="json"),
             "camera_policy_decisions": camera_policy_decisions,
             "ai_analysis": analysis.model_dump(mode="json") if analysis else {},
@@ -458,9 +518,22 @@ class QCNodes:
 
     def supervisor_review(self, state: QCState) -> dict[str, Any]:
         """Second HITL gate, reached only when an operator chose OVERRIDE in `human_review`.
-        A supervisor must APPROVE (keep the operator's override recommendation) or REJECT it
-        (fall back to the normal catalog policy decision) before the graph can finalize."""
+        A supervisor cannot invent a disposition out of thin air here: they either uphold the
+        automated catalog decision (UPHOLD_POLICY), or pick ONE specific APPROVED policy from
+        the catalog to apply as this vehicle's final disposition instead — every PASS/FAIL must
+        still trace back to a real, versioned policy (POLICY_GOVERNANCE.md), never to a
+        supervisor's free-text note."""
         human_decision = state.get("human_decision") or {}
+        eligible_policies = [
+            {
+                "policy_id": item["id"],
+                "title": item["title"],
+                "action_code": item.get("action_code") or "MULTIPLE_BY_DEFECT",
+                "final_status": item.get("final_status"),
+            }
+            for item in self.policy_catalog.list_approved_policies()
+        ]
+        allowed_policy_ids = {item["policy_id"] for item in eligible_policies}
         response = interrupt(
             {
                 "type": "supervisor_escalation_review",
@@ -471,15 +544,16 @@ class QCNodes:
                 "operator_reviewer": human_decision.get("reviewer"),
                 "operator_reason": human_decision.get("reason"),
                 "operator_recommendation": human_decision.get("recommendation"),
-                "allowed_actions": ["APPROVE", "REJECT"],
+                "eligible_policies": eligible_policies,
+                "allowed_actions": ["UPHOLD_POLICY", *sorted(allowed_policy_ids)],
             }
         )
         if not isinstance(response, dict):
             raise ValueError("Supervisor resume payload must be an object")
-        action = str(response.get("action", "")).upper()
-        if action not in {"APPROVE", "REJECT"}:
-            raise ValueError("Supervisor action must be APPROVE or REJECT")
-        approved = action == "APPROVE"
+        action = str(response.get("action", "")).strip()
+        if action != "UPHOLD_POLICY" and action not in allowed_policy_ids:
+            raise ValueError("Supervisor action must be UPHOLD_POLICY or the id of an approved policy")
+        applied_policy = action != "UPHOLD_POLICY"
         updated_human_decision = {
             **human_decision,
             "supervisor_action": action,
@@ -488,11 +562,15 @@ class QCNodes:
         }
         return {
             "human_decision": updated_human_decision,
-            "decision": "DEFECT_CONFIRMED" if approved else "OVERRIDE_REJECTED_BY_SUPERVISOR",
-            "hitl_status": "SUPERVISOR_APPROVED" if approved else "SUPERVISOR_REJECTED",
+            "decision": f"SUPERVISOR_APPLIED_POLICY:{action}" if applied_policy else "OVERRIDE_REJECTED_BY_SUPERVISOR",
+            "hitl_status": "SUPERVISOR_APPROVED" if applied_policy else "SUPERVISOR_REJECTED",
             "reason": str(
                 response.get("reason")
-                or f"Giám sát viên đã {'phê duyệt' if approved else 'từ chối'} yêu cầu chuyển cấp."
+                or (
+                    f"Giám sát viên đã áp dụng chính sách {action} cho trường hợp chuyển cấp."
+                    if applied_policy
+                    else "Giám sát viên đã giữ nguyên quyết định chính sách gốc, không theo đề xuất."
+                )
             ),
             "execution_trace": _trace(
                 "supervisor_review", f"Giám sát viên đã xét duyệt chuyển cấp với hành động={action}."
@@ -502,20 +580,21 @@ class QCNodes:
     def generate_recommendation(self, state: QCState) -> dict[str, Any]:
         policy = self.policy_catalog.evaluate(state)
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()
-        supervisor_action = str((state.get("human_decision") or {}).get("supervisor_action", "")).upper()
-        override = (state.get("human_decision") or {}).get("recommendation")
+        supervisor_action = str((state.get("human_decision") or {}).get("supervisor_action") or "").strip()
         # An OVERRIDE only reaches here after supervisor_review resolves it (routes.py's
-        # route_after_human_review) — only apply the operator's override once the supervisor
-        # APPROVEd it; a REJECTed override must fall through to the normal policy decision.
-        if human_action == "OVERRIDE" and supervisor_action == "APPROVE" and override:
-            policy = policy.model_copy(
-                update={
-                    "action_code": str(override),
-                    "action_label": str(override).replace("_", " ").strip().title(),
-                    "final_status": "FAIL",
-                    "production_eligible": False,
-                }
+        # route_after_human_review). UPHOLD_POLICY (or no supervisor action at all, e.g. this
+        # case never escalated) means the automated catalog decision computed above already
+        # stands. Any other value is the id of an APPROVED policy the supervisor explicitly
+        # chose to apply as the final disposition — re-checked for approval here (not just
+        # trusted from the interrupt) in case it was edited/unapproved on the Rules page
+        # between the interrupt being raised and the supervisor's resume.
+        if human_action == "OVERRIDE" and supervisor_action and supervisor_action != "UPHOLD_POLICY":
+            policy_record = next(
+                (item for item in self.policy_catalog.document["policies"] if item["id"] == supervisor_action),
+                None,
             )
+            if policy_record is not None and self.policy_catalog.is_approved(policy_record):
+                policy = self.policy_catalog.evaluate_named(supervisor_action, state)
         stored_analysis = state.get("ai_analysis") or {}
         if stored_analysis:
             analysis = ReasoningAnalysis.model_validate(stored_analysis)

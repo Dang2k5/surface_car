@@ -6,11 +6,18 @@
    that has its own independently classified finding (state["camera_classifications"]),
    not just the single global-worst detection — and must still never fabricate a
    severity for a detection that lost out to another one WITHIN the same camera.
+3. `QCNodes.detect_defect` must classify EVERY detection on a camera, not just that
+   camera's single worst one — otherwise several real (if individually minor) defects
+   on the same camera silently skip classification and policy evaluation.
 """
 from __future__ import annotations
 
-from agent.graph.nodes import _enrich_defects
+from typing import Any
+
+from agent.graph.nodes import QCNodes, _enrich_defects
+from agent.services.defect_catalog import StaticDefectCatalog
 from agent.services.image_source import camera_image_source
+from agent.services.reasoning import DeterministicReasoningService
 
 ONE_PIXEL_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d494844520000000100000001080600000"
@@ -97,3 +104,74 @@ def test_enrich_defects_gives_every_classified_camera_its_own_real_severity():
     assert by_detection_id["CAM-REAR::0"]["severity_rank"] == "C"
     assert by_detection_id["CAM-FRONT::1"]["is_primary"] is False
     assert by_detection_id["CAM-FRONT::1"]["severity_rank"] == "UNCLASSIFIED_SECONDARY_FINDING"
+
+
+class _TwoScratchesOneCameraDetector:
+    """Fake DetectorService: one camera, two independent scratch detections on it."""
+
+    def detect(self, state: dict[str, Any]) -> dict[str, Any]:
+        detections = [
+            {
+                "detection_id": "CAM-01::0",
+                "camera_id": "CAM-01",
+                "class_name": "scratch",
+                "confidence": 0.9,
+                "bbox": {"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+                "visual_measurements": {"estimated_width_mm": 30.0},
+                "segmentation": None,
+            },
+            {
+                "detection_id": "CAM-01::1",
+                "camera_id": "CAM-01",
+                "class_name": "scratch",
+                "confidence": 0.8,
+                "bbox": {"x1": 20, "y1": 20, "x2": 30, "y2": 30},
+                "visual_measurements": {"estimated_width_mm": 20.0},
+                "segmentation": None,
+            },
+        ]
+        camera_results = [
+            {
+                "camera_id": "CAM-01",
+                "image_url": "",
+                "image_width": 100,
+                "image_height": 100,
+                "defect_detected": True,
+                "detections": detections,
+            }
+        ]
+        return {
+            "defect_detected": True,
+            "defect_type": "scratch",
+            "raw_class_name": "scratch",
+            "confidence": 0.9,
+            "bbox": detections[0]["bbox"],
+            "segmentation_result": None,
+            "visual_measurements": detections[0]["visual_measurements"],
+            "severity": "UNASSESSED",
+            "detections": detections,
+            "camera_results": camera_results,
+            "camera_id": "CAM-01",
+            "primary_detection_id": "CAM-01::0",
+            "image_width": 100,
+            "image_height": 100,
+            "model_name": "fake-model",
+            "inference_status": "SUCCESS",
+        }
+
+
+def test_detect_defect_classifies_every_detection_on_a_camera_not_just_the_worst():
+    nodes = QCNodes(
+        detector=_TwoScratchesOneCameraDetector(),
+        verifier=None,
+        reasoning=DeterministicReasoningService(),
+        policy_catalog=None,
+        repository=None,
+        defect_catalog=StaticDefectCatalog(),
+    )
+
+    result = nodes.detect_defect({})
+
+    classifications = result["camera_classifications"]
+    assert {item["detection_id"] for item in classifications} == {"CAM-01::0", "CAM-01::1"}
+    assert all(item["classified_defect_code"] is not None for item in classifications)

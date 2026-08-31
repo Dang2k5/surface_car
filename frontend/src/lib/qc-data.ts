@@ -20,6 +20,9 @@ export type Camera = {
    */
   imageWidth?: number | undefined;
   imageHeight?: number | undefined;
+  /** Set only when this camera's evidence is an uploaded video clip — CameraFeed renders a
+   * real <video> player (poster = `image`) instead of a static <img> when present. */
+  videoUrl?: string | undefined;
 };
 
 export type Defect = {
@@ -41,6 +44,10 @@ export type Defect = {
    * run yet or failed for this detection, not just for the run's primary finding. */
   cropImageUrl?: string | undefined;
   overlayImageUrl?: string | undefined;
+  /** Set only for a video-sourced camera — playback seconds (relative to that camera's own
+   * clip) this tracked defect was actually observed in. When set, CameraFeed only shows this
+   * defect's box while the video's current time is near one of these moments. */
+  trackTimestamps?: number[] | undefined;
 };
 
 export type HistoryRow = {
@@ -50,7 +57,6 @@ export type HistoryRow = {
   result: Verdict;
   defects: number;
   confidence: number;
-  operator: string;
   severity: Severity | "—";
   defectType: string;
 };

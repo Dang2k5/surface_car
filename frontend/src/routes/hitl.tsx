@@ -94,6 +94,7 @@ function HitlQueue() {
     src: string;
     alt: string;
     defects?: Defect[];
+    videoSrc?: string | undefined;
   } | null>(null);
 
   const [reviewer, setReviewer] = useState("");
@@ -196,9 +197,13 @@ function HitlQueue() {
   // `enriched_defects`/`allDefects` below) — the same client-drawn path already used for every
   // non-primary camera.
   const featuredResult = state.camera_results?.find((r) => r.camera_id === featuredCameraId);
+  const featuredEvidence = state.camera_evidence?.find((e) => e.camera_id === featuredCameraId);
   const featuredImage = featuredIsPrimary
     ? assetUrl(state.image_url)
     : (capturedCameras.find((c) => c.id === featuredCameraId)?.image ?? "");
+  const featuredVideoUrl = featuredIsPrimary
+    ? (assetUrl(featuredEvidence?.video_url || featuredResult?.video_url) ?? undefined)
+    : capturedCameras.find((c) => c.id === featuredCameraId)?.videoUrl;
   const featuredDefects = allDefects.filter((d) => d.camera === featuredCameraId);
   const featuredCamera: Camera = {
     id: featuredCameraId ?? "CAM-01",
@@ -208,6 +213,7 @@ function HitlQueue() {
     health: featuredDefects.length > 0 ? "DEGRADED" : "OK",
     imageWidth: featuredResult?.image_width ?? state.image_width,
     imageHeight: featuredResult?.image_height ?? state.image_height,
+    videoUrl: featuredVideoUrl,
   };
 
   async function submit(action: ResumeAction) {
@@ -376,6 +382,7 @@ function HitlQueue() {
                         src: featuredCamera.image,
                         alt: `${featuredCamera.id} ${featuredCamera.position} — ${state.vehicle_id}`,
                         defects: featuredDefects,
+                        videoSrc: featuredCamera.videoUrl,
                       })
                   : undefined
               }
@@ -584,6 +591,7 @@ function HitlQueue() {
                           src: cam.image,
                           alt: `${cam.id} ${cam.position}`,
                           defects: camDefects,
+                          videoSrc: cam.videoUrl,
                         })
                       }
                     />
@@ -620,6 +628,7 @@ function HitlQueue() {
           src={zoomImage.src}
           alt={zoomImage.alt}
           defects={zoomImage.defects}
+          videoSrc={zoomImage.videoSrc}
           onClose={() => setZoomImage(null)}
         />
       ) : null}

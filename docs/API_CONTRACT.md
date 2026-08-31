@@ -152,6 +152,20 @@ class QCState(TypedDict):
     zone_name: str
     detections: List[Dict[str, Any]]  # source = yolo
     enriched_defects: List[DefectItem]  # detections + geometry + operational metadata
+    # Một entry cho mỗi camera (trong 5 camera cố định) có >=1 phát hiện — mỗi
+    # camera được phân loại defect_code độc lập, không suy diễn từ camera khác.
+    camera_classifications: List[Dict[str, Any]]
+    # camera_id của các camera có phát hiện nhưng chưa phân loại được defect_code
+    # (không khớp defect_catalog) — non-empty thì route sang HITL.
+    unresolved_camera_ids: List[str]
+    # PolicyDecision (mục 3, agent/services/policy.py) cho từng camera đã phân
+    # loại — final_status tổng hợp theo nguyên tắc FAIL-wins: bất kỳ camera nào
+    # FAIL thì cả inspection FAIL, bất kể camera khác PASS.
+    camera_policy_decisions: List[Dict[str, Any]]
+    # Mọi mặt xe (front/rear/left/right/top) có phát hiện lỗi trong CHÍNH inspection
+    # này — một inspection gộp cả 5 camera cố định nên có thể ảnh hưởng nhiều mặt
+    # cùng lúc; zone_name chỉ ghi MỘT mặt (mặt của lỗi nặng nhất).
+    affected_zones: List[str]
     suggested_defect_codes: List[Dict[str, Any]]
     classified_defect_code: Optional[str]
     defect_family: Optional[str]
@@ -186,7 +200,8 @@ class QCState(TypedDict):
 - `vehicle_id`: mã kỹ thuật bắt buộc để theo dõi một xe/phiên trong hệ thống.
 - `lot_id`, `shift_id`, `production_date`, `station_id`: metadata nghiệp vụ cho Historical Trend (`PRD.md` §6.3); `lot_id`/`shift_id` là tùy chọn ở các luồng chưa gắn lô/ca.
 - `zone_name`: vùng kiểm tra tương đối hoặc khu vực camera quan sát.
-- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` xác định finding nào dẫn dắt `assess_result`/policy. Các finding không phải primary có `severity_rank = "UNCLASSIFIED_SECONDARY_FINDING"` vì chưa được QC Rules phân loại — không suy diễn severity của primary sang các finding khác.
+- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` chỉ còn dùng để chọn finding dẫn dắt narrative của reasoning LLM, **không còn quyết định policy**. Từ khi tách policy theo từng camera, `assess_result` (`agent/graph/nodes.py`) phân loại `defect_code` độc lập cho MỖI camera có phát hiện (`camera_classifications`) và gọi `PolicyCatalog.evaluate()` riêng cho từng camera đã phân loại (`camera_policy_decisions`) — mỗi finding có `severity_rank` thật của camera đó (không còn nhãn `UNCLASSIFIED_SECONDARY_FINDING` mặc định cho finding không phải primary). `final_status` tổng hợp theo nguyên tắc **FAIL-wins**: chỉ cần một camera FAIL thì cả inspection FAIL, kể cả khi camera khác PASS; camera nào chưa phân loại được `defect_code` sẽ vào `unresolved_camera_ids` và bắt buộc route sang HITL.
+- `affected_zones`: danh sách tất cả mặt xe (front/rear/left/right/top — 5 camera cố định mỗi camera 1 mặt) có lỗi trong inspection hiện tại; dùng cho mọi nơi hiển thị tổng hợp cả inspection (vd cột "Vùng lỗi" ở màn hình tra cứu). `zone_name` vẫn giữ nguyên nghĩa cũ — một giá trị duy nhất (mặt của lỗi nặng nhất) — cho các ngữ cảnh chỉ có một vùng thật sự (một detection, hoặc một cụm cảnh báo Early Warning ở `backend/app/quality_alerts.py`).
 - `severity` là mức độ tổng thể duy nhất; không tạo thêm alias `overall_severity_rank`.
 - `recommendation_code`: mã hành động chuẩn duy nhất trong `QCState`; `recommendation` là mô tả dễ đọc.
 - `recommended_plan` chỉ tồn tại ở response `/api/v1/inspect` để tương thích client cũ. `final_action` không còn thuộc contract.
@@ -379,17 +394,18 @@ vs Historical Trend (`PRD.md` §6.3).
 LangGraph có **hai cấp HITL** (`agent/graph/nodes.py`): `human_review` (QC Inspector) và, chỉ khi Inspector chọn chuyển cấp, `supervisor_review` (QC Supervisor). Cùng một request schema (`LangGraphResumeRequest`) dùng cho cả hai cấp:
 
 ```python
-action: Literal["APPROVE", "REJECT", "OVERRIDE"]
+action: str        # human_review: "APPROVE" | "REJECT" | "OVERRIDE"
+                    # supervisor_review: "UPHOLD_POLICY" | <id của một policy APPROVED>
 reviewer: str
 reason: str
 defect_code: str | None       # sửa lại mã lỗi (tùy chọn)
 severity: str | None
 disposition: Literal["PASS", "HOLD", "REPAIR"] | None  # ghi vào qc_decision_record khi có defect_code
-recommendation: str | None     # bắt buộc khi action = OVERRIDE
+recommendation: str | None     # ghi chú bối cảnh khi action = OVERRIDE, không quyết định final_status
 ```
 
-- **Ở `human_review` (Inspector):** `APPROVE` xác nhận lỗi AI gắn cờ là thật → `final_status = FAIL` (chuyển Rework). `REJECT` bác bỏ lỗi AI gắn cờ (không phải lỗi thật) → `final_status = PASS` ngay lập tức — **không có bước tái kiểm tra (reinspect) riêng nào khác**. `OVERRIDE` chuyển case sang cấp `supervisor_review` (`hitl_status = OVERRIDDEN`); bắt buộc kèm `recommendation` mô tả đề xuất tùy biến.
-- **Ở `supervisor_review` (chỉ role `QC_SUPERVISOR` mới gọi được, 403 nếu không đúng role):** chỉ nhận `action = APPROVE | REJECT`. `APPROVE` giữ đề xuất `recommendation` của Inspector → `final_status = FAIL` (đề xuất tùy biến luôn áp dụng lên một xe đã bị giữ). `REJECT` bỏ đề xuất, case quay lại quyết định QC Rules chuẩn (theo `defect_type` hiện tại).
+- **Ở `human_review` (Inspector):** `APPROVE` xác nhận lỗi AI gắn cờ là thật → `final_status = FAIL` (chuyển Rework). `REJECT` bác bỏ lỗi AI gắn cờ (không phải lỗi thật) → `final_status = PASS` ngay lập tức — **không có bước tái kiểm tra (reinspect) riêng nào khác**. `OVERRIDE` chuyển case sang cấp `supervisor_review` (`hitl_status = OVERRIDDEN`); `recommendation` bắt buộc nhưng chỉ là ghi chú bối cảnh hiển thị cho Supervisor, không tự trở thành quyết định.
+- **Ở `supervisor_review` (chỉ role `QC_SUPERVISOR` mới gọi được, 403 nếu không đúng role):** Supervisor không thể tự đặt PASS/FAIL tùy ý — họ chỉ được chọn giữa `UPHOLD_POLICY` (giữ nguyên quyết định tự động của QC Rules, y hệt như case chưa từng bị `OVERRIDE`) hoặc `action = <policy_id>` của **một chính sách `checklist_status = APPROVED`** đang có trong catalog (`GET /api/policies`) — server xác thực lại `policy_id` đó còn tồn tại và còn APPROVED trước khi áp dụng (`QCNodes.supervisor_review`/`generate_recommendation`, `agent/graph/nodes.py`). Kết quả `action_code`/`final_status`/`required_evidence` khi đó lấy nguyên từ chính policy đã chọn (`PolicyCatalog.evaluate_named`) — không có `action_code` tự chế từ text tự do, và không hardcode `FAIL`.
 - `disposition` chỉ là nhãn audit ghi vào `qc_decision_record` khi request có kèm `defect_code` (sửa mã lỗi) — không điều khiển `final_status`. Ba giá trị: `PASS`, `HOLD` (đang chờ xử lý tiếp, ví dụ khi vừa `OVERRIDE`), `REPAIR` (xác nhận chuyển sửa chữa). Không còn giá trị `REWORK`/`REINSPECT` cũ.
 
 ### 6.7. Authentication & RBAC (Supabase Auth)

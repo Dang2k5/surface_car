@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import psycopg
 from jwt import PyJWKClient
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from agent.graph.builder import build_qc_graph
 from agent.services.audit_export import JsonAuditExporter
@@ -33,6 +33,8 @@ from .auth_api import router as auth_router
 from .catalog_api import router as catalog_router
 from .config import AuditExportSettings, AuthSettings, ModelSettings, ObjectStorageSettings
 from .database import Database, normalize_database_url
+from .hitl_alerts import HitlRateAlertService
+from .hitl_alerts_api import router as hitl_alerts_router
 from .langgraph_api import router as langgraph_router
 from .objects_api import router as objects_router
 from .policy_api import router as policy_router
@@ -148,21 +150,38 @@ def _build_qc_checkpointer(database_url: str, schema: str | None) -> tuple[Any, 
     can't see (in-memory, wiped by any restart) -- resuming then 404s "LangGraph thread
     not found" while the queue still shows the case as waiting. Backing both by the same
     Postgres database (and schema) keeps them consistent.
+
+    Backed by a ConnectionPool (not a single long-lived connection, as this used to do):
+    video inspections run long (multiple uploads + sequential inference), and Supabase's
+    pooler/idle timeout can silently drop a connection held open for the app's whole
+    lifetime. A single dead connection then fails every subsequent request with
+    psycopg.OperationalError("the connection is closed") until the process restarts. The
+    pool checks each connection out fresh and reconnects dead ones automatically, mirroring
+    the pool_pre_ping=True protection backend/app/database.py already gives the main DB.
     """
     normalized = normalize_database_url(database_url)
     pg_url = "postgresql://" + normalized.removeprefix("postgresql+psycopg://")
     connect_kwargs: dict[str, Any] = {}
     if schema:
         connect_kwargs["options"] = f"-c search_path={schema}"
-    conn = psycopg.connect(
-        # None disables server-side prepared statements outright (0 merely
-        # prepares on first use, which still breaks under the transaction-mode
-        # pooler -- see backend/app/database.py's matching connect_args).
-        pg_url, autocommit=True, prepare_threshold=None, row_factory=dict_row, **connect_kwargs
+    pool = ConnectionPool(
+        pg_url,
+        min_size=1,
+        max_size=5,
+        kwargs={
+            # None disables server-side prepared statements outright (0 merely
+            # prepares on first use, which still breaks under the transaction-mode
+            # pooler -- see backend/app/database.py's matching connect_args).
+            "autocommit": True,
+            "prepare_threshold": None,
+            "row_factory": dict_row,
+            **connect_kwargs,
+        },
+        check=ConnectionPool.check_connection,
     )
-    checkpointer = PostgresSaver(conn)
+    checkpointer = PostgresSaver(pool)
     checkpointer.setup()
-    return checkpointer, conn
+    return checkpointer, pool
 
 
 @asynccontextmanager
@@ -198,6 +217,7 @@ async def lifespan(app: FastAPI):
         audit_exporter=app.state.qc_audit_exporter,
     )
     app.state.qc_defect_catalog = DatabaseDefectCatalog(app.state.database)
+    app.state.hitl_alert_service = HitlRateAlertService(app.state.database)
     app.state.model_settings = ModelSettings.from_env()
     app.state.reasoning_requested_provider = app.state.model_settings.reasoning_provider
     app.state.reasoning_key_configured = bool(app.state.model_settings.groq_api_key)
@@ -269,6 +289,7 @@ app.include_router(catalog_router)
 app.include_router(objects_router)
 app.include_router(langgraph_router)
 app.include_router(quality_alerts_router)
+app.include_router(hitl_alerts_router)
 app.include_router(policy_router)
 app.include_router(policy_extract_router)
 app.include_router(qc_router)

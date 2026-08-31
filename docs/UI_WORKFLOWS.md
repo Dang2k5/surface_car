@@ -4,8 +4,10 @@ Tài liệu này mô tả hành vi giao diện của baseline MVP tại trạm F
 vào thông tin giúp QC quyết định; dữ liệu kỹ thuật đầy đủ vẫn được giữ trong
 LangGraph state và audit trace. Nguồn dữ liệu hiển thị luôn giữ provenance rõ
 ràng: YOLO Segmentation (class/confidence/bbox/mask), Geometry Processor
-(area/orientation/centroid), Multimodal LLM (visual assessment/description),
-QC Rules + LangGraph (decision) — xem `API_CONTRACT.md` và `POLICY_GOVERNANCE.md`.
+(area/orientation/centroid), reasoning LLM (giải thích sau quyết định — không
+còn bước Visual Verification bằng Multimodal LLM, xem `PRD.md` §7.3),
+QC Rules + LangGraph (decision, đánh giá theo từng camera — xem `PRD.md` §7.4) —
+xem `API_CONTRACT.md` và `POLICY_GOVERNANCE.md`.
 
 ## 1. Điều hướng chính
 
@@ -31,10 +33,10 @@ màn hình trên; điều hướng ẩn/hiện theo role hiện tại (`QC_OPERA
 Chọn ảnh/video
   → frontend cắt frame nếu input là video
   → POST /inspections/from-image (ảnh lưu vào S3/MinIO qua backend)
-  → YOLO Segmentation detect/segment
+  → YOLO Segmentation detect/segment (mọi camera, không chỉ ảnh chính)
   → Geometry Processor trích xuất area/centroid/orientation
-  → Multimodal LLM visual verification
-  → LangGraph chạy từng node (detect → classify → decide → HITL)
+  → LangGraph chạy từng node (detect → classify → decide → HITL), phân loại
+    và đánh giá policy độc lập cho từng camera có phát hiện
   → quyết định tự động hoặc interrupt HITL
 ```
 
@@ -52,10 +54,9 @@ Khi chọn một defect trên overlay, panel chi tiết hiển thị:
 crop image
 YOLO result (class, confidence, bbox)
 geometry (area_px, orientation_deg, centroid, aspect_ratio)
-Multimodal LLM visual assessment (verification, shape_pattern, continuity,
-  distribution, visibility, possible_artifact, uncertainty, description)
-decision (severity, recommendation_code)
-explanation (Multimodal LLM, sau khi có decision)
+decision (severity, recommendation_code) — của riêng camera này, không suy diễn
+  từ camera khác
+explanation (reasoning LLM, sau khi có decision)
 ```
 
 ## 3. Hàng đợi QC
@@ -66,9 +67,8 @@ Chỉ hiển thị run có trạng thái `INTERRUPTED`. Mỗi thẻ gồm:
 - mã xe và thread ID;
 - loại lỗi và mã lỗi (YOLO class); nếu là lỗi mới, UI ghi rõ cần QC phân loại;
 - YOLO confidence, kích thước ước tính (geometry pilot), vị trí và camera;
-- Multimodal LLM: `visual_verification`, `possible_artifact`, `visual_uncertainty`;
 - lý do Agent chuyển checkpoint (interrupt reason — ví dụ: low confidence,
-  YOLO/LLM conflict, uncertainty HIGH, missing evidence, LLM unavailable);
+  missing evidence, LLM unavailable, có camera chưa phân loại được lỗi);
 - trạng thái và CTA **Mở kiểm duyệt**.
 
 QC mở case, chọn một trong các action **Confirm defect / Reject defect /
@@ -107,7 +107,8 @@ Mỗi inspection đã hoàn tất được hiển thị thành một thẻ có:
 - kích thước pilot (geometry) và vị trí tương đối;
 - hành động cuối, trạng thái và thời điểm QC xác nhận nếu có.
 
-Nhấn thẻ để mở lại kết quả đầy đủ, bao gồm geometry và visual assessment gốc.
+Nhấn thẻ để mở lại kết quả đầy đủ, bao gồm geometry, ảnh và phân loại của
+từng camera có phát hiện.
 Nút **Xóa lịch sử** gọi `DELETE /agent/runs`; thao tác này xóa trace/state
 nhưng không xóa ảnh trên object storage.
 
@@ -136,10 +137,10 @@ Tách biệt hoàn toàn với mục 4 (Sliding Window realtime). Hiển thị:
 
 - QC nhận ra lỗi, xe ảnh hưởng và hành động tiếp theo mà không mở audit thô.
 - Overlay segmentation/polygon hiển thị trực tiếp trên ảnh, không chỉ số bbox.
-- Hàng đợi giải thích rõ lý do con người phải can thiệp, bao gồm cả conflict
-  giữa YOLO và Multimodal LLM khi có.
+- Hàng đợi giải thích rõ lý do con người phải can thiệp, bao gồm cả trường hợp
+  còn camera chưa phân loại được lỗi.
 - Cảnh báo có đủ mã lỗi và ảnh để đối chiếu hiện tượng lặp.
-- Lịch sử cho phép truy vết từ quyết định về evidence, geometry, visual
-  assessment và LangGraph thread.
+- Lịch sử cho phép truy vết từ quyết định về evidence, geometry và LangGraph
+  thread.
 - Điều hướng và action tôn trọng RBAC (`QC_OPERATOR` vs `QC_SUPERVISOR`).
 - Giao diện Việt–Anh không làm thay đổi dữ liệu hoặc trạng thái workflow.

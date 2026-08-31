@@ -19,8 +19,27 @@ import {
 } from "@/components/supervisor/ui";
 import { profileDisplayName, useAuth } from "@/lib/auth";
 import { formatAffectedZones } from "@/lib/detection-geometry";
-import { useAgentRuns, useResumeInspection } from "@/lib/queries";
-import type { GraphRun } from "@/lib/api-types";
+import { useAgentRuns, usePolicyCatalog, useResumeInspection } from "@/lib/queries";
+import type { GraphRun, PolicyCatalog, PolicyCatalogItem } from "@/lib/api-types";
+
+const UPHOLD_POLICY = "UPHOLD_POLICY";
+
+function isPolicyApproved(catalog: PolicyCatalog | undefined, policy: PolicyCatalogItem): boolean {
+  return (policy.checklist_status || catalog?.status) === "APPROVED";
+}
+
+/** Policies a supervisor may legitimately apply to THIS case — approved, and either
+ * catalog-wide ("*") or scoped to the case's own defect type. Mirrors the same eligibility
+ * check the graph performs server-side (agent/services/policy.py's list_approved_policies) so
+ * the dropdown never offers something the resume call would then reject. */
+function eligiblePoliciesFor(catalog: PolicyCatalog | undefined, run: GraphRun): PolicyCatalogItem[] {
+  const defectType = run.state.defect_type;
+  return (catalog?.policies ?? []).filter(
+    (p) =>
+      isPolicyApproved(catalog, p) &&
+      (p.defect_types.includes("*") || !defectType || p.defect_types.includes(defectType)),
+  );
+}
 
 export const Route = createFileRoute("/supervisor/escalations")({
   head: () => ({
@@ -31,8 +50,9 @@ export const Route = createFileRoute("/supervisor/escalations")({
 
 /** A case has passed the operator's own review (human_decision set) and is still
  * INTERRUPTED only when it's paused a second time at supervisor_review — i.e. the
- * operator chose "CHUYỂN CẤP XÉT DUYỆT" (OVERRIDE) and it now needs a supervisor's
- * APPROVE/REJECT (agent/graph/nodes.py's supervisor_review, backend/app/langgraph_api.py). */
+ * operator chose "CHUYỂN CẤP XÉT DUYỆT" (OVERRIDE) and it now needs a supervisor to either
+ * uphold the automated policy or apply one specific approved policy
+ * (agent/graph/nodes.py's supervisor_review, backend/app/langgraph_api.py). */
 function isPendingSupervisor(run: GraphRun): boolean {
   return run.status === "INTERRUPTED" && !!run.state.human_decision;
 }
@@ -58,6 +78,7 @@ function waitTone(minutes: number): "pass" | "warn" | "fail" {
 
 function Escalations() {
   const runsQuery = useAgentRuns();
+  const catalogQuery = usePolicyCatalog();
   const { profile } = useAuth();
   const resume = useResumeInspection();
 
@@ -66,6 +87,7 @@ function Escalations() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState("");
   const [reason, setReason] = useState("");
+  const [appliedPolicyId, setAppliedPolicyId] = useState("");
   const [validationError, setValidationError] = useState("");
 
   useEffect(() => {
@@ -91,10 +113,13 @@ function Escalations() {
   function openCase(run: GraphRun) {
     setSelectedThreadId(run.thread_id);
     setReason("");
+    setAppliedPolicyId("");
     setValidationError("");
   }
 
-  async function submit(action: "APPROVE" | "REJECT") {
+  const eligiblePolicies = selected ? eligiblePoliciesFor(catalogQuery.data, selected) : [];
+
+  async function submit(action: string) {
     if (!selected) return;
     if (reason.trim().length < 4) {
       setValidationError("CẦN NHẬP LÝ DO TRƯỚC KHI XÁC NHẬN QUYẾT ĐỊNH");
@@ -102,6 +127,10 @@ function Escalations() {
     }
     if (!reviewer.trim()) {
       setValidationError("CẦN NHẬP TÊN GIÁM SÁT VIÊN");
+      return;
+    }
+    if (action !== UPHOLD_POLICY && !eligiblePolicies.some((p) => p.id === action)) {
+      setValidationError("CẦN CHỌN MỘT CHÍNH SÁCH ĐÃ PHÊ DUYỆT ĐỂ ÁP DỤNG");
       return;
     }
     setValidationError("");
@@ -248,6 +277,24 @@ function Escalations() {
                 onChange={setReason}
                 placeholder="Đồng ý ghi đè theo đề xuất vì..."
               />
+              <Select
+                label="Chính sách áp dụng nếu duyệt theo đề xuất"
+                value={appliedPolicyId}
+                onChange={setAppliedPolicyId}
+                options={[
+                  { value: "", label: "— Chọn chính sách đã phê duyệt —" },
+                  ...eligiblePolicies.map((p) => ({
+                    value: p.id,
+                    label: `${p.title} · ${p.final_status}`,
+                  })),
+                ]}
+              />
+              {eligiblePolicies.length === 0 ? (
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  Không có chính sách đã phê duyệt nào khớp loại lỗi này — chỉ có thể giữ nguyên
+                  chính sách gốc.
+                </p>
+              ) : null}
               {validationError ? (
                 <p className="font-mono text-[11px] text-destructive">{validationError}</p>
               ) : null}
@@ -260,18 +307,18 @@ function Escalations() {
                 <Btn
                   variant="danger"
                   disabled={resume.isPending}
-                  onClick={() => void submit("REJECT")}
+                  onClick={() => void submit(UPHOLD_POLICY)}
                   className="h-9 justify-center"
                 >
-                  <XCircle className="size-4" /> TỪ CHỐI CHUYỂN CẤP
+                  <XCircle className="size-4" /> GIỮ CHÍNH SÁCH GỐC
                 </Btn>
                 <Btn
                   variant="success"
-                  disabled={resume.isPending}
-                  onClick={() => void submit("APPROVE")}
+                  disabled={resume.isPending || !appliedPolicyId}
+                  onClick={() => void submit(appliedPolicyId)}
                   className="h-9 justify-center"
                 >
-                  <CheckCircle2 className="size-4" /> PHÊ DUYỆT
+                  <CheckCircle2 className="size-4" /> ÁP DỤNG CHÍNH SÁCH
                 </Btn>
               </div>
             </div>

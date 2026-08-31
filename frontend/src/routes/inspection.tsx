@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
-import { Cpu, Images, Loader2, Ruler, ScanSearch, ShieldCheck, UploadCloud } from "lucide-react";
+import { Cpu, Images, Loader2, ScanSearch, UploadCloud } from "lucide-react";
 import { KNOWN_CAMERA_IDS, type CameraId, type Defect } from "@/lib/qc-data";
 import { CameraFeed } from "@/components/qc/CameraFeed";
 import { ImageLightbox } from "@/components/qc/ImageLightbox";
@@ -51,6 +51,31 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Module-level (not React state), so it survives UploadPanel unmounting when the user
+// navigates to another route mid-form — TanStack Router swaps components without a full
+// page reload, so this draft is only lost on an actual browser refresh, not on nav.
+type UploadDraft = {
+  vehicleModel: string;
+  stationId: string;
+  lotId: string;
+  shiftId: string;
+  productionDate: string;
+  rows: CameraFormRow[];
+};
+
+function emptyDraft(): UploadDraft {
+  return {
+    vehicleModel: "",
+    stationId: "",
+    lotId: "",
+    shiftId: "",
+    productionDate: todayIsoDate(),
+    rows: [{ cameraId: "CAM-01", file: null }],
+  };
+}
+
+let uploadDraft: UploadDraft = emptyDraft();
+
 function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) {
   const submit = useSubmitInspection();
   const shiftsQuery = useShifts();
@@ -58,12 +83,18 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   const stationsQuery = useStations();
   const createLot = useCreateLot();
   const allocateProduct = useAllocateLotProduct();
-  const [vehicleModel, setVehicleModel] = useState("");
-  const [stationId, setStationId] = useState("");
-  const [lotId, setLotId] = useState("");
-  const [shiftId, setShiftId] = useState("");
-  const [productionDate, setProductionDate] = useState(todayIsoDate());
-  const [rows, setRows] = useState<CameraFormRow[]>([{ cameraId: "CAM-01", file: null }]);
+  const [vehicleModel, setVehicleModel] = useState(uploadDraft.vehicleModel);
+  const [stationId, setStationId] = useState(uploadDraft.stationId);
+  const [lotId, setLotId] = useState(uploadDraft.lotId);
+  const [shiftId, setShiftId] = useState(uploadDraft.shiftId);
+  const [productionDate, setProductionDate] = useState(uploadDraft.productionDate);
+  const [rows, setRows] = useState<CameraFormRow[]>(uploadDraft.rows);
+
+  // Mirror every change back into the module-level draft immediately (not just on unmount),
+  // since unmount effects can run after the values have already gone out of scope.
+  useEffect(() => {
+    uploadDraft = { vehicleModel, stationId, lotId, shiftId, productionDate, rows };
+  }, [vehicleModel, stationId, lotId, shiftId, productionDate, rows]);
   const [creatingLot, setCreatingLot] = useState(false);
   const [newLotId, setNewLotId] = useState("");
   const [newLotName, setNewLotName] = useState("");
@@ -192,6 +223,13 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
             ...shiftLotFields,
           };
     const run = await submit.mutateAsync(payload);
+    uploadDraft = emptyDraft();
+    setVehicleModel("");
+    setStationId("");
+    setLotId("");
+    setShiftId("");
+    setProductionDate(todayIsoDate());
+    setRows([{ cameraId: "CAM-01", file: null }]);
     onSubmitted(run);
   }
 
@@ -320,17 +358,31 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
                 </option>
               ))}
             </select>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
-              onChange={(e) =>
-                setRows((r) =>
-                  r.map((x, idx) => (idx === i ? { ...x, file: e.target.files?.[0] ?? null } : x)),
-                )
-              }
-              className="flex-1 font-mono text-xs text-muted-foreground"
-              title="Image (JPEG, PNG) hoặc Video (MP4, MOV, WebM, AVI, MKV)"
-            />
+            <div className="flex flex-1 flex-col gap-0.5">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
+                onChange={(e) =>
+                  setRows((r) =>
+                    r.map((x, idx) =>
+                      idx === i ? { ...x, file: e.target.files?.[0] ?? null } : x,
+                    ),
+                  )
+                }
+                className="w-full font-mono text-xs text-muted-foreground"
+                title="Image (JPEG, PNG) hoặc Video (MP4, MOV, WebM, AVI, MKV)"
+              />
+              {row.file ? (
+                // The native <input type="file"> can never be made to display a
+                // previously-picked file after this row remounts (e.g. after navigating
+                // away and back) — browsers block scripts from setting its display value
+                // for security. Show the retained filename ourselves so it's clear the
+                // file is still attached and re-picking is not required.
+                <span className="font-mono text-[10px] text-success">
+                  Đã chọn: {row.file.name}
+                </span>
+              ) : null}
+            </div>
             {rows.length > 1 ? (
               <button
                 type="button"
@@ -391,6 +443,7 @@ function InspectionPage() {
     src: string;
     alt: string;
     defects?: Defect[];
+    videoSrc?: string | undefined;
   } | null>(null);
 
   // Backend has no "current run" concept; use the most recently submitted run this session,
@@ -483,6 +536,7 @@ function InspectionPage() {
                     src: cam(id).image,
                     alt: `${id} ${cam(id).position}`,
                     defects: defectsFor(id),
+                    videoSrc: cam(id).videoUrl,
                   })
                 }
                 className="aspect-[16/10]"
@@ -498,6 +552,7 @@ function InspectionPage() {
                   src: cam("CAM-05").image,
                   alt: `CAM-05 ${cam("CAM-05").position}`,
                   defects: defectsFor("CAM-05"),
+                  videoSrc: cam("CAM-05").videoUrl,
                 })
               }
               className="col-span-2 aspect-[32/10]"
@@ -579,29 +634,16 @@ function InspectionPage() {
                         setZoomImage({
                           src: cam(defect.camera).image,
                           alt: `Ảnh gốc ${defect.camera}`,
-                          // Only the full (uncropped) camera photo has a coordinate frame the
-                          // box/mask % positions can reliably map onto — crop_image_url above is
-                          // an already-padded crop with no known offset, so it stays unmarked.
-                          defects: defectsFor(defect.camera),
+                          videoSrc: cam(defect.camera).videoUrl,
+                          // Deliberately no `defects` here — "ẢNH GỐC" means the untouched capture
+                          // before any defect mask/box is drawn on it. The mask/box overlay view
+                          // lives on the camera feed thumbnails above (defectsFor(id) there).
                         })
                       }
                       className="inline-flex items-center gap-1.5 rounded-sm border border-border px-2.5 py-1.5 font-mono text-[11px] tracking-[0.12em] text-muted-foreground transition-colors hover:border-info/45 hover:text-info"
                     >
                       <Images className="size-3.5" /> ẢNH GỐC
                     </button>
-                    {[
-                      { label: "ẢNH CẮT LỖI", icon: Ruler },
-                      { label: "SO SÁNH THAM CHIẾU", icon: ShieldCheck },
-                    ].map(({ label, icon: Icon }) => (
-                      <button
-                        key={label}
-                        disabled
-                        title="Chưa nối với backend"
-                        className="inline-flex items-center gap-1.5 rounded-sm border border-border px-2.5 py-1.5 font-mono text-[11px] tracking-[0.12em] text-muted-foreground opacity-60"
-                      >
-                        <Icon className="size-3.5" /> {label}
-                      </button>
-                    ))}
                   </div>
                 </div>
               </div>
@@ -730,6 +772,7 @@ function InspectionPage() {
           src={zoomImage.src}
           alt={zoomImage.alt}
           defects={zoomImage.defects}
+          videoSrc={zoomImage.videoSrc}
           onClose={() => setZoomImage(null)}
         />
       ) : null}
