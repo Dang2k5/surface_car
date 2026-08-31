@@ -112,18 +112,3 @@ class ObjectStorageSettings:
             secret_key=os.getenv("S3_SECRET_KEY") or None,
             region=os.getenv("S3_REGION") or None,
         )
-
-
-@dataclass(frozen=True)
-class AuditExportSettings:
-    enabled: bool
-    directory: Path
-
-    @classmethod
-    def from_env(cls) -> AuditExportSettings:
-        configured_path = Path(os.getenv("AUDIT_EXPORT_DIR", "./data/exports"))
-        directory = configured_path if configured_path.is_absolute() else PROJECT_ROOT / configured_path
-        return cls(
-            enabled=_env_bool("AUDIT_AUTO_EXPORT_ENABLED", True),
-            directory=directory.resolve(),
-        )

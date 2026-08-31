@@ -76,7 +76,13 @@ class ReasoningService(Protocol):
 
 
 class DeterministicReasoningService:
-    """Deterministic test service. Production Groq mode never falls back to it."""
+    """Rule-based narrative generator.
+
+    Used directly when QC_REASONING_PROVIDER != groq (tests), and reused by
+    agent/graph/nodes.py as the fallback narrative source when GroqReasoningService.analyze
+    raises ReasoningUnavailableError -- the PASS/FAIL/HITL decision is already final by that
+    point (deterministic policy evaluation), so this only ever supplies the explanatory text,
+    never a decision of its own."""
 
     def runtime_status(self) -> dict[str, object]:
         return {
@@ -270,7 +276,16 @@ class DeterministicReasoningService:
 
 
 class UnavailableReasoningService:
-    """Fail-closed service used when LLM mode is requested without a usable key."""
+    """Used when LLM mode is requested (QC_REASONING_PROVIDER=groq) without a usable key.
+
+    Every method raises ReasoningUnavailableError -- for `analyze()` that is no longer
+    fail-closed on the decision (agent/graph/nodes.py catches it and falls back to
+    DeterministicReasoningService, keeping the policy-driven route/final_status unchanged),
+    only the narrative degrades. `classify_defect_code` has no production caller anymore
+    (agent/graph/nodes.py uses agent/services/defect_rule_engine.py instead); this Protocol
+    method is kept for interface parity across providers and direct unit-testing, not for a
+    live call path. `extract_policy_draft` (policy-extraction endpoint) has no fallback and
+    still fails closed on this raise."""
 
     def __init__(self, reason: str) -> None:
         self.reason = reason
@@ -303,10 +318,14 @@ class UnavailableReasoningService:
 class GroqReasoningService:
     """LLM decision service constrained by catalog, evidence and policy guards."""
 
-    def __init__(self, *, api_key: str, model: str) -> None:
+    def __init__(self, *, api_key: str, model: str, timeout: float = 8.0) -> None:
         from groq import Groq
 
-        self.client = Groq(api_key=api_key)
+        # A short, explicit timeout is safe here: agent/graph/nodes.py never lets a
+        # narrative failure change the PASS/FAIL/HITL decision or crash the request (it
+        # falls back to DeterministicReasoningService), so failing fast just means losing
+        # the LLM narrative sooner instead of hanging the request on the SDK's ~60s default.
+        self.client = Groq(api_key=api_key, timeout=timeout)
         self.model = model
         self.last_call_status = "NOT_CALLED"
         self.last_success_at: str | None = None

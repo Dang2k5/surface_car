@@ -64,6 +64,10 @@ class Database:
         # disabled explicitly (mirrors the checkpointer's own psycopg.connect
         # in backend/app/main.py's _build_qc_checkpointer).
         connect_args: dict[str, Any] = {"prepare_threshold": None}
+        # A stuck/slow query would otherwise hold one of the pool's few connections
+        # (pool_size=3 + max_overflow=2) indefinitely, starving the rest of the app's
+        # DB access -- cap any single statement at 8s so it fails fast instead of hanging.
+        options = ["-c statement_timeout=8000"]
         if schema:
             bootstrap_engine = create_engine(self.database_url, pool_pre_ping=True)
             try:
@@ -71,7 +75,8 @@ class Database:
                     connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
             finally:
                 bootstrap_engine.dispose()
-            connect_args["options"] = f"-c search_path={schema}"
+            options.append(f"-c search_path={schema}")
+        connect_args["options"] = " ".join(options)
         self.engine: Engine = create_engine(
             self.database_url,
             pool_pre_ping=True,
@@ -226,6 +231,16 @@ class Database:
             "defect_family": "TEXT NOT NULL DEFAULT ''",
             "classification_rule": "TEXT NOT NULL DEFAULT ''",
             "source_id": "TEXT",
+            # Structured, machine-evaluable counterpart to the free-text
+            # `classification_rule` above (agent/services/defect_rule_engine.py reads
+            # these; `classification_rule` stays free text for humans to read). NULL
+            # `rule_type` means "no automatic rule configured yet" -- the rule engine
+            # always routes those to HITL rather than guessing.
+            # rule_type: 'THRESHOLD_MM' | 'MIN_COUNT' | 'REQUIRES_HUMAN' | NULL
+            "rule_type": "TEXT",
+            "min_mm": "REAL",
+            "max_mm": "REAL",
+            "min_detection_count": "INTEGER",
         }
         decision_existing = {
             column["name"] for column in inspect(self.engine).get_columns("qc_decisions")
@@ -243,6 +258,12 @@ class Database:
             "station_id": "TEXT",
             "production_date": "TEXT",
             "defect_type": "TEXT",
+            # Mirrors QCState.assessment_route (set once in QCNodes.assess_result, never
+            # reset) so HitlRateAlertService.get_recent_outcomes_by_station can read the
+            # single field it actually needs directly, instead of loading and
+            # json.loads()-ing every full `state_json` blob (some are >1MB) on every
+            # single inspection submission just to check one boolean-ish column.
+            "assessment_route": "TEXT",
         }
         lot_existing = {
             column["name"] for column in inspect(self.engine).get_columns("production_lots")
@@ -307,6 +328,53 @@ class Database:
             if "active" not in profile_existing:
                 connection.execute(
                     text("ALTER TABLE profiles ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+                )
+        self._backfill_default_defect_code_rules()
+
+    def _backfill_default_defect_code_rules(self) -> None:
+        """One-time, idempotent seed of `rule_type`/`min_mm`/`max_mm`/`min_detection_count`
+        for the standard catalog codes (mirrors the bands in
+        agent/services/defect_catalog.py's StaticDefectCatalog). Only fills rows that still
+        have `rule_type IS NULL` -- a supervisor-authored code (or one already migrated)
+        is never touched. Codes whose classification_rule is qualitative
+        ("... and QC confirmation", "left/right edge position") get REQUIRES_HUMAN: the
+        rule engine must never guess on those, only a human can."""
+        threshold_defaults = {
+            "DENT01": (None, 25),
+            "DENT02": (25, 50),
+            "DENT03": (50, None),
+            "SCRATCH01": (None, 50),
+            "SCRATCH02": (50, 100),
+            "SCRATCH03": (100, None),
+        }
+        min_count_defaults = {"DENT05": 2, "SCRATCH04": 2}
+        requires_human_defaults = ("DENT04", "SCRATCH05")
+        with self.begin() as connection:
+            for code, (min_mm, max_mm) in threshold_defaults.items():
+                connection.execute(
+                    text(
+                        """UPDATE defect_catalog SET rule_type = 'THRESHOLD_MM',
+                        min_mm = :min_mm, max_mm = :max_mm
+                        WHERE defect_code = :code AND rule_type IS NULL"""
+                    ),
+                    {"code": code, "min_mm": min_mm, "max_mm": max_mm},
+                )
+            for code, min_count in min_count_defaults.items():
+                connection.execute(
+                    text(
+                        """UPDATE defect_catalog SET rule_type = 'MIN_COUNT',
+                        min_detection_count = :min_count
+                        WHERE defect_code = :code AND rule_type IS NULL"""
+                    ),
+                    {"code": code, "min_count": min_count},
+                )
+            for code in requires_human_defaults:
+                connection.execute(
+                    text(
+                        """UPDATE defect_catalog SET rule_type = 'REQUIRES_HUMAN'
+                        WHERE defect_code = :code AND rule_type IS NULL"""
+                    ),
+                    {"code": code},
                 )
 
     def _seed_shifts(self) -> None:
@@ -617,10 +685,13 @@ class Database:
             """INSERT INTO defect_catalog
             (defect_code, defect_type, cv_label, defect_family, display_name, description,
              classification_rule, default_severity, measurement_required, active, source_id,
+             rule_type, min_mm, max_mm, min_detection_count,
              created_at, updated_at)
             VALUES (:defect_code, :defect_type, :cv_label, :defect_family, :display_name, :description,
                     :classification_rule,
-                    :default_severity, :measurement_required, :active, :source_id, :created_at, :updated_at)""",
+                    :default_severity, :measurement_required, :active, :source_id,
+                    :rule_type, :min_mm, :max_mm, :min_detection_count,
+                    :created_at, :updated_at)""",
             {
                 **record,
                 "defect_family": record.get("defect_family") or record["defect_type"].upper(),
@@ -629,6 +700,12 @@ class Database:
                 "active": 1 if record.get("active", True) else 0,
                 "measurement_required": 1 if record.get("measurement_required", False) else 0,
                 "source_id": record.get("source_id"),
+                # NULL rule_type means "no automatic rule yet" -- the rule engine
+                # (agent/services/defect_rule_engine.py) always routes those to HITL.
+                "rule_type": record.get("rule_type"),
+                "min_mm": record.get("min_mm"),
+                "max_mm": record.get("max_mm"),
+                "min_detection_count": record.get("min_detection_count"),
                 "created_at": now,
                 "updated_at": now,
             },
@@ -882,16 +959,22 @@ class Database:
         a lightweight, station-scoped query instead of PostgresQCRepository.list_with_metadata()
         (which loads every station's latest-per-vehicle rows with no LIMIT).
 
-        Returns `state_json` (not the `status` column): `status` is overwritten with the
-        final PASS/FAIL once a HITL case is resumed (backend/app/langgraph_api.py's
-        resume_langgraph_inspection re-saves with the completed state), so it can no longer
-        tell "this case needed a human" after the fact. `assessment_route` inside the saved
-        state is set once in assess_result and never reset by human_review/supervisor_review/
-        generate_recommendation, so it stays a reliable "did this need HITL" marker whether
-        the case is still pending or already resolved.
+        Returns the dedicated `assessment_route` column (not the `status` column): `status`
+        is overwritten with the final PASS/FAIL once a HITL case is resumed
+        (backend/app/langgraph_api.py's resume_langgraph_inspection re-saves with the
+        completed state), so it can no longer tell "this case needed a human" after the
+        fact. `assessment_route` is set once in assess_result and never reset by
+        human_review/supervisor_review/generate_recommendation, so it stays a reliable "did
+        this need HITL" marker whether the case is still pending or already resolved.
+
+        Selects `assessment_route` directly instead of `state_json` -- some persisted states
+        are well over 1MB (full detections/segmentation/execution_trace), and this query runs
+        on every single inspection submission (_enforce_line_gate), so loading and
+        `json.loads()`-ing up to `limit` full blobs just to read one field was adding a real,
+        avoidable latency tax ahead of every inspection.
         """
         return self.fetch_all(
-            """SELECT state_json, updated_at FROM agent_graph_runs
+            """SELECT assessment_route, updated_at FROM agent_graph_runs
             WHERE station_id = :station_id
             ORDER BY updated_at DESC
             LIMIT :limit""",

@@ -223,10 +223,6 @@ Swagger: `http://127.0.0.1:8000/docs`
 | GET    | `/agent/runs`                     | Danh sách graph run đã lưu                |
 | GET    | `/agent/runs/{thread_id}/export.json` | Tải audit JSON của một inspection     |
 | GET    | `/agent/runs/export.jsonl`         | Tải toàn bộ audit dưới dạng JSONL         |
-
-Mỗi lần repository lưu một inspection, backend đồng thời tạo hoặc cập nhật file
-`data/exports/visual-qc-inspection-{thread_id}.json`. Có thể đổi thư mục bằng
-`AUDIT_EXPORT_DIR` hoặc tắt bằng `AUDIT_AUTO_EXPORT_ENABLED=false`.
 | DELETE | `/agent/runs`                     | Xóa trace/history, giữ nguyên ảnh upload  |
 | GET    | `/agent/graph`                    | Trả Mermaid từ graph thật                 |
 
@@ -339,8 +335,6 @@ VERIFY_THRESHOLD=0.40
 QC_REASONING_PROVIDER=groq
 GROQ_MODEL=openai/gpt-oss-20b
 # GROQ_API_KEY=gsk_...
-AUDIT_AUTO_EXPORT_ENABLED=true
-AUDIT_EXPORT_DIR=./data/exports
 APP_ENV=development
 APP_HOST=127.0.0.1
 APP_PORT=8000

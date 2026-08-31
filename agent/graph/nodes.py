@@ -7,10 +7,12 @@ from langgraph.types import interrupt
 
 from agent.graph.state import QCState, TraceEvent
 from agent.services.defect_catalog import DefectCatalogService
+from agent.services.defect_rule_engine import classify_by_rule
 from agent.services.detector import DetectorService
 from agent.services.policy import PolicyCatalog, PolicyDecision
 from agent.services.reasoning import (
     DefectCodeClassification,
+    DeterministicReasoningService,
     ReasoningAnalysis,
     ReasoningService,
     ReasoningUnavailableError,
@@ -110,11 +112,18 @@ class QCNodes:
     def _classify_local_detection(
         self, state: QCState, base_detection: dict[str, Any], local: dict[str, Any]
     ) -> dict[str, Any]:
-        """Classify ONE camera's own worst finding against the defect catalog + LLM,
-        independently of every other camera's finding. Called once per camera that has
-        a detection (bounded by KNOWN_CAMERA_IDS, currently 5), so a defect on CAM-03
+        """Classify ONE camera's own worst finding against the defect catalog's structured
+        rules, independently of every other camera's finding. Called once per camera that
+        has a detection (bounded by KNOWN_CAMERA_IDS, currently 5), so a defect on CAM-03
         is classified on its own merits instead of only ever being read off the single
-        global-worst detection."""
+        global-worst detection.
+
+        This is a pure threshold/count decision (agent/services/defect_rule_engine.py) -- no
+        LLM call. docs/DE_BAI_GOC.md assigns the LLM the "mô tả/giải thích lỗi" role
+        (explaining an already-made decision, in generate_recommendation/analyze()), while
+        the "decide" step is meant to run on a confidence/measurement threshold. The catalog's
+        rules are pure numeric thresholds, so there is nothing here an LLM would decide any
+        better than a rule -- and a rule can never time out or hallucinate a wrong code."""
         suggested_codes = self.defect_catalog.match(str(local.get("class_name") or "none"))
         overlay = {
             **state,
@@ -126,21 +135,23 @@ class QCNodes:
             "visual_measurements": local.get("visual_measurements"),
             "camera_id": local.get("camera_id"),
         }
-        try:
-            classification = self.reasoning.classify_defect_code(overlay, suggested_codes)
-            reasoning_status = "LLM_CLASSIFICATION_COMPLETED"
-        except ReasoningUnavailableError as error:
+        classification = classify_by_rule(overlay, suggested_codes)
+        if classification is not None:
+            reasoning_status = "RULE_ENGINE_CLASSIFICATION_COMPLETED"
+        else:
             classification = DefectCodeClassification(
                 defect_code=None,
                 defect_family=None,
                 confidence=0.0,
-                rationale_vi="LLM Agent chưa thể phân loại; cần QC kiểm duyệt.",
+                rationale_vi=(
+                    "Không có luật tự động khớp rõ ràng cho phát hiện này; cần QC kiểm duyệt."
+                ),
                 candidate_codes=[str(item.get("defect_code")) for item in suggested_codes],
-                provider="groq",
-                model="unavailable",
-                fallback_reason=str(error),
+                provider="rule_engine",
+                model="threshold-v1",
+                fallback_reason="NO_MATCHING_RULE",
             )
-            reasoning_status = "LLM_UNAVAILABLE_REQUIRES_HITL"
+            reasoning_status = "RULE_ENGINE_NO_MATCH_REQUIRES_HITL"
         classified_record = next(
             (
                 item
@@ -370,6 +381,7 @@ class QCNodes:
 
         camera_policy_decisions: list[dict[str, Any]] = []
         analysis: ReasoningAnalysis | None = None
+        reasoning_degraded = False
 
         if route == "CONFIRMED":
             # Evaluate policy for EVERY camera's own finding independently — a defect on
@@ -428,22 +440,28 @@ class QCNodes:
                 try:
                     analysis = self.reasoning.analyze(state, policy)
                 except ReasoningUnavailableError as error:
-                    route = "HITL"
-                    decision = "LLM_AGENT_UNAVAILABLE"
-                    reason = f"LLM Agent không thể đưa ra quyết định hợp lệ: {error}."
-                else:
-                    # The LLM only ever reasons about ONE camera's policy — it cannot know a
-                    # DIFFERENT camera's defect is what actually fails the vehicle, so the
-                    # deterministic cross-camera aggregate always overrides its free-form status.
-                    if analysis.final_status != aggregate_final_status:
-                        analysis = analysis.model_copy(
-                            update={
-                                "final_status": aggregate_final_status,
-                                "allow_test_drive": (
-                                    aggregate_final_status == "PASS" and analysis.allow_test_drive
-                                ),
-                            }
-                        )
+                    # route/decision above are already final -- they come entirely from
+                    # deterministic policy evaluation. Groq only ever adds the human-readable
+                    # narrative on top (docs/DE_BAI_GOC.md: LLM explains, it does not decide),
+                    # so losing it must never force HITL or change the outcome -- substitute a
+                    # deterministic narrative instead.
+                    reasoning_degraded = True
+                    analysis = DeterministicReasoningService().analyze(state, policy).model_copy(
+                        update={"fallback_reason": f"LLM giải trình không khả dụng: {error}."}
+                    )
+
+                # The LLM only ever reasons about ONE camera's policy — it cannot know a
+                # DIFFERENT camera's defect is what actually fails the vehicle, so the
+                # deterministic cross-camera aggregate always overrides its free-form status.
+                if analysis.final_status != aggregate_final_status:
+                    analysis = analysis.model_copy(
+                        update={
+                            "final_status": aggregate_final_status,
+                            "allow_test_drive": (
+                                aggregate_final_status == "PASS" and analysis.allow_test_drive
+                            ),
+                        }
+                    )
         else:
             policy = self.policy_catalog.evaluate(state)
 
@@ -460,7 +478,11 @@ class QCNodes:
             "camera_policy_decisions": camera_policy_decisions,
             "ai_analysis": analysis.model_dump(mode="json") if analysis else {},
             "agent_reasoning_status": (
-                "LLM_DECISION_COMPLETED" if analysis else state.get("agent_reasoning_status", "NOT_RUN")
+                "LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC"
+                if reasoning_degraded
+                else "LLM_DECISION_COMPLETED"
+                if analysis
+                else state.get("agent_reasoning_status", "NOT_RUN")
             ),
             "execution_trace": _trace(
                 "assess_result",
@@ -620,7 +642,15 @@ class QCNodes:
                 decision_rationale_vi=review_reason,
             )
         else:
-            analysis = self.reasoning.analyze(state, policy)
+            try:
+                analysis = self.reasoning.analyze(state, policy)
+            except ReasoningUnavailableError as error:
+                # Same rationale as assess_result: `policy` above already fixes the
+                # decision deterministically, Groq only narrates it -- never let a
+                # narrative failure crash the request or change the outcome.
+                analysis = DeterministicReasoningService().analyze(state, policy).model_copy(
+                    update={"fallback_reason": f"LLM giải trình không khả dụng: {error}."}
+                )
         visual = state.get("visual_measurements") or {}
         classification = state.get("defect_code_classification") or {}
         warnings = list(analysis.risk_flags)

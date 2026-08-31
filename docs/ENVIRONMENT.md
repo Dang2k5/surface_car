@@ -132,13 +132,6 @@ nhập trực tiếp với Supabase Auth và nhận access token; backend chỉ 
 (verify) token đó trên mỗi request ghi dữ liệu, không phát hành token riêng
 (xem `API_CONTRACT.md` §7.7).
 
-### Audit export
-
-| Biến | Mặc định | Mục đích |
-|---|---|---|
-| `AUDIT_AUTO_EXPORT_ENABLED` | `true` | Xuất một JSON audit sau khi lưu graph state |
-| `AUDIT_EXPORT_DIR` | `./data/exports` | Thư mục artifact JSON |
-
 ### Runtime and CORS
 
 | Biến | Mặc định | Mục đích |
@@ -190,9 +183,10 @@ FastAPI, không dựa vào việc giấu key này). Không đưa `DATABASE_URL`,
 2. Gọi `GET /agent/status` để xem detector (YOLO Segmentation), object
    storage, LangGraph và reasoning/vision provider.
 3. Gọi `GET /api/qc/defect-codes` để xác nhận database nghiệp vụ.
-4. Upload một ảnh và kiểm tra: (a) object key mới xuất hiện trên
-   `S3_BUCKET`/`inspections/<id>/`, (b) JSON audit được tạo trong
-   `AUDIT_EXPORT_DIR`.
+4. Upload một ảnh và kiểm tra object key mới xuất hiện trên
+   `S3_BUCKET`/`inspections/<id>/`. Bản audit JSON đầy đủ của ca đó có thể tải
+   bất cứ lúc nào qua `GET /agent/runs/{thread_id}/export.json` (dựng trực
+   tiếp từ Postgres, không có file nào ghi ra đĩa cục bộ nữa).
 5. Nếu frontend không kết nối, kiểm tra `NEXT_PUBLIC_API_BASE_URL` và
    `CORS_ORIGINS`, sau đó khởi động lại cả hai process.
 6. Đăng nhập thử với hai tài khoản Supabase có `profiles.role` khác nhau

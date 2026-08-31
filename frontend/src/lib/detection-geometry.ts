@@ -88,6 +88,18 @@ export function formatAffectedZones(zones: string[] | undefined): string {
   return zones.map(formatZoneName).join(", ");
 }
 
+// backend/app/quality_alerts.py's RepetitionAlertService currently only ever emits this one
+// machine-readable routing command; the map (not a plain fallback string) is deliberate so a
+// second command added later fails loud as "—" instead of silently showing raw enum text again.
+const ROUTING_COMMAND_LABEL_VI: Record<string, string> = {
+  ROUTE_AFFECTED_BATCH_TO_OFFLINE_INSPECTION_BUFFER: "Điều hướng lô xe liên quan vào Vùng đệm kiểm tra Offline",
+};
+
+export function formatRoutingCommand(command: string | undefined): string {
+  if (!command) return "—";
+  return ROUTING_COMMAND_LABEL_VI[command] || command;
+}
+
 export const SEVERITY_LABEL_VI: Record<Severity, string> = {
   Critical: "Nghiêm trọng",
   Major: "Nặng",
@@ -209,6 +221,11 @@ function toDefect(
     cropImageUrl: assetUrl(d.crop_image_url) || undefined,
     overlayImageUrl: assetUrl(d.overlay_image_url) || undefined,
     trackTimestamps: d.track_timestamps,
+    trackFrames: d.track_frames?.map((f) => ({
+      timestamp: f.timestamp,
+      box: bboxToPercentBox(f.bbox, imageWidth, imageHeight),
+      polygon: segmentationToPercentPoints(f.segmentation, imageWidth, imageHeight),
+    })),
   };
 }
 

@@ -25,6 +25,18 @@ class LangGraphInspectionCreate(BaseModel):
         return self
 
 
+class DetectionResolution(BaseModel):
+    """One operator decision for ONE unresolved finding (QCState.camera_classifications
+    entry with classified_defect_code == None). Required whenever a HITL case has more than
+    one such finding -- see LangGraphResumeRequest.validate_resolutions -- so an operator
+    resolving a case with, say, one real scratch AND one real dent must pick a code for
+    EACH, instead of the single `defect_code` field being applied to both."""
+
+    detection_id: str = Field(min_length=1, max_length=100)
+    defect_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{2,31}$")
+    severity: str | None = Field(default=None, max_length=30)
+
+
 class LangGraphResumeRequest(BaseModel):
     # Not a Literal: the first HITL gate (human_review) only ever sends APPROVE/REJECT/OVERRIDE,
     # but the second gate (supervisor_review) sends either UPHOLD_POLICY or the id of whichever
@@ -35,12 +47,19 @@ class LangGraphResumeRequest(BaseModel):
     reviewer: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=1, max_length=1000)
     recommendation: str | None = Field(default=None, max_length=200)
+    # Single-finding shortcut: still accepted, and still the only field the frontend needs to
+    # send when a case has at most one unresolved finding. Ignored (backend/app/
+    # langgraph_api.py's resume_langgraph_inspection) once `detection_resolutions` is given.
     defect_code: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]{2,31}$")
     severity: str | None = Field(default=None, max_length=30)
     location: str | None = Field(default=None, max_length=200)
     length_mm: float | None = Field(default=None, ge=0, le=10000)
     disposition: Literal["PASS", "HOLD", "REPAIR"] | None = None
     notes: str = Field(default="", max_length=4000)
+    # Required instead of `defect_code` when the case has MORE than one unresolved finding
+    # (agent/graph/nodes.py's QCNodes.detect_defect: several independent detections can each
+    # need HITL) -- one entry per unresolved detection_id, each with its own defect_code.
+    detection_resolutions: list[DetectionResolution] | None = None
 
     @model_validator(mode="after")
     def validate_override(self) -> LangGraphResumeRequest:

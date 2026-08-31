@@ -48,6 +48,11 @@ export type Defect = {
    * clip) this tracked defect was actually observed in. When set, CameraFeed only shows this
    * defect's box while the video's current time is near one of these moments. */
   trackTimestamps?: number[] | undefined;
+  /** Same video-sourced-camera tracking, carrying each observed frame's own box/polygon
+   * (already in % coordinates, same convention as `box`/`polygon`) sorted by timestamp — lets
+   * CameraFeed interpolate the mask's position between observed frames instead of freezing it
+   * at `box`/`polygon`'s single position for the whole tracked window. */
+  trackFrames?: { timestamp: number; box: Defect["box"]; polygon: Defect["polygon"] }[] | undefined;
 };
 
 export type HistoryRow = {

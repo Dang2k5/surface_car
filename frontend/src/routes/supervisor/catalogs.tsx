@@ -11,6 +11,7 @@ import {
   Th,
   Tr,
 } from "@/components/supervisor/ui";
+import type { DefectCodeRuleType } from "@/lib/api-types";
 import {
   useCreateDefectCode,
   useCreateLot,
@@ -765,16 +766,41 @@ function DefectCodesPanel() {
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newSeverity, setNewSeverity] = useState("");
   const [newRule, setNewRule] = useState("");
+  const [newRuleType, setNewRuleType] = useState<"" | DefectCodeRuleType>("");
+  const [newMinMm, setNewMinMm] = useState("");
+  const [newMaxMm, setNewMaxMm] = useState("");
+  const [newMinCount, setNewMinCount] = useState("");
   const [createError, setCreateError] = useState("");
 
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editSeverity, setEditSeverity] = useState("");
   const [editRule, setEditRule] = useState("");
+  const [editRuleType, setEditRuleType] = useState<"" | DefectCodeRuleType>("");
+  const [editMinMm, setEditMinMm] = useState("");
+  const [editMaxMm, setEditMaxMm] = useState("");
+  const [editMinCount, setEditMinCount] = useState("");
 
   const codes = codesQuery.data ?? [];
   const hasUnapprovedSource = codes.some(
     (c) => c.source_id && c.source_document_status !== "APPROVED",
   );
+
+  // Builds the structured rule fields (agent/services/defect_rule_engine.py's automatic
+  // classifier) from the form's plain-text number inputs. Leaving ruleType empty keeps the
+  // code unable to auto-match -- every finding classified against it routes to HITL, which
+  // is the correct, safe default until someone deliberately configures a rule.
+  function ruleFieldsFrom(ruleType: "" | DefectCodeRuleType, minMm: string, maxMm: string, minCount: string) {
+    if (!ruleType) return {};
+    if (ruleType === "REQUIRES_HUMAN") return { rule_type: ruleType };
+    if (ruleType === "THRESHOLD_MM") {
+      return {
+        rule_type: ruleType,
+        ...(minMm.trim() ? { min_mm: Number(minMm) } : {}),
+        ...(maxMm.trim() ? { max_mm: Number(maxMm) } : {}),
+      };
+    }
+    return { rule_type: ruleType, ...(minCount.trim() ? { min_detection_count: Number(minCount) } : {}) };
+  }
 
   async function handleCreate() {
     setCreateError("");
@@ -791,11 +817,16 @@ function DefectCodesPanel() {
         display_name: newDisplayName.trim(),
         default_severity: newSeverity.trim(),
         ...(newRule.trim() ? { classification_rule: newRule.trim() } : {}),
+        ...ruleFieldsFrom(newRuleType, newMinMm, newMaxMm, newMinCount),
       });
       setNewCode("");
       setNewDisplayName("");
       setNewSeverity("");
       setNewRule("");
+      setNewRuleType("");
+      setNewMinMm("");
+      setNewMaxMm("");
+      setNewMinCount("");
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Tạo mã lỗi thất bại.");
     }
@@ -805,13 +836,21 @@ function DefectCodesPanel() {
     setEditingCode(c.defect_code);
     setEditSeverity(c.default_severity);
     setEditRule(c.classification_rule);
+    setEditRuleType(c.rule_type ?? "");
+    setEditMinMm(c.min_mm != null ? String(c.min_mm) : "");
+    setEditMaxMm(c.max_mm != null ? String(c.max_mm) : "");
+    setEditMinCount(c.min_detection_count != null ? String(c.min_detection_count) : "");
   }
 
   async function saveEdit(defectCode: string) {
     if (!editSeverity.trim()) return;
     await updateDefectCode.mutateAsync({
       defectCode,
-      payload: { default_severity: editSeverity.trim(), classification_rule: editRule },
+      payload: {
+        default_severity: editSeverity.trim(),
+        classification_rule: editRule,
+        ...ruleFieldsFrom(editRuleType, editMinMm, editMaxMm, editMinCount),
+      },
     });
     setEditingCode(null);
   }
@@ -862,12 +901,51 @@ function DefectCodesPanel() {
         <input
           value={newRule}
           onChange={(e) => setNewRule(e.target.value)}
-          placeholder="Ngưỡng phân loại"
+          placeholder="Ngưỡng phân loại (mô tả, hiển thị cho người đọc)"
           className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
         />
         <Btn variant="solid" onClick={() => void handleCreate()} disabled={createDefectCode.isPending}>
           {createDefectCode.isPending ? "Đang thêm…" : "+ Thêm mã lỗi"}
         </Btn>
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-6">
+        <select
+          value={newRuleType}
+          onChange={(e) => setNewRuleType(e.target.value as "" | DefectCodeRuleType)}
+          className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground"
+        >
+          <option value="">Luật tự động: chưa cấu hình (→ HITL)</option>
+          <option value="THRESHOLD_MM">Ngưỡng mm (THRESHOLD_MM)</option>
+          <option value="MIN_COUNT">Số lượng tối thiểu (MIN_COUNT)</option>
+          <option value="REQUIRES_HUMAN">Luôn cần QC xác nhận (REQUIRES_HUMAN)</option>
+        </select>
+        {newRuleType === "THRESHOLD_MM" ? (
+          <>
+            <input
+              value={newMinMm}
+              onChange={(e) => setNewMinMm(e.target.value)}
+              placeholder="min_mm (bỏ trống = không giới hạn dưới)"
+              inputMode="decimal"
+              className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
+            />
+            <input
+              value={newMaxMm}
+              onChange={(e) => setNewMaxMm(e.target.value)}
+              placeholder="max_mm (bỏ trống = không giới hạn trên)"
+              inputMode="decimal"
+              className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
+            />
+          </>
+        ) : null}
+        {newRuleType === "MIN_COUNT" ? (
+          <input
+            value={newMinCount}
+            onChange={(e) => setNewMinCount(e.target.value)}
+            placeholder="Số lượng phát hiện tối thiểu"
+            inputMode="numeric"
+            className="h-8 rounded-sm border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted-foreground"
+          />
+        ) : null}
       </div>
       {createError ? <p className="mb-3 text-[11px] text-destructive">{createError}</p> : null}
       <p className="mb-3 text-[11px] text-muted-foreground">
@@ -897,6 +975,7 @@ function DefectCodesPanel() {
               <Th>Loại</Th>
               <Th>Severity</Th>
               <Th>Ngưỡng phân loại</Th>
+              <Th>Luật tự động</Th>
               <Th>Nguồn</Th>
               <Th>Trạng thái</Th>
               <Th></Th>
@@ -929,6 +1008,59 @@ function DefectCodesPanel() {
                       />
                     ) : (
                       c.classification_rule || "—"
+                    )}
+                  </Td>
+                  <Td>
+                    {editing ? (
+                      <div className="flex flex-col gap-1">
+                        <select
+                          value={editRuleType}
+                          onChange={(e) => setEditRuleType(e.target.value as "" | DefectCodeRuleType)}
+                          className={editableInputClass}
+                        >
+                          <option value="">Chưa cấu hình (→ HITL)</option>
+                          <option value="THRESHOLD_MM">Ngưỡng mm</option>
+                          <option value="MIN_COUNT">Số lượng tối thiểu</option>
+                          <option value="REQUIRES_HUMAN">Luôn cần QC</option>
+                        </select>
+                        {editRuleType === "THRESHOLD_MM" ? (
+                          <div className="flex gap-1">
+                            <input
+                              value={editMinMm}
+                              onChange={(e) => setEditMinMm(e.target.value)}
+                              placeholder="min_mm"
+                              inputMode="decimal"
+                              className={editableInputClass}
+                            />
+                            <input
+                              value={editMaxMm}
+                              onChange={(e) => setEditMaxMm(e.target.value)}
+                              placeholder="max_mm"
+                              inputMode="decimal"
+                              className={editableInputClass}
+                            />
+                          </div>
+                        ) : null}
+                        {editRuleType === "MIN_COUNT" ? (
+                          <input
+                            value={editMinCount}
+                            onChange={(e) => setEditMinCount(e.target.value)}
+                            placeholder="Số lượng tối thiểu"
+                            inputMode="numeric"
+                            className={editableInputClass}
+                          />
+                        ) : null}
+                      </div>
+                    ) : c.rule_type === "THRESHOLD_MM" ? (
+                      <Badge tone="pass">
+                        {c.min_mm ?? "…"}–{c.max_mm ?? "…"}mm
+                      </Badge>
+                    ) : c.rule_type === "MIN_COUNT" ? (
+                      <Badge tone="pass">≥{c.min_detection_count} lần</Badge>
+                    ) : c.rule_type === "REQUIRES_HUMAN" ? (
+                      <Badge tone="warn">Luôn cần QC</Badge>
+                    ) : (
+                      <Badge tone="fail">Chưa cấu hình</Badge>
                     )}
                   </Td>
                   <Td>

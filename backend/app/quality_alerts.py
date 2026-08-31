@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import statistics
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
-from typing import Any
+from typing import Any, Literal
 
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
@@ -69,6 +70,19 @@ class QualityAlert(BaseModel):
     consecutive_count: int
     trigger_type: str
     predicted_root_cause: str
+    # Whether centroid clustering across the group's occurrences actually supports the specific
+    # equipment mechanism named in predicted_root_cause, or the group only shares a zone (5 coarse
+    # regions) with defects scattered across it -- PRD.md §6.1 requires root cause stay a
+    # "hypothesis cần QC xác minh", never an automatic conclusion; this field is how a caller (UI,
+    # report) can tell the two apart instead of trusting free text alone.
+    root_cause_evidence: Literal["COORDINATE_CLUSTER_CONFIRMED", "ZONE_ONLY_UNCONFIRMED"]
+    # The three checks behind root_cause_evidence, so a report/QC reviewer can see WHY it was
+    # (or wasn't) confirmed instead of trusting the tag alone -- keys: coordinate_cluster (defects
+    # sit within _TIGHT_CLUSTER_STDEV of each other), single_camera (every occurrence came from
+    # the same camera -- cross-camera "same spot" claims are weaker, different camera rigs
+    # typically frame different parts of the vehicle), severity_at_least_warning (a bare 2-vehicle
+    # WATCH-tier coincidence is too weak a sample to name specific hardware over).
+    root_cause_evidence_detail: dict[str, Any]
     upstream_target_shop: str
     actionable_routing_command: str
     message_en: str
@@ -197,7 +211,9 @@ class RepetitionAlertService:
             )
             similar_code_warning = len(related_codes) > 1
             timestamps = sorted(_parse_timestamp(item.get("_persisted_at")) for item in items)
-            root_cause, target_shop = _predicted_root_cause(defect_type)
+            root_cause, target_shop, root_cause_evidence, root_cause_evidence_detail = _predicted_root_cause(
+                defect_type, items, severity=severity, camera_id=camera_id
+            )
             routing_command = "ROUTE_AFFECTED_BATCH_TO_OFFLINE_INSPECTION_BUFFER"
             key_text = f"{defect_type}|{zone_name}|{window_size}"
             alert_id = hashlib.sha256(key_text.encode("utf-8")).hexdigest()[:16]
@@ -247,6 +263,8 @@ class RepetitionAlertService:
                     consecutive_count=consecutive_count,
                     trigger_type=trigger_type,
                     predicted_root_cause=root_cause,
+                    root_cause_evidence=root_cause_evidence,
+                    root_cause_evidence_detail=root_cause_evidence_detail,
                     upstream_target_shop=target_shop,
                     actionable_routing_command=routing_command,
                     message_en=(
@@ -383,16 +401,107 @@ def _severity_for(
     return None, None
 
 
-def _predicted_root_cause(defect_type: str) -> tuple[str, str]:
-    if defect_type == "dent":
-        return (
-            "Possible stamping-die debris, fixture contact, or robot-gripper interference; QC verification required.",
-            "Stamping / Body Shop",
-        )
-    return (
-        "Possible conveyor guide, handling fixture, or contact-surface abrasion; QC verification required.",
-        "Body / Paint Handling Process",
+# Same defect+zone repeating at a near-identical frame position across vehicles is the actual
+# evidence PRD.md §6.1 ties a specific equipment hypothesis to ("cùng tọa độ" for dents, "cùng
+# đường kẻ dọc" for scratches) -- zone_name alone is only 5 coarse body regions, so two vehicles
+# can share a zone with defects nowhere near the same spot. A stdev this tight (~8% of frame
+# width/height) across every occurrence's primary detection center is what tells the two apart.
+_TIGHT_CLUSTER_STDEV = 0.08
+
+
+def _primary_center(state: dict[str, Any]) -> tuple[float, float] | None:
+    detections = state.get("detections") or []
+    if not detections:
+        return None
+    primary_id = state.get("primary_detection_id")
+    primary = next(
+        (item for item in detections if item.get("detection_id") == primary_id),
+        detections[0],
     )
+    measurements = primary.get("visual_measurements") or {}
+    center_x = measurements.get("center_x_ratio")
+    center_y = measurements.get("center_y_ratio")
+    if center_x is None or center_y is None:
+        return None
+    return float(center_x), float(center_y)
+
+
+def _is_tight_cluster(centers: list[tuple[float, float]]) -> bool:
+    if len(centers) < 2:
+        return False
+    return (
+        statistics.pstdev(c[0] for c in centers) <= _TIGHT_CLUSTER_STDEV
+        and statistics.pstdev(c[1] for c in centers) <= _TIGHT_CLUSTER_STDEV
+    )
+
+
+def _predicted_root_cause(
+    defect_type: str,
+    items: list[dict[str, Any]],
+    *,
+    severity: str,
+    camera_id: str,
+) -> tuple[
+    str,
+    str,
+    Literal["COORDINATE_CLUSTER_CONFIRMED", "ZONE_ONLY_UNCONFIRMED"],
+    dict[str, Any],
+]:
+    """Root cause is a hypothesis for QC to verify, never an automatic conclusion (PRD.md §6.1).
+    Only name a specific equipment mechanism when ALL three independent signals support it --
+    each rules out a different way the group could look like a real repeat but not be one:
+    - coordinate_cluster: occurrences actually sit at the same frame position, not just the same
+      coarse zone (a zone is 5 body regions; two vehicles can share one with defects nowhere near
+      the same spot).
+    - single_camera: every occurrence came from the same camera. A "same spot" claim spanning
+      different camera rigs is weaker -- different cameras typically frame different parts of the
+      vehicle, so cross-camera agreement is more likely coincidence than a shared physical cause.
+    - severity_at_least_warning: a bare WATCH-tier alert can be as few as 2 vehicles -- too small
+      a sample to send a maintenance team after specific hardware over.
+    Any one of the three failing means the group doesn't earn a confident, named mechanism --
+    it gets the generic "not enough evidence yet" hypothesis instead."""
+    centers = [center for center in (_primary_center(item) for item in items) if center is not None]
+    detail = {
+        "coordinate_cluster": _is_tight_cluster(centers),
+        "single_camera": camera_id != "MULTI_CAMERA",
+        "severity_at_least_warning": severity != "WATCH",
+        "occurrence_count": len(items),
+    }
+    confirmed = detail["coordinate_cluster"] and detail["single_camera"] and detail["severity_at_least_warning"]
+    evidence: Literal["COORDINATE_CLUSTER_CONFIRMED", "ZONE_ONLY_UNCONFIRMED"] = (
+        "COORDINATE_CLUSTER_CONFIRMED" if confirmed else "ZONE_ONLY_UNCONFIRMED"
+    )
+    if defect_type == "dent":
+        shop = "Stamping / Body Shop"
+        if confirmed:
+            root_cause = (
+                "Vết móp lặp lại tại cùng một tọa độ, cùng camera, trên đủ số xe liên tiếp để "
+                "loại trừ trùng hợp ngẫu nhiên — giả thuyết: khuôn dập (stamping die) dính "
+                "bavia/mạt kim loại hoặc tay gắp robot bị kẹt dị vật đúng vị trí đó. Cần QC xác "
+                "minh trực tiếp thiết bị trước khi kết luận."
+            )
+        else:
+            root_cause = (
+                "Nhiều xe cùng bị móp trong cùng vùng kiểm tra nhưng chưa đủ bằng chứng (vị trí "
+                "lỗi không tập trung rõ rệt, dữ liệu đến từ nhiều camera khác nhau, hoặc số lần "
+                "lặp lại còn ít) để quy về một cơ chế thiết bị cụ thể; QC cần xác minh thêm "
+                "(khuôn dập, tay gắp, hoặc va chạm rời rạc) trước khi kết luận."
+            )
+        return root_cause, shop, evidence, detail
+    shop = "Body / Paint Handling Process"
+    if confirmed:
+        root_cause = (
+            "Vết xước lặp lại cùng một đường kẻ/tọa độ, cùng camera, trên đủ số xe liên tiếp để "
+            "loại trừ trùng hợp ngẫu nhiên — giả thuyết: con lăn băng tải hoặc thanh dẫn hướng bị "
+            "cọ xát/mòn đúng vị trí đó. Cần QC xác minh trực tiếp thiết bị trước khi kết luận."
+        )
+    else:
+        root_cause = (
+            "Nhiều xe cùng bị xước trong cùng vùng kiểm tra nhưng chưa đủ bằng chứng (vị trí lỗi "
+            "không tập trung rõ rệt, dữ liệu đến từ nhiều camera khác nhau, hoặc số lần lặp lại "
+            "còn ít) để quy về một cơ chế thiết bị cụ thể; QC cần xác minh thêm trước khi kết luận."
+        )
+    return root_cause, shop, evidence, detail
 
 
 def _build_defect_breakdown(records: list[dict[str, Any]]) -> list[DefectAggregate]:

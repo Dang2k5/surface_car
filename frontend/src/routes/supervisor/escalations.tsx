@@ -28,17 +28,15 @@ function isPolicyApproved(catalog: PolicyCatalog | undefined, policy: PolicyCata
   return (policy.checklist_status || catalog?.status) === "APPROVED";
 }
 
-/** Policies a supervisor may legitimately apply to THIS case — approved, and either
- * catalog-wide ("*") or scoped to the case's own defect type. Mirrors the same eligibility
- * check the graph performs server-side (agent/services/policy.py's list_approved_policies) so
- * the dropdown never offers something the resume call would then reject. */
-function eligiblePoliciesFor(catalog: PolicyCatalog | undefined, run: GraphRun): PolicyCatalogItem[] {
-  const defectType = run.state.defect_type;
-  return (catalog?.policies ?? []).filter(
-    (p) =>
-      isPolicyApproved(catalog, p) &&
-      (p.defect_types.includes("*") || !defectType || p.defect_types.includes(defectType)),
-  );
+/** Policies a supervisor may legitimately apply to THIS case. Mirrors the EXACT eligibility
+ * check the graph performs server-side (agent/services/policy.py's list_approved_policies,
+ * used by agent/graph/nodes.py's supervisor_review to build allowed_policy_ids) so the
+ * dropdown never hides something the resume call would actually accept, nor offers something
+ * it would reject. That server check is APPROVED-status only — it does NOT filter by
+ * defect_type (a supervisor override may legitimately apply any approved policy, not just one
+ * scoped to this case's own defect type) — do not reintroduce a defect_type filter here. */
+function eligiblePoliciesFor(catalog: PolicyCatalog | undefined, _run: GraphRun): PolicyCatalogItem[] {
+  return (catalog?.policies ?? []).filter((p) => isPolicyApproved(catalog, p));
 }
 
 export const Route = createFileRoute("/supervisor/escalations")({

@@ -127,6 +127,8 @@ async def stream_station_alerts(request: Request) -> StreamingResponse:
                     "consecutive_count": alert.consecutive_count,
                     "affected_vehicle_ids": alert.affected_vehicle_ids,
                     "predicted_root_cause": alert.predicted_root_cause,
+                    "root_cause_evidence": alert.root_cause_evidence,
+                    "root_cause_evidence_detail": alert.root_cause_evidence_detail,
                     "upstream_target_shop": alert.upstream_target_shop,
                     "instruction": alert.actionable_routing_command,
                 }

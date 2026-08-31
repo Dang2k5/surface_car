@@ -15,12 +15,63 @@ function isDefectVisibleAt(defect: Defect, videoTime: number | null): boolean {
   return defect.trackTimestamps.some((t) => Math.abs(t - videoTime) <= TRACK_WINDOW_SECONDS);
 }
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function lerpBox(a: Defect["box"], b: Defect["box"], t: number): Defect["box"] {
+  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), w: lerp(a.w, b.w, t), h: lerp(a.h, b.h, t) };
+}
+
+// Segmentation masks from different frames don't reliably share the same point count/ordering,
+// so there is no correct point-by-point interpolation between two arbitrary polygons -- snap to
+// whichever of the two bracketing frames is closer in time instead of trying to blend outlines.
+function polygonAt(a: Defect["polygon"], b: Defect["polygon"], t: number): Defect["polygon"] {
+  return t < 0.5 ? a : b;
+}
+
+/** The box/polygon this defect's evidence actually had at `videoTime`, interpolated between the
+ * two nearest observed frames (Defect.trackFrames -- every extracted frame was independently
+ * inferred by YOLO, agent/services/video_processor.py's DefectDeduplicator) instead of always
+ * showing the single frame `box`/`polygon` was fixed to for the whole tracked window. Falls back
+ * to the static `box`/`polygon` for a photo camera or a defect with no per-frame tracking data. */
+function geometryAt(
+  defect: Defect,
+  videoTime: number | null,
+): { box: Defect["box"]; polygon: Defect["polygon"] } {
+  const frames = defect.trackFrames;
+  if (videoTime === null || !frames?.length) {
+    return { box: defect.box, polygon: defect.polygon };
+  }
+  if (frames.length === 1 || videoTime <= frames[0]!.timestamp) {
+    return { box: frames[0]!.box, polygon: frames[0]!.polygon };
+  }
+  const last = frames[frames.length - 1]!;
+  if (videoTime >= last.timestamp) {
+    return { box: last.box, polygon: last.polygon };
+  }
+  for (let i = 0; i < frames.length - 1; i++) {
+    const cur = frames[i]!;
+    const next = frames[i + 1]!;
+    if (videoTime >= cur.timestamp && videoTime <= next.timestamp) {
+      const span = next.timestamp - cur.timestamp;
+      const t = span > 0 ? (videoTime - cur.timestamp) / span : 0;
+      return { box: lerpBox(cur.box, next.box, t), polygon: polygonAt(cur.polygon, next.polygon, t) };
+    }
+  }
+  return { box: defect.box, polygon: defect.polygon };
+}
+
 export function DefectOverlay({
   defect,
+  box,
   active,
   onSelect,
 }: {
   defect: Defect;
+  /** Position to render at — the interpolated box for a video frame (geometryAt), or
+   * defect.box itself for a static photo camera. */
+  box: Defect["box"];
   active: boolean;
   onSelect: () => void;
 }) {
@@ -45,10 +96,10 @@ export function DefectOverlay({
         active && "ring-2 ring-info ring-offset-1 ring-offset-background",
       )}
       style={{
-        left: `${defect.box.x}%`,
-        top: `${defect.box.y}%`,
-        width: `${defect.box.w}%`,
-        height: `${defect.box.h}%`,
+        left: `${box.x}%`,
+        top: `${box.y}%`,
+        width: `${box.w}%`,
+        height: `${box.h}%`,
       }}
     >
       <span
@@ -88,7 +139,9 @@ export function CameraFeed({
   // every defect stays visible) -- tracks the player's currentTime so defects with
   // trackTimestamps can fade in/out at the moments they were actually observed.
   const [videoTime, setVideoTime] = useState<number | null>(camera.videoUrl ? 0 : null);
-  const visibleDefects = defects.filter((d) => isDefectVisibleAt(d, videoTime));
+  const visibleDefects = defects
+    .filter((d) => isDefectVisibleAt(d, videoTime))
+    .map((d) => ({ defect: d, ...geometryAt(d, videoTime) }));
   const withMask = visibleDefects.filter((d) => d.polygon && d.polygon.length >= 3);
   // The image renders with object-contain, so it's letterboxed to the real photo's own aspect
   // ratio inside this fixed aspect-[16/10] card. A viewBox of "0 0 100 100" with
@@ -153,30 +206,31 @@ export function CameraFeed({
               className="pointer-events-none absolute inset-0 h-full w-full"
               viewBox={`0 0 ${imgW} ${imgH}`}
             >
-              {withMask.map((d) => (
+              {withMask.map(({ defect, polygon }) => (
                 <polygon
-                  key={d.id}
-                  points={d
-                    .polygon!.map((p) => `${(p.x / 100) * imgW},${(p.y / 100) * imgH}`)
+                  key={defect.id}
+                  points={polygon!
+                    .map((p) => `${(p.x / 100) * imgW},${(p.y / 100) * imgH}`)
                     .join(" ")}
                   vectorEffect="non-scaling-stroke"
                   className={cn(
-                    d.decision === "FAIL"
+                    defect.decision === "FAIL"
                       ? "fill-destructive/25 stroke-destructive"
                       : "fill-warning/25 stroke-warning",
-                    selectedDefect === d.id ? "stroke-[2.5]" : "stroke-[1.5]",
+                    selectedDefect === defect.id ? "stroke-[2.5]" : "stroke-[1.5]",
                   )}
                 />
               ))}
             </svg>
           ) : null}
 
-          {visibleDefects.map((d) => (
+          {visibleDefects.map(({ defect, box }) => (
             <DefectOverlay
-              key={d.id}
-              defect={d}
-              active={selectedDefect === d.id}
-              onSelect={() => onSelectDefect?.(d.id)}
+              key={defect.id}
+              defect={defect}
+              box={box}
+              active={selectedDefect === defect.id}
+              onSelect={() => onSelectDefect?.(defect.id)}
             />
           ))}
         </div>

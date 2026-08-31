@@ -152,11 +152,14 @@ class QCState(TypedDict):
     zone_name: str
     detections: List[Dict[str, Any]]  # source = yolo
     enriched_defects: List[DefectItem]  # detections + geometry + operational metadata
-    # Một entry cho mỗi camera (trong 5 camera cố định) có >=1 phát hiện — mỗi
-    # camera được phân loại defect_code độc lập, không suy diễn từ camera khác.
+    # Một entry cho mỗi DETECTION (không phải mỗi camera — một camera có thể có
+    # nhiều finding độc lập) — mỗi detection được phân loại defect_code độc lập bằng
+    # rule engine deterministic (agent/services/defect_rule_engine.py, KHÔNG dùng
+    # LLM — xem PRD.md FR-03e), không suy diễn từ detection/camera khác.
     camera_classifications: List[Dict[str, Any]]
     # camera_id của các camera có phát hiện nhưng chưa phân loại được defect_code
-    # (không khớp defect_catalog) — non-empty thì route sang HITL.
+    # (rule engine không tự động khớp được, hoặc mã được đánh dấu REQUIRES_HUMAN) —
+    # non-empty thì route sang HITL.
     unresolved_camera_ids: List[str]
     # PolicyDecision (mục 3, agent/services/policy.py) cho từng camera đã phân
     # loại — final_status tổng hợp theo nguyên tắc FAIL-wins: bất kỳ camera nào
@@ -205,7 +208,7 @@ class QCState(TypedDict):
 - `severity` là mức độ tổng thể duy nhất; không tạo thêm alias `overall_severity_rank`.
 - `recommendation_code`: mã hành động chuẩn duy nhất trong `QCState`; `recommendation` là mô tả dễ đọc.
 - `recommended_plan` chỉ tồn tại ở response `/api/v1/inspect` để tương thích client cũ. `final_action` không còn thuộc contract.
-- **`decision` vs `final_status` — không được dùng lẫn nhau:** `decision` là mã trạng thái nội bộ do node `assess_result`/`human_review`/`supervisor_review` sinh ra để mô tả *vì sao* graph chọn nhánh này (ví dụ `DEFECT_CONFIRMED`, `UNKNOWN_CLASS_REVIEW_REQUIRED`, `MODEL_ERROR_REVIEW_REQUIRED`, `LLM_AGENT_UNAVAILABLE`, `DEFECT_REJECTED_BY_QC`, `OVERRIDE_REJECTED_BY_SUPERVISOR`) — đây là lý do vận hành/chẩn đoán, không phải phán quyết QC cuối cùng. **`final_status` mới là business decision chuẩn** hiển thị cho QC và đối chiếu với đề bài (PASS/FAIL/cần người kiểm — mục 5.3 `PRD.md`), do QC Rules (`agent/services/policy.py` + `agent/policies/qc_policy_catalog.json`) quyết định; **chỉ hai giá trị**: `PASS` (release, cho phép chạy thử) hoặc `FAIL` (giữ xe, chuyển Rework). Không còn phân biệt `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/`HUMAN_OVERRIDE_APPLIED` — mọi FAIL, dù tự động hay qua HITL/override, đều là cùng một giá trị `FAIL`. UI chỉ hiển thị `final_status`, không hiển thị `decision` thô cho QC (xem `UI_WORKFLOWS.md`).
+- **`decision` vs `final_status` — không được dùng lẫn nhau:** `decision` là mã trạng thái nội bộ do node `assess_result`/`human_review`/`supervisor_review` sinh ra để mô tả *vì sao* graph chọn nhánh này (ví dụ `DEFECT_CONFIRMED`, `UNKNOWN_CLASS_REVIEW_REQUIRED`, `MODEL_ERROR_REVIEW_REQUIRED`, `DEFECT_REJECTED_BY_QC`, `OVERRIDE_REJECTED_BY_SUPERVISOR`) — đây là lý do vận hành/chẩn đoán, không phải phán quyết QC cuối cùng. `LLM_AGENT_UNAVAILABLE` từng là một giá trị `decision` (ép route sang HITL khi LLM giải trình lỗi) nhưng **đã bị loại bỏ** kể từ bản sửa root-cause ngày 2026-08-31 — LLM giải trình lỗi giờ không còn đổi `decision`/route nữa, chỉ hạ cấp `agent_reasoning_status` xuống `LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC` (xem `ISSUE_REMEDIATION_PLAN.md` mục 1). **`final_status` mới là business decision chuẩn** hiển thị cho QC và đối chiếu với đề bài (PASS/FAIL/cần người kiểm — mục 5.3 `PRD.md`), do QC Rules (`agent/services/policy.py` + `agent/policies/qc_policy_catalog.json`) quyết định; **chỉ hai giá trị**: `PASS` (release, cho phép chạy thử) hoặc `FAIL` (giữ xe, chuyển Rework). Không còn phân biệt `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/`HUMAN_OVERRIDE_APPLIED` — mọi FAIL, dù tự động hay qua HITL/override, đều là cùng một giá trị `FAIL`. UI chỉ hiển thị `final_status`, không hiển thị `decision` thô cho QC (xem `UI_WORKFLOWS.md`).
 - `hitl_status` có 5 giá trị: `PENDING` (đang chờ `human_review`), `CONFIRMED` (không cần HITL, hoặc Inspector đã PASS/FAIL), `OVERRIDDEN` (Inspector chuyển cấp, đang chờ `supervisor_review`), `SUPERVISOR_APPROVED`/`SUPERVISOR_REJECTED` (Supervisor đã xử lý case chuyển cấp). Không có trạng thái `NOT_REQUIRED` riêng — khi HITL không cần thiết, `hitl_status` được gán thẳng `CONFIRMED`.
 - `original_image_key`/`overlay_image_key`/`mask_image_key`/`crop_image_key`: S3/MinIO object key, không phải binary; xem mục 4.
 
@@ -259,6 +262,13 @@ secret key. Xem `ENVIRONMENT.md` cho biến cấu hình `S3_*`/`OBJECT_STORAGE_*
     "repetitive_zone": "door_front_left_class_a",
     "repetitive_defect_type": "dent",
     "predicted_root_cause": "Phát hiện 3 xe liên tiếp cùng bị móp tại tọa độ mép cửa trước trái. Khả năng cao khuôn dập tại Xưởng Dập bị dính mạt kim loại hoặc tay gắp robot hàn kẹp sai lực.",
+    "root_cause_evidence": "COORDINATE_CLUSTER_CONFIRMED",
+    "root_cause_evidence_detail": {
+      "coordinate_cluster": true,
+      "single_camera": true,
+      "severity_at_least_warning": true,
+      "occurrence_count": 3
+    },
     "upstream_target_shop": "Stamping Shop / Framing Robot 04",
     "line_stoppage_risk": "HIGH",
     "action_plan": "1. Gửi cảnh báo khẩn đến Trưởng ca Xưởng Dập. 2. Đề xuất điều hướng các xe lỗi vào Vùng đệm Offline để tránh dừng Line FNS chính (Trưởng ca xác nhận và thực thi thao tác điều hướng)."
@@ -320,6 +330,13 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
       "consecutive_count": 3,
       "message": "CẢNH BÁO CHUỖI BẤT THƯỜNG: 3 xe liên tiếp bị móp tại vùng Cánh cửa trước trái.",
       "predicted_root_cause": "Khuôn dập Xưởng Dập dính bavia kim loại.",
+      "root_cause_evidence": "COORDINATE_CLUSTER_CONFIRMED",
+      "root_cause_evidence_detail": {
+        "coordinate_cluster": true,
+        "single_camera": true,
+        "severity_at_least_warning": true,
+        "occurrence_count": 3
+      },
       "line_prevention_command": "Điều hướng xe vào Làn Đệm Offline — Giữ Line chính tiếp tục chạy."
     }
   },
@@ -342,9 +359,21 @@ data: {
   "defect_type": "dent",
   "zone": "door_front_left_class_a",
   "consecutive_cars": ["VN8921-2026-01", "VN8921-2026-02", "VN8921-2026-03"],
+  "predicted_root_cause": "Vết móp lặp lại tại cùng một tọa độ, cùng camera, trên đủ số xe liên tiếp để loại trừ trùng hợp ngẫu nhiên — giả thuyết: khuôn dập (stamping die) dính bavia/mạt kim loại hoặc tay gắp robot bị kẹt dị vật đúng vị trí đó. Cần QC xác minh trực tiếp thiết bị trước khi kết luận.",
+  "root_cause_evidence": "COORDINATE_CLUSTER_CONFIRMED",
+  "root_cause_evidence_detail": {
+    "coordinate_cluster": true,
+    "single_camera": true,
+    "severity_at_least_warning": true,
+    "occurrence_count": 3
+  },
   "instruction": "Kiểm tra khuôn dập số 2 tại Xưởng Dập. Kích hoạt làn đệm kiểm tra số 2."
 }
 ```
+
+`root_cause_evidence` (`COORDINATE_CLUSTER_CONFIRMED` | `ZONE_ONLY_UNCONFIRMED`) và
+`root_cause_evidence_detail` — xem giải thích đầy đủ ở §6.4, cùng ý nghĩa cho cả SSE và
+`GET /api/quality-alerts`.
 
 ### 6.3. Quy tắc tương thích
 - `POST /api/v1/inspect` là facade contract; bên trong chạy cùng LangGraph workflow với `/inspections/from-image`. `result.status` trong response §6.1 là chính giá trị `QCState.final_status` (`PASS | FAIL` — mục 3), không phải một enum riêng cho endpoint này.
@@ -362,8 +391,26 @@ Trả summary dùng cho trang Cảnh báo lặp lỗi (Sliding Window realtime).
 - `alerts[].related_defect_codes`: các mã lỗi liên quan;
 - `alerts[].occurrences[].image_url`: ảnh bằng chứng từng inspection (resolved từ object storage key);
 - `occurrence_count`, `affected_vehicle_count`, `camera_id`, `last_seen`;
-- `recommendation_vi/en`, `predicted_root_cause`, `upstream_target_shop`;
+- `recommendation_vi/en`, `predicted_root_cause`, `root_cause_evidence`,
+  `root_cause_evidence_detail`, `upstream_target_shop`;
 - `upstream_checks_vi/en`: checklist hành động, UI chỉ hiển thị ba bước đầu.
+
+`alerts[].root_cause_evidence` (`COORDINATE_CLUSTER_CONFIRMED` | `ZONE_ONLY_UNCONFIRMED`) cho
+biết `predicted_root_cause` có phải là giả thuyết thực sự dựa trên bằng chứng hay không — PRD.md
+§6.1 yêu cầu root cause luôn là "giả thuyết cần QC xác minh, không phải kết luận chắc chắn".
+`COORDINATE_CLUSTER_CONFIRMED` chỉ được trả về khi **cả ba** tín hiệu trong
+`alerts[].root_cause_evidence_detail` đều `true`:
+
+- `coordinate_cluster`: các occurrence cụm lại gần cùng một tọa độ khung hình (không chỉ cùng
+  `zone_name` — 5 vùng thân xe thô, có thể rải rác trong cùng một vùng);
+- `single_camera`: mọi occurrence đến từ cùng một camera (xuyên camera là bằng chứng yếu hơn);
+- `severity_at_least_warning`: nhóm đạt tối thiểu WARNING, không dừng ở WATCH (có thể chỉ 2 xe —
+  mẫu quá nhỏ để nêu đích danh thiết bị).
+
+Thiếu một trong ba, kết quả là `ZONE_ONLY_UNCONFIRMED` và `predicted_root_cause` chỉ nêu các khả
+năng cần xác minh thêm, không khẳng định một cơ chế cụ thể. `root_cause_evidence_detail` còn có
+`occurrence_count` (số occurrence trong nhóm) để tham khảo. UI phải hiển thị field này (không chỉ
+text) để QC không hiểu nhầm một giả thuyết chưa xác nhận thành kết luận đã đúng.
 
 Frontend loại `image_url` trùng và hiển thị tối đa bốn ảnh trên mỗi cảnh báo.
 Nếu không có ảnh, UI phải hiện trạng thái rỗng rõ ràng thay vì placeholder giả.
@@ -398,15 +445,24 @@ action: str        # human_review: "APPROVE" | "REJECT" | "OVERRIDE"
                     # supervisor_review: "UPHOLD_POLICY" | <id của một policy APPROVED>
 reviewer: str
 reason: str
-defect_code: str | None       # sửa lại mã lỗi (tùy chọn)
+defect_code: str | None       # sửa lại mã lỗi -- CHỈ dùng khi ca có ≤1 finding chưa phân loại
 severity: str | None
 disposition: Literal["PASS", "HOLD", "REPAIR"] | None  # ghi vào qc_decision_record khi có defect_code
 recommendation: str | None     # ghi chú bối cảnh khi action = OVERRIDE, không quyết định final_status
+detection_resolutions: list[DetectionResolution] | None  # bắt buộc khi ca có ≥2 finding chưa phân loại
+
+# DetectionResolution:
+#   detection_id: str   # camera_classifications[].detection_id đang chờ (classified_defect_code == null)
+#   defect_code: str
+#   severity: str | None
 ```
 
 - **Ở `human_review` (Inspector):** `APPROVE` xác nhận lỗi AI gắn cờ là thật → `final_status = FAIL` (chuyển Rework). `REJECT` bác bỏ lỗi AI gắn cờ (không phải lỗi thật) → `final_status = PASS` ngay lập tức — **không có bước tái kiểm tra (reinspect) riêng nào khác**. `OVERRIDE` chuyển case sang cấp `supervisor_review` (`hitl_status = OVERRIDDEN`); `recommendation` bắt buộc nhưng chỉ là ghi chú bối cảnh hiển thị cho Supervisor, không tự trở thành quyết định.
-- **Ở `supervisor_review` (chỉ role `QC_SUPERVISOR` mới gọi được, 403 nếu không đúng role):** Supervisor không thể tự đặt PASS/FAIL tùy ý — họ chỉ được chọn giữa `UPHOLD_POLICY` (giữ nguyên quyết định tự động của QC Rules, y hệt như case chưa từng bị `OVERRIDE`) hoặc `action = <policy_id>` của **một chính sách `checklist_status = APPROVED`** đang có trong catalog (`GET /api/policies`) — server xác thực lại `policy_id` đó còn tồn tại và còn APPROVED trước khi áp dụng (`QCNodes.supervisor_review`/`generate_recommendation`, `agent/graph/nodes.py`). Kết quả `action_code`/`final_status`/`required_evidence` khi đó lấy nguyên từ chính policy đã chọn (`PolicyCatalog.evaluate_named`) — không có `action_code` tự chế từ text tự do, và không hardcode `FAIL`.
+- **Ở `supervisor_review` (chỉ role `QC_SUPERVISOR` mới gọi được, 403 nếu không đúng role):** Supervisor không thể tự đặt PASS/FAIL tùy ý — họ chỉ được chọn giữa `UPHOLD_POLICY` (giữ nguyên quyết định tự động của QC Rules, y hệt như case chưa từng bị `OVERRIDE`) hoặc `action = <policy_id>` của **một chính sách `checklist_status = APPROVED`** đang có trong catalog (`GET /api/policies`) — server xác thực lại `policy_id` đó còn tồn tại và còn APPROVED trước khi áp dụng (`QCNodes.supervisor_review`/`generate_recommendation`, `agent/graph/nodes.py`). Kết quả `action_code`/`final_status`/`required_evidence` khi đó lấy nguyên từ chính policy đã chọn (`PolicyCatalog.evaluate_named`) — không có `action_code` tự chế từ text tự do, và không hardcode `FAIL`. Dropdown chính sách hợp lệ ở FE lấy TOÀN BỘ policy `APPROVED` trong catalog (`PolicyCatalog.list_approved_policies()`), **không** lọc thêm theo `defect_type` của case.
 - `disposition` chỉ là nhãn audit ghi vào `qc_decision_record` khi request có kèm `defect_code` (sửa mã lỗi) — không điều khiển `final_status`. Ba giá trị: `PASS`, `HOLD` (đang chờ xử lý tiếp, ví dụ khi vừa `OVERRIDE`), `REPAIR` (xác nhận chuyển sửa chữa). Không còn giá trị `REWORK`/`REINSPECT` cũ.
+- **`detection_resolutions` (nhiều finding độc lập chưa phân loại):** một ca có thể có nhiều detection cùng cần HITL (mỗi camera/mỗi vùng lỗi được phân loại độc lập — xem 6.6a). Nếu số finding với `classified_defect_code == null` trong `camera_classifications` là:
+  - **≤ 1**: dùng `defect_code` như cũ (tương thích ngược, không bắt buộc đổi client cũ).
+  - **≥ 2**: **bắt buộc** gửi `detection_resolutions` — một phần tử cho MỖI `detection_id` đang chờ, không thiếu không thừa (422 nếu lệch). Gửi `defect_code` đơn trong trường hợp này cũng bị từ chối 422 (yêu cầu dùng `detection_resolutions`) — tránh tái diễn lỗi cũ là một mã bị áp nhầm cho mọi finding chưa phân loại. Trường `classified_defect_code`/`severity` ở cấp ca (top-level, dùng cho `qc_decision_record`) khi đó lấy theo finding "nặng nhất" (`detection_priority_key`, cùng quy ước worst-wins với `QCNodes.detect_defect`).
 
 ### 6.7. Authentication & RBAC (Supabase Auth)
 

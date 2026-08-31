@@ -22,7 +22,6 @@ from agent.services.image_render import render_defect_images
 from agent.services.video_processor import (
     VideoProcessor,
     DefectDeduplicator,
-    MultiCameraAggregator,
     VideoProcessingError,
 )
 from agent.services.yolo_detector import _group_findings, detection_priority_key
@@ -317,9 +316,62 @@ def resume_langgraph_inspection(
     pending_interrupt = _snapshot_interrupt(snapshot)
     if (pending_interrupt or {}).get("type") == "supervisor_escalation_review" and user.role != "QC_SUPERVISOR":
         raise HTTPException(status_code=403, detail="Requires role: QC_SUPERVISOR")
+    camera_classifications = snapshot.values.get("camera_classifications") or []
+    unresolved_ids = {
+        item["detection_id"] for item in camera_classifications if item.get("classified_defect_code") is None
+    }
     catalog_item = None
     state_update = None
-    if payload.defect_code:
+    if payload.detection_resolutions:
+        resolved_ids = {resolution.detection_id for resolution in payload.detection_resolutions}
+        if resolved_ids != unresolved_ids:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "detection_resolutions must cover exactly the unresolved findings "
+                    f"(expected {sorted(unresolved_ids)}, got {sorted(resolved_ids)})"
+                ),
+            )
+        catalog_item_by_detection: dict[str, dict[str, Any]] = {}
+        for resolution in payload.detection_resolutions:
+            found = request.app.state.database.get_defect_code(resolution.defect_code)
+            if found is None:
+                raise HTTPException(
+                    status_code=422, detail=f"Unknown or inactive defect code: {resolution.defect_code}"
+                )
+            catalog_item_by_detection[resolution.detection_id] = found
+        # A single top-level classified_defect_code/severity still drives the vehicle's own
+        # audit-record verdict (qc_decision_record below) and Kết luận card -- worst-wins,
+        # same convention QCNodes.detect_defect already uses to pick one decision among
+        # several independent findings.
+        worst_item = max(
+            (item for item in camera_classifications if item["detection_id"] in catalog_item_by_detection),
+            key=detection_priority_key,
+        )
+        catalog_item = catalog_item_by_detection[worst_item["detection_id"]]
+        state_update = {
+            "classified_defect_code": catalog_item["defect_code"],
+            "defect_type": catalog_item["defect_type"],
+            "defect_family": catalog_item.get("defect_family"),
+            "catalog_defect_type": catalog_item["defect_type"],
+            "severity": payload.severity or catalog_item["default_severity"],
+            "severity_source_id": catalog_item.get("source_id"),
+            "camera_classifications": [
+                _apply_operator_classification(item, catalog_item_by_detection[item["detection_id"]])
+                if item["detection_id"] in catalog_item_by_detection
+                else item
+                for item in camera_classifications
+            ],
+        }
+    elif payload.defect_code:
+        if len(unresolved_ids) > 1:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This case has multiple unresolved findings -- use detection_resolutions "
+                    "(one defect_code per detection_id) instead of the single defect_code field"
+                ),
+            )
         catalog_item = request.app.state.database.get_defect_code(payload.defect_code)
         if catalog_item is None:
             raise HTTPException(status_code=422, detail="Unknown or inactive defect code")
@@ -342,7 +394,7 @@ def resume_langgraph_inspection(
                 _apply_operator_classification(item, catalog_item)
                 if item.get("classified_defect_code") is None
                 else item
-                for item in (snapshot.values.get("camera_classifications") or [])
+                for item in camera_classifications
             ],
         }
     try:
@@ -739,14 +791,16 @@ def _track_camera_across_frames(
         if candidate_ts in frame_meta:
             representative_ts = candidate_ts
 
-    # Merge bookkeeping keys are private (leading "_") except _frame_timestamps, which the
-    # frontend needs to know exactly when (in video-playback time) this tracked defect was
-    # actually observed, so it can show the box only while the video is near one of those
-    # moments instead of burning it onto the whole clip -- keep that one under a public name.
+    # Merge bookkeeping keys are private (leading "_") except _frame_timestamps/_track_frames,
+    # which the frontend needs to know exactly when (in video-playback time) this tracked
+    # defect was actually observed -- and at what exact position in each of those frames --
+    # so it can show the box near the video's current time instead of burning one fixed
+    # position onto the whole clip -- keep those under public names.
     clean_defects = [
         {
             **{key: value for key, value in defect.items() if not key.startswith("_")},
             "track_timestamps": sorted(defect.get("_frame_timestamps") or [defect.get("_frame_timestamp", 0.0)]),
+            "track_frames": defect.get("_track_frames") or [],
         }
         for defect in unique_defects
     ]
@@ -870,7 +924,6 @@ def run_uploaded_videos_inspection(
                 extraction_result = video_processor.extract_frames(
                     temp_video_path,
                     camera_id=camera_id,
-                    model_image_size=request.app.state.model_settings.model_image_size,
                 )
 
                 logger.info(

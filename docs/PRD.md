@@ -6,7 +6,15 @@
 - **Trọng tâm kỹ thuật:** Nhận dạng chuyên sâu khuyết tật **Xước (Scratch)** & **Lõm/Móp (Dent)** bằng **YOLO Segmentation**, trích xuất hình học deterministic (**Geometry Extraction**), giải thích quyết định bằng **reasoning LLM**, điều phối quyết định bằng **LangGraph Agent** (`detect → classify → decide → HITL`), và **Phát hiện Bất thường Chuỗi tránh Dừng Dây chuyền (Line Stoppage Prevention)**.
 - **Vị trí áp dụng:** Trạm FNS (Finish Line - Trạm Hoàn thiện Cuối Dây chuyền Lắp ráp Ô tô) — Line HA
 - **Tác giả:** PM & PO Team 235
-- **Phiên bản:** v1.4 (Đồng bộ tài liệu với runtime hiện tại: xác nhận bỏ hẳn Visual Verification bằng Multimodal LLM khỏi §7.3/§7.4/§7.6; rút gọn `final_status` còn đúng hai giá trị `PASS`/`FAIL` — không còn `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/trạng thái tái kiểm tra riêng, mọi FAIL đều chuyển Rework; mô tả HITL hai cấp Inspector→Supervisor đang chạy thật trong `agent/graph/nodes.py`)
+- **Phiên bản:** v1.5 (Đồng bộ tài liệu với runtime: bước **classify** — chọn mã lỗi/severity
+  band cho từng detection — chạy bằng **rule engine deterministic**
+  (`agent/services/defect_rule_engine.py`), KHÔNG dùng LLM; LLM (`GroqReasoningService`)
+  chỉ còn đúng vai trò FR-03d/FR-07 (giải trình sau quyết định), khớp đúng tuyên bố ở §7.3
+  rằng LLM "không được tự thay đổi PASS/FAIL" — trước bản này, code có lệch khỏi tuyên bố
+  đó (LLM từng được dùng để chọn mã lỗi, một phần của bước "decide"); xem
+  `ISSUE_REMEDIATION_PLAN.md` mục 1. Cũng thêm hỗ trợ resume HITL cho nhiều finding độc
+  lập trong cùng một ca (`detection_resolutions`, xem `API_CONTRACT.md`).)
+- **Phiên bản trước:** v1.4 (Đồng bộ tài liệu với runtime hiện tại: xác nhận bỏ hẳn Visual Verification bằng Multimodal LLM khỏi §7.3/§7.4/§7.6; rút gọn `final_status` còn đúng hai giá trị `PASS`/`FAIL` — không còn `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/trạng thái tái kiểm tra riêng, mọi FAIL đều chuyển Rework; mô tả HITL hai cấp Inspector→Supervisor đang chạy thật trong `agent/graph/nodes.py`)
 
 ---
 
@@ -153,6 +161,30 @@ Hệ thống duy trì một **Sliding Window Buffer** (theo dõi $N = 10$ xe g�
 - **Root Cause Hypothesis (giả thuyết cần QC xác minh, không phải kết luận chắc chắn):**
   - Cụm vết móp cùng tọa độ $\rightarrow$ *Giả thuyết: Khuôn dập (Stamping Die) dính bavia/mạt kim loại hoặc tay gắp robot hàn bị kẹt dị vật.*
   - Cụm vết xước cùng đường kẻ dọc $\rightarrow$ *Giả thuyết: Con lăn băng tải hoặc thanh dẫn hướng bị cọ xát.*
+  - **"Cùng tọa độ" là điều kiện kích hoạt, không phải diễn giải:** hệ thống chỉ được phát biểu
+    một trong hai giả thuyết cụ thể trên khi **cả ba** tín hiệu độc lập sau đều đúng
+    (`RepetitionAlertService._predicted_root_cause`, `backend/app/quality_alerts.py`) — thiếu
+    một trong ba là chưa đủ căn cứ để nêu đích danh một cơ chế thiết bị:
+    1. **`coordinate_cluster`** — các occurrence trong nhóm thực sự cụm lại gần cùng một tọa độ
+       khung hình (đo bằng độ lệch chuẩn `center_x_ratio`/`center_y_ratio` của detection chính
+       giữa các xe), không chỉ vì chúng cùng `defect_type` và cùng `zone_name` (`zone_name` chỉ
+       là 5 vùng thân xe thô, một xe lỗi ở góc trái và một xe lỗi ở góc phải của cùng vùng đó vẫn
+       được coi là "cùng zone" nhưng KHÔNG cùng tọa độ).
+    2. **`single_camera`** — mọi occurrence trong nhóm đến từ cùng một camera. Một tuyên bố "cùng
+       vị trí vật lý" trải trên nhiều camera khác nhau là bằng chứng yếu hơn, vì mỗi camera
+       thường chỉ quan sát một phần cố định của xe — khớp tọa độ xuyên camera nhiều khả năng là
+       trùng hợp hơn là cùng một nguyên nhân vật lý.
+    3. **`severity_at_least_warning`** — nhóm đạt tối thiểu ngưỡng WARNING (mặc định ≥3 xe liên
+       tiếp hoặc ≥4/10 xe trong cửa sổ), không dừng ở WATCH (có thể chỉ 2 xe) — một trùng hợp 2 xe
+       là mẫu quá nhỏ để cử người đi kiểm tra đúng một thiết bị cụ thể.
+
+    Thiếu bất kỳ tín hiệu nào trong ba tín hiệu trên, hệ thống trả về giả thuyết trung tính
+    (`ZONE_ONLY_UNCONFIRMED`): liệt kê các khả năng cần xác minh thêm, không khẳng định một cơ
+    chế thiết bị cụ thể — tránh đúng lỗi "kết luận chắc chắn giả danh giả thuyết" mà đề bài cấm.
+    Trường `root_cause_evidence` (`COORDINATE_CLUSTER_CONFIRMED` | `ZONE_ONLY_UNCONFIRMED`) và
+    `root_cause_evidence_detail` (chi tiết cả ba tín hiệu, để QC/báo cáo thấy rõ vì sao hệ thống
+    kết luận vậy thay vì chỉ tin vào text tự do) trong response của `GET /api/quality-alerts` —
+    xem `API_CONTRACT.md` §6.4.
 
 ### 6.2. Kế hoạch Hành động Điều hướng Chống Dừng Line (Line Stoppage Prevention Plan)
 
@@ -203,6 +235,15 @@ với các chỉ số nghiệp vụ như `defects per lot`, `defects per shift`,
 > Multimodal LLM trong MVP hiện tại chỉ còn nhiệm vụ giải trình sau quyết định (FR-03d, dưới đây).
 
 - **FR-03d. Explainability:** Sau khi LangGraph + QC Rules đã xác định quyết định, Multimodal LLM (hoặc `DeterministicReasoningService` khi chạy rule-based) tạo explanation dễ hiểu cho QC. LLM **không được** tự thay đổi PASS/FAIL/final status/test-drive gate/recommendation code/tolerance/measurement (xem `POLICY_GOVERNANCE.md`).
+- **FR-03e. Rule-based defect-code classification (không LLM):** Bước **classify** — chọn
+  mã lỗi/severity band cụ thể (vd `DENT01` vs `DENT02`) cho một detection từ danh sách ứng
+  viên do defect catalog gợi ý theo `cv_label` — chạy bằng
+  `agent/services/defect_rule_engine.py`, một bộ luật ngưỡng số/đếm số lượng thuần
+  deterministic đọc `rule_type`/`min_mm`/`max_mm`/`min_detection_count` trên từng mã lỗi
+  (`defect_catalog` table). Không gọi LLM ở bước này. Một detection không tự động chọn
+  được mã (chưa cấu hình rule, nhiều mã chồng chéo, hoặc mã được đánh dấu
+  `REQUIRES_HUMAN`) route thẳng sang HITL — không dùng LLM để "đoán" thay, vì LLM không có
+  thêm dữ liệu nào ngoài các con số đo đạc đã có để quyết định tốt hơn một ngưỡng tường minh.
 
 Provenance dữ liệu bắt buộc phải rõ ràng:
 
@@ -211,8 +252,10 @@ class / confidence / bbox / mask       → YOLO
 area / orientation / centroid          → Geometry Processor
 depth_mm                               → Depth Sensor hoặc QC Measurement
 physical size mm                       → Calibration
+defect_code / severity band            → Rule Engine deterministic (FR-03e), không LLM
 QC tolerance                           → Controlled QC Policy
 PASS / FAIL                            → LangGraph + QC Rules
+giải trình bằng văn bản (explanation)  → Multimodal LLM (chỉ sau final decision, FR-03d)
 ```
 
 ### 7.4. Module 4: LangGraph Agent — Industrial Domain Reasoning & Routing
@@ -235,7 +278,7 @@ PASS / FAIL                            → LangGraph + QC Rules
   - **QC Inspector** (`human_review`, role `QC_OPERATOR`) chỉ có 3 lựa chọn: **PASS** (bác bỏ lỗi AI gắn cờ — xe đạt ngay, không có bước "tái kiểm tra" riêng), **FAIL** (xác nhận lỗi thật — xe chuyển Rework), hoặc **chuyển cấp xét duyệt cho QC Supervisor** (khi cần một mã hành động/khuyến nghị tùy biến ngoài quyết định PASS/FAIL thông thường).
   - **QC Supervisor** (`supervisor_review`, role `QC_SUPERVISOR`) chỉ xử lý case đã được chuyển cấp, và cũng chỉ có 2 lựa chọn: **PASS** (giữ đề xuất tùy biến của Inspector) hoặc **FAIL** (bác bỏ đề xuất, case quay lại quyết định policy chuẩn).
 - **FR-14:** Lịch sử phải hiển thị inspection summary gồm ảnh, mã xe, inspection ID, mã lỗi, confidence, camera, kích thước/vị trí, trạng thái và hành động cuối.
-- **FR-15 (HITL trigger tối thiểu):** HITL phải được kích hoạt khi: YOLO confidence thấp; Agent không phân loại được lỗi (`unknown`/chưa có mã QC hoạt động); thiếu evidence cần thiết; QC Rule không đủ dữ liệu để quyết định; suy luận LLM thất bại (provider unavailable/invalid). Không có nhánh nào được tự động chuyển thành PASS ngoài quyết định PASS/FAIL chuẩn ở trên.
+- **FR-15 (HITL trigger tối thiểu):** HITL phải được kích hoạt khi: YOLO confidence thấp; Agent không phân loại được lỗi (`unknown`/chưa có mã QC hoạt động); Rule Engine (FR-03e) không tự động chọn được mã lỗi cho một detection (chưa cấu hình `rule_type`, nhiều mã chồng chéo, hoặc mã được đánh dấu `REQUIRES_HUMAN`); thiếu evidence cần thiết; QC Rule không đủ dữ liệu để quyết định. LLM giải trình (FR-03d, chạy trong `assess_result`/`generate_recommendation`) thất bại/không khả dụng (timeout `8s`, lỗi mạng, lỗi API) **không còn là HITL trigger** kể từ bản sửa root-cause ngày 2026-08-31 (`ISSUE_REMEDIATION_PLAN.md` mục 1, phần "Bổ sung"): route/final_status đã được quyết định xong bằng policy thuần trước khi gọi LLM, nên khi LLM lỗi, Agent chỉ thay narrative bằng bản giải trình rule-based (`DeterministicReasoningService`, đánh dấu `agent_reasoning_status=LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC`) và giữ nguyên quyết định — tránh đúng rủi ro "Groq chậm/lỗi làm mọi ca đều rơi vào HITL, khiến Agent mất giá trị tự động hoá". Không có nhánh nào được tự động chuyển thành PASS ngoài quyết định PASS/FAIL chuẩn ở trên.
 - **FR-16 (RBAC):** Hệ thống có hai role: `QC_OPERATOR` (inspection, upload, xem segmentation/geometry/visual assessment/PASS-FAIL/explanation, xử lý HITL được phân công, xem history) và `QC_SUPERVISOR` (toàn bộ quyền Operator + dashboard toàn ca/lô, anomaly alert, historical trend, approve override, quản lý QC Rules trong phạm vi dự án cho phép). Đăng nhập/session dùng **Supabase Auth** (frontend đăng nhập trực tiếp với Supabase, backend chỉ verify access token); role lưu ở bảng `profiles` (PostgreSQL/Supabase), backend tra cứu để enforce RBAC authorization và current-user context (`GET /api/auth/me`) — xem `API_CONTRACT.md` §7.7, `ENVIRONMENT.md`. Chủ đích dùng nền tảng Auth có sẵn thay vì tự xây IAM, đúng tinh thần "không thiết kế IAM phức tạp" của MVP.
 - **FR-17 (Object Storage):** Ảnh gốc, ảnh overlay, defect crop và segmentation mask lưu trên S3/MinIO; PostgreSQL/Supabase chỉ lưu metadata/object key (`original_image_key`, `overlay_image_key`, `crop_image_key`, `mask_image_key`). Frontend truy cập qua backend hoặc presigned URL.
 - **FR-18 (Lot/Shift metadata):** Bổ sung `lot_id`, `shift_id`, `production_date`, `station_id` vào schema/workflow cần thiết để hỗ trợ thống kê defects per lot/shift, scratch/dent rate, PASS/FAIL rate (mục 6.3). `vehicle_id` vẫn là identifier bắt buộc của từng xe.

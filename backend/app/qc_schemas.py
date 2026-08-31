@@ -5,6 +5,36 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+RuleType = Literal["THRESHOLD_MM", "MIN_COUNT", "REQUIRES_HUMAN"]
+
+
+def _check_rule_fields(
+    rule_type: str | None, min_mm: float | None, max_mm: float | None, min_detection_count: int | None
+) -> None:
+    """Shared consistency guard for the structured, machine-evaluable classification rule
+    (agent/services/defect_rule_engine.py) -- kept separate from the free-text
+    `classification_rule` field, which stays whatever a human wrote for display. A code
+    with no `rule_type` (or an inconsistent one) is deliberately left unable to auto-match
+    in the rule engine, which routes it to HITL rather than guessing -- but we still reject
+    obviously-inconsistent data at write time so nobody expects a rule that was never
+    actually saved correctly."""
+    if rule_type == "THRESHOLD_MM":
+        if min_mm is None and max_mm is None:
+            raise ValueError("THRESHOLD_MM requires at least one of min_mm or max_mm")
+        if min_detection_count is not None:
+            raise ValueError("min_detection_count is only valid with rule_type=MIN_COUNT")
+    elif rule_type == "MIN_COUNT":
+        if min_detection_count is None:
+            raise ValueError("MIN_COUNT requires min_detection_count")
+        if min_mm is not None or max_mm is not None:
+            raise ValueError("min_mm/max_mm are only valid with rule_type=THRESHOLD_MM")
+    elif rule_type in (None, "REQUIRES_HUMAN"):
+        if min_mm is not None or max_mm is not None or min_detection_count is not None:
+            raise ValueError(
+                "min_mm/max_mm/min_detection_count require rule_type=THRESHOLD_MM or MIN_COUNT"
+            )
+
+
 class DefectCodeCreate(BaseModel):
     defect_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{2,31}$")
     defect_type: Literal["scratch", "dent"]
@@ -21,6 +51,13 @@ class DefectCodeCreate(BaseModel):
     # SCRATCH01-05/DENT01-05 ship with cite "FNS-SEVERITY-CRITERIA-INTERNAL" (DRAFT).
     # Not a foreign key: the source registry lives in the policy catalog, not this DB.
     source_id: str | None = Field(default=None, max_length=64)
+    # Structured rule the deterministic rule engine evaluates automatically -- see
+    # agent/services/defect_rule_engine.py. Left unset (None), a code can never auto-match
+    # and every finding classified against it routes straight to HITL.
+    rule_type: RuleType | None = None
+    min_mm: float | None = Field(default=None, ge=0)
+    max_mm: float | None = Field(default=None, ge=0)
+    min_detection_count: int | None = Field(default=None, ge=1)
 
     @field_validator("defect_code")
     @classmethod
@@ -32,6 +69,11 @@ class DefectCodeCreate(BaseModel):
     def normalize_type(cls, value: str) -> str:
         return value.strip().lower().replace(" ", "_")
 
+    @model_validator(mode="after")
+    def validate_rule_fields(self) -> DefectCodeCreate:
+        _check_rule_fields(self.rule_type, self.min_mm, self.max_mm, self.min_detection_count)
+        return self
+
 
 class DefectCodeUpdate(BaseModel):
     defect_family: str | None = Field(default=None, max_length=80)
@@ -42,6 +84,19 @@ class DefectCodeUpdate(BaseModel):
     measurement_required: bool | None = None
     source_id: str | None = Field(default=None, max_length=64)
     active: bool | None = None
+    rule_type: RuleType | None = None
+    min_mm: float | None = Field(default=None, ge=0)
+    max_mm: float | None = Field(default=None, ge=0)
+    min_detection_count: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_rule_fields(self) -> DefectCodeUpdate:
+        # Only enforced when `rule_type` is part of THIS update -- a partial patch that
+        # only touches e.g. `display_name` must not be forced to re-supply min_mm/max_mm
+        # that were already saved in an earlier update.
+        if self.rule_type is not None:
+            _check_rule_fields(self.rule_type, self.min_mm, self.max_mm, self.min_detection_count)
+        return self
 
 
 class ProfileUpdate(BaseModel):

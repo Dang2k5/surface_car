@@ -100,6 +100,10 @@ function HitlQueue() {
   const [reviewer, setReviewer] = useState("");
   const [reason, setReason] = useState("");
   const [defectCode, setDefectCode] = useState("");
+  // Only used when the case has MORE than one unresolved finding (backend/app/
+  // langgraph_schemas.py's DetectionResolution) -- one chosen defect_code per
+  // detection_id, keyed the same way camera_classifications already is everywhere else.
+  const [detectionResolutions, setDetectionResolutions] = useState<Record<string, string>>({});
   const [severity, setSeverity] = useState("");
   const [disposition, setDisposition] = useState<"PASS" | "HOLD" | "REPAIR">("REPAIR");
   const [location, setLocation] = useState("");
@@ -128,6 +132,7 @@ function HitlQueue() {
       active?.state.severity && active.state.severity !== "UNASSESSED" ? active.state.severity : "",
     );
     setDefectCode(active?.state.classified_defect_code || "");
+    setDetectionResolutions({});
     setLengthMm(
       active?.state.visual_measurements?.estimated_length_mm != null
         ? active.state.visual_measurements.estimated_length_mm.toFixed(1)
@@ -176,6 +181,17 @@ function HitlQueue() {
   }
 
   const state = active.state;
+
+  // A case can have more than one independently-classified finding still waiting for a
+  // defect_code (agent/graph/nodes.py's QCNodes.detect_defect classifies every detection,
+  // not just the case's single worst one). Resolving all of them with the one `defectCode`
+  // field below would silently mislabel every finding after the first with whichever code
+  // was picked for a DIFFERENT finding -- once there's more than one, each needs its own
+  // dropdown and its own entry in detection_resolutions (backend/app/langgraph_schemas.py).
+  const unresolvedFindings = (state.camera_classifications ?? []).filter(
+    (c) => c.classified_defect_code == null,
+  );
+  const needsPerFindingResolution = unresolvedFindings.length > 1;
 
   // A multi-camera submission can carry 1-5 photos and multiple findings across them
   // (agent/services/yolo_detector.py returns every detection, not just the primary one that
@@ -230,6 +246,10 @@ function HitlQueue() {
       setValidationError("CẦN NHẬP ĐỀ XUẤT KHI GHI ĐÈ QUYẾT ĐỊNH");
       return;
     }
+    if (needsPerFindingResolution && unresolvedFindings.some((f) => !detectionResolutions[f.detection_id])) {
+      setValidationError("CẦN CHỌN MÃ LỖI CHO TỪNG PHÁT HIỆN CHƯA PHÂN LOẠI");
+      return;
+    }
     setValidationError("");
     try {
       await resume.mutateAsync({
@@ -241,7 +261,18 @@ function HitlQueue() {
           // REJECT means the QC Inspector found no qualifying defect in the flagged region —
           // the vehicle passes immediately, there is no separate reinspection state anymore.
           disposition: action === "REJECT" ? "PASS" : disposition,
-          ...(defectCode ? { defect_code: defectCode } : {}),
+          ...(needsPerFindingResolution
+            ? {
+                // Validated above (every unresolvedFindings entry has a selection) before
+                // this branch is ever reached, so the non-null assertion is safe here.
+                detection_resolutions: unresolvedFindings.map((f) => ({
+                  detection_id: f.detection_id,
+                  defect_code: detectionResolutions[f.detection_id]!,
+                })),
+              }
+            : defectCode
+              ? { defect_code: defectCode }
+              : {}),
           ...(severity ? { severity } : {}),
           ...(location ? { location } : {}),
           ...(lengthMm ? { length_mm: Number(lengthMm) } : {}),
@@ -415,10 +446,45 @@ function HitlQueue() {
 
               <div className="mt-4 space-y-3 rounded-sm border border-border bg-surface-2 p-3">
                 <div className="label-caps">Thông tin quyết định QC</div>
+                {needsPerFindingResolution ? (
+                  <div className="space-y-2 rounded-sm border border-warning/45 bg-warning/10 p-2">
+                    <div className="label-caps text-warning">
+                      {unresolvedFindings.length} phát hiện chưa phân loại — chọn mã cho từng cái
+                    </div>
+                    {unresolvedFindings.map((finding) => (
+                      <label key={finding.detection_id} className="block">
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {finding.camera_id} · {finding.defect_type}
+                        </span>
+                        <select
+                          value={detectionResolutions[finding.detection_id] ?? ""}
+                          onChange={(e) =>
+                            setDetectionResolutions((current) => ({
+                              ...current,
+                              [finding.detection_id]: e.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
+                        >
+                          <option value="">— chọn mã lỗi —</option>
+                          {finding.suggested_defect_codes.map((d) => (
+                            <option key={d.defect_code} value={d.defect_code}>
+                              {d.defect_code} · {d.display_name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
                     <span className="label-caps">Mã lỗi</span>
-                    {state.suggested_defect_codes?.length ? (
+                    {needsPerFindingResolution ? (
+                      <div className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-muted-foreground">
+                        Xem danh sách phía trên
+                      </div>
+                    ) : state.suggested_defect_codes?.length ? (
                       <select
                         value={defectCode}
                         onChange={(e) => setDefectCode(e.target.value)}

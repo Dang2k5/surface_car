@@ -29,6 +29,22 @@ export const Route = createFileRoute("/supervisor/audit")({
 
 const PAGE_SIZE = 20;
 
+// Same format as "Tra cứu inspection" (supervisor/inspections.tsx's formatDateTime), kept in
+// sync manually so a decision's timestamp reads identically whether it's viewed from this log
+// or cross-referenced on that page.
+function formatDateTime(time: string): string {
+  if (!time) return "—";
+  const d = new Date(time);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function downloadCsv(rows: QcDecision[]) {
   const header = [
     "created_at",
@@ -263,7 +279,7 @@ function Audit() {
               <tbody>
                 {paged.map((d) => (
                   <Tr key={d.decision_id} onClick={() => setSelected(d)}>
-                    <Td className="num">{d.created_at}</Td>
+                    <Td className="num font-mono text-xs">{formatDateTime(d.created_at)}</Td>
                     <Td className="font-medium">{d.reviewer}</Td>
                     <Td>
                       <Badge
@@ -306,7 +322,7 @@ function Audit() {
         open={!!selected}
         onClose={() => setSelected(null)}
         title={selected ? `${selected.action} · ${selected.inspection_id}` : ""}
-        subtitle={selected ? `${selected.created_at} · ${selected.reviewer}` : ""}
+        subtitle={selected ? `${formatDateTime(selected.created_at)} · ${selected.reviewer}` : ""}
         width="max-w-[640px]"
       >
         {selected && (

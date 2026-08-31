@@ -29,6 +29,12 @@ class VideoProcessingError(Exception):
 class VideoProcessor:
     """Extract frames from video files with configurable sampling interval."""
 
+    # Above this, a single upload's extracted frames would be buffered in memory and
+    # then fed as one YOLO.predict() batch under the model's global lock (see
+    # agent/services/yolo_detector.py), long enough to starve every other concurrent
+    # inspection behind it. 180s at the minimum 0.5s interval is already 360 frames.
+    MAX_VIDEO_DURATION_SECONDS = 180.0
+
     SUPPORTED_FORMATS = {
         ".mp4",
         ".mov",
@@ -79,15 +85,14 @@ class VideoProcessor:
         self,
         video_path: str | Path,
         camera_id: str = "unknown",
-        model_image_size: int = 640,
     ) -> dict[str, Any]:
         """
-        Extract frames from video at specified interval.
+        Extract frames from video at specified interval, at the camera's native resolution
+        (no resize here -- see the detector's own `imgsz` handling for that).
 
         Args:
             video_path: Path to video file
             camera_id: Camera identifier for tracking
-            model_image_size: Target image size for model (resizes if needed)
 
         Returns:
             {
@@ -127,17 +132,23 @@ class VideoProcessor:
                     )
 
                 duration_seconds = frame_count / fps
-                frames_to_extract = int(duration_seconds / self.extract_interval)
-
-                if frames_to_extract == 0:
+                if duration_seconds > self.MAX_VIDEO_DURATION_SECONDS:
                     raise VideoProcessingError(
-                        f"Video too short ({duration_seconds:.2f}s) for interval {self.extract_interval}s"
+                        f"Video too long ({duration_seconds:.1f}s): max "
+                        f"{self.MAX_VIDEO_DURATION_SECONDS:.0f}s per upload"
                     )
+
+                # max(1, ...): when the native frame spacing (1/fps) is already coarser than
+                # extract_interval (e.g. a 1.5fps timelapse camera with the minimum allowed
+                # 0.5s interval), there is no frame to skip to sample any sparser than the
+                # camera's own rate -- int(fps * interval) would be 0 there, causing a
+                # ZeroDivisionError below. The correct behavior is to just take every frame
+                # the camera actually has, not reject an otherwise-valid low-fps video.
+                next_extract_frame = max(1, int(fps * self.extract_interval))
 
                 # Extract frames
                 extracted_frames = []
                 frame_idx = 0
-                next_extract_frame = int(fps * self.extract_interval)
 
                 while True:
                     ret, frame = cap.read()
@@ -146,15 +157,29 @@ class VideoProcessor:
 
                     if frame_idx % next_extract_frame == 0 or frame_idx == frame_count - 1:
                         timestamp = frame_idx / fps
-                        # Resize to model input size if needed
-                        if frame.shape[0] != model_image_size or frame.shape[1] != model_image_size:
-                            frame = cv2.resize(frame, (model_image_size, model_image_size))
-
+                        # No resize here: keep the frame at the camera's native resolution and
+                        # let LocalYoloSegmentationDetector.detect() resize it internally via
+                        # `imgsz`, exactly like the photo-upload path does with the original
+                        # image. Forcing a square resize here (as this used to do) distorted
+                        # the aspect ratio before the model ever saw the frame -- something the
+                        # photo path never did -- so the same physical defect could measure a
+                        # different mm size (and therefore a different severity) depending on
+                        # whether it was submitted as a photo or a video frame.
                         extracted_frames.append(
                             {"timestamp": round(timestamp, 3), "frame_data": frame}
                         )
 
                     frame_idx += 1
+
+                # A single, real source of truth for "did we get anything": check the actual
+                # extraction result instead of a separately-computed frame-count estimate (the
+                # old `frames_to_extract = int(duration_seconds / self.extract_interval)` guard
+                # used a different formula than the loop above and could diverge from it).
+                if not extracted_frames:
+                    raise VideoProcessingError(
+                        f"No frames could be extracted from video (duration={duration_seconds:.2f}s, "
+                        f"fps={fps:.2f}, frame_count={frame_count})"
+                    )
 
                 # Calculate video SHA256 for tracking
                 video_sha256 = self._sha256_file(video_path)
@@ -386,6 +411,22 @@ class DefectDeduplicator:
         merged["_frame_timestamps"] = sorted(
             set(d.get("_frame_timestamp", 0) for d in detections)
         )
+        # Keep EVERY observation's own bbox/segmentation, not just the single "best" frame's —
+        # each raw detection here was already independently inferred by YOLO on its own frame
+        # (no extra inference cost to keep this), so the player can draw the exact box/mask for
+        # whichever frame is nearest the video's current playback time instead of freezing the
+        # mask at the position it happened to have in the highest-confidence frame alone.
+        merged["_track_frames"] = sorted(
+            (
+                {
+                    "timestamp": d.get("_frame_timestamp", 0),
+                    "bbox": d.get("bbox"),
+                    "segmentation": d.get("segmentation"),
+                }
+                for d in detections
+            ),
+            key=lambda f: f["timestamp"],
+        )
 
         return merged
 
@@ -410,140 +451,8 @@ class DefectDeduplicator:
         return groups
 
 
-class MultiCameraAggregator:
-    """
-    Tier-2 aggregation: Merge deduplicated results from multiple cameras.
-
-    Combines per-camera results into a single inspection result,
-    handling cases where the same physical defect appears in multiple camera views.
-    """
-
-    def __init__(self, spatial_iou_threshold: float = 0.3):
-        """
-        Args:
-            spatial_iou_threshold: Intersection-over-union threshold for merging
-                                  defects from different cameras (default 0.3)
-        """
-        self.spatial_iou_threshold = spatial_iou_threshold
-
-    def aggregate_multi_camera(
-        self, camera_results: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """
-        Aggregate defects from multiple cameras into single result.
-
-        Args:
-            camera_results: List of per-camera results
-                Each: {
-                    "camera_id": str,
-                    "unique_defects": [detection, ...],
-                    "defect_count": int,
-                    "merge_info": {...}
-                }
-
-        Returns:
-            {
-                "camera_count": int,
-                "aggregated_defects": [merged_defect, ...],
-                "defect_count": int,
-                "cameras_involved": [camera_id, ...],
-                "aggregation_info": {
-                    "total_unique_defects_per_camera": int,
-                    "merged_across_cameras": int,
-                    "aggregation_groups": [{...}, ...]
-                }
-            }
-        """
-        if not camera_results:
-            return {
-                "camera_count": 0,
-                "aggregated_defects": [],
-                "defect_count": 0,
-                "cameras_involved": [],
-                "aggregation_info": {
-                    "total_unique_defects_per_camera": 0,
-                    "merged_across_cameras": 0,
-                    "aggregation_groups": [],
-                },
-            }
-
-        cameras_involved = [cr["camera_id"] for cr in camera_results]
-
-        # Flatten all defects from all cameras
-        all_defects = []
-        for cam_result in camera_results:
-            for defect in cam_result.get("unique_defects", []):
-                defect_with_cam = dict(defect)
-                defect_with_cam["_source_camera"] = cam_result["camera_id"]
-                all_defects.append(defect_with_cam)
-
-        if not all_defects:
-            return {
-                "camera_count": len(camera_results),
-                "aggregated_defects": [],
-                "defect_count": 0,
-                "cameras_involved": cameras_involved,
-                "aggregation_info": {
-                    "total_unique_defects_per_camera": 0,
-                    "merged_across_cameras": 0,
-                    "aggregation_groups": [],
-                },
-            }
-
-        # If only one camera, return as-is
-        if len(camera_results) == 1:
-            aggregated = all_defects
-            aggregation_groups = []
-        else:
-            # Merge defects across cameras
-            aggregated = self._merge_across_cameras(all_defects)
-            aggregation_groups = self._create_aggregation_groups(all_defects, aggregated)
-
-        return {
-            "camera_count": len(camera_results),
-            "aggregated_defects": aggregated,
-            "defect_count": len(aggregated),
-            "cameras_involved": cameras_involved,
-            "aggregation_info": {
-                "total_unique_defects_per_camera": sum(cr["defect_count"] for cr in camera_results),
-                "merged_across_cameras": sum(
-                    cr["defect_count"] for cr in camera_results
-                ) - len(aggregated),
-                "aggregation_groups": aggregation_groups,
-            },
-        }
-
-    def _merge_across_cameras(self, defects: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Merge defects that appear in multiple camera views."""
-        if len(defects) <= 1:
-            return defects
-
-        # For now, keep all defects (conservative approach)
-        # In production, could implement IoU-based merging
-        # to detect same physical defect from different cameras
-        # But this requires camera calibration data
-
-        # Sort by confidence to prioritize better detections
-        return sorted(defects, key=lambda d: d.get("confidence", 0), reverse=True)
-
-    @staticmethod
-    def _create_aggregation_groups(
-        originals: list[dict[str, Any]], aggregated: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Create tracking info for aggregation groups."""
-        # Simplified: just track if defects came from multiple cameras
-        multi_cam_defects = []
-        for agg_det in aggregated:
-            # This would require more complex tracking to know
-            # which originals mapped to this aggregated defect
-            pass
-
-        return multi_cam_defects
-
-
 __all__ = (
     "VideoProcessor",
     "DefectDeduplicator",
-    "MultiCameraAggregator",
     "VideoProcessingError",
 )

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import json
-import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 
 def build_audit_export(state: dict[str, Any]) -> dict[str, Any]:
-    """Build a portable audit package without workstation-local file paths."""
+    """Build a portable audit package without workstation-local file paths.
+
+    Used only on-demand by backend/app/langgraph_api.py's export_agent_run(s) endpoints,
+    which regenerate this straight from the persisted Postgres state -- there is no
+    auto-write-to-disk path anymore (removed: it only ever duplicated agent_graph_runs.
+    state_json into an unbounded, unread local file per inspection)."""
     final_status = state.get("final_status", "UNKNOWN")
     return {
         "schema": "visual-qc-agent-audit/v1",
@@ -84,33 +84,3 @@ def build_audit_export(state: dict[str, Any]) -> dict[str, Any]:
         "reasoning": state.get("ai_analysis"),
         "agent_analysis": state.get("agent_analysis"),
     }
-
-
-class JsonAuditExporter:
-    """Write the latest state of each graph thread as an atomic JSON artifact."""
-
-    def __init__(self, export_directory: Path, *, enabled: bool = True) -> None:
-        self.export_directory = export_directory
-        self.enabled = enabled
-
-    def export(self, state: dict[str, Any]) -> Path | None:
-        if not self.enabled:
-            return None
-        thread_id = str(state["thread_id"])
-        destination = self.export_directory / f"visual-qc-inspection-{thread_id}.json"
-        temporary = destination.with_suffix(".json.tmp")
-        try:
-            self.export_directory.mkdir(parents=True, exist_ok=True)
-            temporary.write_text(
-                json.dumps(build_audit_export(state), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            temporary.replace(destination)
-        except OSError:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
-            logger.exception("Unable to auto-export audit JSON for thread %s", thread_id)
-            return None
-        return destination

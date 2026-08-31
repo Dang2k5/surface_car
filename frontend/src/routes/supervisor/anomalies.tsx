@@ -11,7 +11,7 @@ import {
   severityTone,
   Timeline,
 } from "@/components/supervisor/ui";
-import { formatZoneName } from "@/lib/detection-geometry";
+import { formatRoutingCommand, formatZoneName } from "@/lib/detection-geometry";
 import { useQualityAlerts } from "@/lib/queries";
 import type { QualityAlert } from "@/lib/api-types";
 
@@ -131,18 +131,41 @@ function Anomalies() {
             <Panel title="Nguyên nhân dự đoán">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
-                <p className="text-[12.5px] text-foreground">
-                  {selected.predicted_root_cause || "Chưa xác định"}
-                </p>
+                <div className="space-y-2">
+                  <p className="text-[12.5px] text-foreground">
+                    {selected.predicted_root_cause || "Chưa xác định"}
+                  </p>
+                  <Badge tone={selected.root_cause_evidence === "COORDINATE_CLUSTER_CONFIRMED" ? "warn" : "neutral"}>
+                    {selected.root_cause_evidence === "COORDINATE_CLUSTER_CONFIRMED"
+                      ? "Có đủ bằng chứng — nêu đích danh thiết bị nghi ngờ"
+                      : "Chưa đủ bằng chứng — chỉ khoanh vùng khả năng, chưa nêu thiết bị cụ thể"}
+                  </Badge>
+                  {selected.root_cause_evidence_detail && (
+                    <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                      <li className={selected.root_cause_evidence_detail.coordinate_cluster ? "text-success" : ""}>
+                        {selected.root_cause_evidence_detail.coordinate_cluster ? "✓" : "✗"} Lỗi cụm cùng tọa độ khung hình
+                      </li>
+                      <li className={selected.root_cause_evidence_detail.single_camera ? "text-success" : ""}>
+                        {selected.root_cause_evidence_detail.single_camera ? "✓" : "✗"} Cùng một camera ghi nhận
+                      </li>
+                      <li className={selected.root_cause_evidence_detail.severity_at_least_warning ? "text-success" : ""}>
+                        {selected.root_cause_evidence_detail.severity_at_least_warning ? "✓" : "✗"} Đủ số lần lặp lại (không chỉ WATCH)
+                      </li>
+                    </ul>
+                  )}
+                </div>
               </div>
             </Panel>
 
             <Panel title="Khuyến nghị xử lý">
               <p className="text-[12.5px] text-foreground">
-                {selected.actionable_routing_command || "—"}
+                {selected.recommendation_vi || selected.recommendation_en || "—"}
+              </p>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Hành động điều phối: {formatRoutingCommand(selected.actionable_routing_command)}
               </p>
               {selected.upstream_target_shop ? (
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-[11px] text-muted-foreground">
                   Chuyển tới bộ phận: {selected.upstream_target_shop}
                 </p>
               ) : null}

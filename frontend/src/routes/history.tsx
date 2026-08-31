@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { assetUrl } from "@/lib/auth";
 import { formatZoneName } from "@/lib/detection-geometry";
 import { useAgentRuns } from "@/lib/queries";
-import type { GraphRun } from "@/lib/api-types";
+import type { GraphRun, QCState } from "@/lib/api-types";
 
 export const Route = createFileRoute("/history")({
   head: () => ({
@@ -33,6 +33,18 @@ const results = ["ALL", "PASS", "FAIL", "HITL"] as const;
 const types = ["ALL", "Scratch", "Dent"] as const;
 
 type Row = HistoryRow & { threadId: string; enrichedCount: number };
+
+const HUMAN_DECISION_LABELS: Record<string, string> = {
+  APPROVE: "ĐÃ XÁC NHẬN FAIL",
+  REJECT: "ĐÃ XÁC NHẬN PASS",
+  OVERRIDE: "ĐÃ CHUYỂN CẤP XÉT DUYỆT",
+};
+
+function humanDecisionLabel(decision: QCState["human_decision"]): string {
+  if (!decision) return "—";
+  const action = HUMAN_DECISION_LABELS[decision.action] ?? decision.action;
+  return decision.reviewer ? `${action} · ${decision.reviewer}` : action;
+}
 
 function verdictFor(run: GraphRun): Verdict {
   if (run.status === "INTERRUPTED") return "HITL";
@@ -378,8 +390,16 @@ function InspectionHistory() {
                 <Field label="Loại lỗi" value={selected.defectType} />
                 <Field
                   label="Quyết định con người"
-                  value={selected.result === "HITL" ? "ĐANG CHỜ" : "—"}
-                  {...(selected.result === "HITL" ? { tone: "warning" as const } : {})}
+                  value={
+                    selectedRun?.state.human_decision
+                      ? humanDecisionLabel(selectedRun.state.human_decision)
+                      : selected.result === "HITL"
+                        ? "ĐANG CHỜ"
+                        : "—"
+                  }
+                  {...(selected.result === "HITL" && !selectedRun?.state.human_decision
+                    ? { tone: "warning" as const }
+                    : {})}
                 />
               </div>
 

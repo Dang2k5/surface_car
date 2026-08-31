@@ -30,11 +30,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# Data (never commit large data). Portable audit JSON exports are reviewable artifacts.
+# Data (never commit large data).
 data/*
-!data/exports/
-data/exports/*
-!data/exports/*.json
 *.db
 *.sqlite3
 train-*.zip

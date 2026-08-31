@@ -56,6 +56,16 @@ export type EnrichedDefect = {
    * clip) this tracked defect was actually observed in, so the player can show its box only
    * near those moments instead of burning it onto the whole clip. */
   track_timestamps?: number[];
+  /** Same video-sourced-camera tracking as track_timestamps, but carrying each observation's
+   * own bbox/segmentation (every extracted frame was independently inferred, not just the
+   * single highest-confidence one) -- lets the player draw the mask at the position it
+   * actually had nearest the current playback time instead of freezing it at one frame's
+   * position for the whole tracked window. */
+  track_frames?: {
+    timestamp: number;
+    bbox: { x1: number; y1: number; x2: number; y2: number } | null;
+    segmentation?: { format: string; points: number[][] } | null;
+  }[];
 };
 
 // One entry per camera that had >=1 detection — each camera's own worst finding,
@@ -250,6 +260,13 @@ export type TrendRow = {
 // source_document_status trace back to the controlled-policy source register
 // (agent/policies/qc_policy_catalog.json) that justifies default_severity/classification_rule;
 // document_status !== "APPROVED" means that threshold is still an unapproved working draft.
+// rule_type/min_mm/max_mm/min_detection_count are the structured counterpart to
+// classification_rule that agent/services/defect_rule_engine.py actually evaluates to
+// auto-select a code (classification_rule stays free text, for humans to read). A code
+// with rule_type null/undefined can never auto-match -- the rule engine always routes it
+// to HITL instead of guessing.
+export type DefectCodeRuleType = "THRESHOLD_MM" | "MIN_COUNT" | "REQUIRES_HUMAN";
+
 export type DefectCode = {
   defect_code: string;
   defect_type: string;
@@ -264,6 +281,10 @@ export type DefectCode = {
   source_id: string | null;
   source_title: string | null;
   source_document_status: string | null;
+  rule_type: DefectCodeRuleType | null;
+  min_mm: number | null;
+  max_mm: number | null;
+  min_detection_count: number | null;
 };
 
 export type QualityAlert = {
@@ -286,6 +307,13 @@ export type QualityAlert = {
   consecutive_count: number;
   trigger_type: string;
   predicted_root_cause: string;
+  root_cause_evidence: "COORDINATE_CLUSTER_CONFIRMED" | "ZONE_ONLY_UNCONFIRMED";
+  root_cause_evidence_detail: {
+    coordinate_cluster: boolean;
+    single_camera: boolean;
+    severity_at_least_warning: boolean;
+    occurrence_count: number;
+  };
   upstream_target_shop: string;
   actionable_routing_command: string;
   message_en: string;
@@ -324,6 +352,10 @@ export type ResumePayload = {
   length_mm?: number;
   notes?: string;
   recommendation?: string;
+  // Required instead of defect_code when the case has more than one unresolved finding
+  // (backend/app/langgraph_schemas.py's DetectionResolution) -- one defect_code per
+  // detection_id, so each finding gets its own real classification.
+  detection_resolutions?: { detection_id: string; defect_code: string; severity?: string }[];
 };
 
 export type SubmitSingleInspection = {
@@ -434,6 +466,10 @@ export type DefectCodeCreate = {
   measurement_required?: boolean;
   source_id?: string;
   active?: boolean;
+  rule_type?: DefectCodeRuleType;
+  min_mm?: number;
+  max_mm?: number;
+  min_detection_count?: number;
 };
 
 export type DefectCodeUpdate = {
@@ -445,6 +481,10 @@ export type DefectCodeUpdate = {
   measurement_required?: boolean;
   source_id?: string;
   active?: boolean;
+  rule_type?: DefectCodeRuleType;
+  min_mm?: number;
+  max_mm?: number;
+  min_detection_count?: number;
 };
 
 // QC_SUPERVISOR-facing types, ported from the legacy quality-command-61 (Lovable) frontend —

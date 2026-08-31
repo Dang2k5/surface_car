@@ -34,14 +34,12 @@ def test_db_schema(monkeypatch) -> str:
 
 
 @pytest.fixture(autouse=True)
-def use_isolated_test_environment(monkeypatch, tmp_path, test_db_schema):
+def use_isolated_test_environment(monkeypatch, test_db_schema):
     """Tests run the same real local_yolo detector and PostgreSQL as production; only
     the schema (test_db_schema) isolates each test's data from real QC records."""
     monkeypatch.setenv("QC_REASONING_PROVIDER", "deterministic")
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
-    monkeypatch.setenv("AUDIT_AUTO_EXPORT_ENABLED", "true")
-    monkeypatch.setenv("AUDIT_EXPORT_DIR", str(tmp_path / "audit-exports"))
 
 
 @pytest.fixture

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from pydantic import BaseModel
@@ -27,17 +26,19 @@ class HitlRateAlert(BaseModel):
     recommend_stop_line: bool
 
 
-def _requires_hitl(state: dict[str, Any]) -> bool:
+def _requires_hitl(row: dict[str, Any]) -> bool:
     """A case needed a human at some point iff assess_result ever routed it to HITL.
 
     Deliberately NOT `agent_graph_runs.status` (PASS/FAIL/WAITING_FOR_HITL) — that column is
     overwritten with the final outcome once a pending HITL case is resumed, so by the time a
     later request reads it, a *resolved* HITL case is indistinguishable from one that never
-    needed a human. `assessment_route` inside the persisted state is set once in
-    QCNodes.assess_result and is never reset by human_review/supervisor_review/
-    generate_recommendation, so it survives resolution.
+    needed a human. `assessment_route` is set once in QCNodes.assess_result and is never
+    reset by human_review/supervisor_review/generate_recommendation, so it survives
+    resolution. Read straight from the dedicated `assessment_route` column
+    (backend/app/database.py's get_recent_outcomes_by_station) instead of parsing the full
+    `state_json` blob — this runs on every inspection submission via _enforce_line_gate.
     """
-    return state.get("assessment_route") == "HITL"
+    return row.get("assessment_route") == "HITL"
 
 
 class HitlRateAlertService:
@@ -85,18 +86,17 @@ class HitlRateAlertService:
         warning_rate = min(warning_rate, critical_rate)
 
         rows = self.database.get_recent_outcomes_by_station(station_id, limit=window_size)
-        states = [json.loads(row["state_json"]) for row in rows]
-        sample_size = len(states)
+        sample_size = len(rows)
         if sample_size == 0:
             return None
 
         consecutive_count = 0
-        for state in states:  # newest first
-            if not _requires_hitl(state):
+        for row in rows:  # newest first
+            if not _requires_hitl(row):
                 break
             consecutive_count += 1
 
-        hitl_count = sum(1 for state in states if _requires_hitl(state))
+        hitl_count = sum(1 for row in rows if _requires_hitl(row))
         rate = hitl_count / sample_size
 
         consecutive_severity = self._severity_from_threshold(

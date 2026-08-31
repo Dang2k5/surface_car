@@ -16,7 +16,6 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from agent.graph.builder import build_qc_graph
-from agent.services.audit_export import JsonAuditExporter
 from agent.services.defect_catalog import DatabaseDefectCatalog
 from agent.services.object_storage import LocalDiskObjectStorage, ObjectStorageService, S3ObjectStorage
 from agent.services.policy import PolicyCatalog
@@ -31,7 +30,7 @@ from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
 from .auth_api import router as auth_router
 from .catalog_api import router as catalog_router
-from .config import AuditExportSettings, AuthSettings, ModelSettings, ObjectStorageSettings
+from .config import AuthSettings, ModelSettings, ObjectStorageSettings
 from .database import Database, normalize_database_url
 from .hitl_alerts import HitlRateAlertService
 from .hitl_alerts_api import router as hitl_alerts_router
@@ -207,15 +206,7 @@ async def lifespan(app: FastAPI):
     app.state.qc_checkpointer, app.state.qc_checkpointer_conn = _build_qc_checkpointer(
         get_database_url(), get_database_schema()
     )
-    app.state.audit_export_settings = AuditExportSettings.from_env()
-    app.state.qc_audit_exporter = JsonAuditExporter(
-        app.state.audit_export_settings.directory,
-        enabled=app.state.audit_export_settings.enabled,
-    )
-    app.state.qc_repository = PostgresQCRepository(
-        app.state.database,
-        audit_exporter=app.state.qc_audit_exporter,
-    )
+    app.state.qc_repository = PostgresQCRepository(app.state.database)
     app.state.qc_defect_catalog = DatabaseDefectCatalog(app.state.database)
     app.state.hitl_alert_service = HitlRateAlertService(app.state.database)
     app.state.model_settings = ModelSettings.from_env()

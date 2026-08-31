@@ -7,7 +7,6 @@ from typing import Any, Protocol
 from sqlalchemy import text
 
 from agent.graph.state import QCState
-from agent.services.audit_export import JsonAuditExporter
 
 REMOVED_CONTEXT_FIELDS = {"vin_code", "panel", "material"}
 
@@ -40,9 +39,8 @@ class QCRepository(Protocol):
 class PostgresQCRepository:
     """Persists QC graph runs to the shared Supabase PostgreSQL database."""
 
-    def __init__(self, database: Any, audit_exporter: JsonAuditExporter | None = None) -> None:
+    def __init__(self, database: Any) -> None:
         self.database = database
-        self.audit_exporter = audit_exporter
 
     def save(self, state: QCState) -> None:
         with self.database.begin() as connection:
@@ -54,9 +52,11 @@ class PostgresQCRepository:
                 text(
                     """INSERT INTO agent_graph_runs
                     (thread_id, inspection_id, vehicle_id, status, lot_id, shift_id,
-                     station_id, production_date, defect_type, state_json, updated_at)
+                     station_id, production_date, defect_type, assessment_route,
+                     state_json, updated_at)
                     VALUES (:thread_id, :inspection_id, :vehicle_id, :status, :lot_id, :shift_id,
-                            :station_id, :production_date, :defect_type, :state_json, :updated_at)
+                            :station_id, :production_date, :defect_type, :assessment_route,
+                            :state_json, :updated_at)
                     ON CONFLICT(thread_id) DO UPDATE SET
                         inspection_id = excluded.inspection_id,
                         vehicle_id = excluded.vehicle_id,
@@ -66,6 +66,7 @@ class PostgresQCRepository:
                         station_id = excluded.station_id,
                         production_date = excluded.production_date,
                         defect_type = excluded.defect_type,
+                        assessment_route = excluded.assessment_route,
                         state_json = excluded.state_json,
                         updated_at = excluded.updated_at"""
                 ),
@@ -79,12 +80,14 @@ class PostgresQCRepository:
                     "station_id": state.get("station_id"),
                     "production_date": state.get("production_date"),
                     "defect_type": state.get("defect_type"),
+                    # Dedicated column so HitlRateAlertService can read this one field
+                    # without loading/parsing the full state_json blob on every submission
+                    # (backend/app/database.py's get_recent_outcomes_by_station).
+                    "assessment_route": state.get("assessment_route"),
                     "state_json": json.dumps(state),
                     "updated_at": datetime.now(UTC).isoformat(),
                 },
             )
-        if self.audit_exporter is not None:
-            self.audit_exporter.export(dict(state))
 
     def get(self, thread_id: str) -> dict[str, Any] | None:
         row = self.database.fetch_one(

@@ -12,7 +12,17 @@ from langgraph.types import Command
 load_dotenv()
 
 from agent.graph.builder import build_qc_graph
-from agent.services.reasoning import DeterministicReasoningService
+from agent.graph.nodes import QCNodes
+from agent.services.defect_catalog import StaticDefectCatalog
+from agent.services.policy import PolicyCatalog
+from agent.services.reasoning import DeterministicReasoningService, ReasoningUnavailableError
+
+
+class _FlakyReasoning(DeterministicReasoningService):
+    """Simulates a Groq narrative call that always fails (timeout/network/etc)."""
+
+    def analyze(self, state, policy):
+        raise ReasoningUnavailableError("simulated Groq timeout")
 
 # This project only classifies scratch/dent (agent/services/yolo_detector.py's
 # CLASS_MAP) -- these scenarios stay entirely inside that domain and instead vary
@@ -288,3 +298,62 @@ def test_dent_cluster_has_no_automated_disposition_and_routes_to_hitl():
     assert state["decision"] == "MANUAL_REINSPECTION_REQUIRED"
     assert state["human_required"] is True
     assert state["policy_decision"]["policy_id"] == "FNS-GEOMETRY-HITL-001"
+
+
+def test_narrative_llm_failure_keeps_deterministic_decision_and_does_not_route_to_hitl():
+    # Root-cause regression test: assess_result's decision (route/final_status) is fully
+    # determined by policy evaluation BEFORE the LLM narrative call -- losing the LLM must
+    # never force everything to HITL nor crash. width 70mm scratch -> SCRATCH02 -> FAIL,
+    # same as test_medium_scratch_fails, but with a reasoning service that always raises.
+    graph = build_qc_graph(
+        detector=_UnusedDetector(),
+        verifier=_UnusedVerifier(),
+        repository=_InMemoryQCRepository(),
+        reasoning=_FlakyReasoning(),
+    )
+    thread_id = "scratch-medium-fail-llm-down"
+    result = graph.invoke(
+        _initial_state(thread_id, _precomputed("scratch", [70.0])), config=_config(thread_id)
+    )
+    assert result.get("__interrupt__") in (None, ())
+    assert result["assessment_route"] == "CONFIRMED"
+    assert result["decision"] == "DEFECT_CONFIRMED"
+    assert result["final_status"] == "FAIL"
+    assert result["human_required"] is False
+    assert result["agent_reasoning_status"] == "LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC"
+    assert result["ai_analysis"]["provider"] == "deterministic"
+    assert "LLM giải trình không khả dụng" in result["ai_analysis"]["fallback_reason"]
+
+
+def test_generate_recommendation_falls_back_when_reasoning_fails_without_stored_analysis():
+    # Covers the second Groq call site (agent/graph/nodes.py::generate_recommendation),
+    # reached without a prior stored ai_analysis or human_decision -- previously had no
+    # try/except at all, so a Groq failure here crashed the request outright.
+    nodes = QCNodes(
+        detector=_UnusedDetector(),
+        verifier=_UnusedVerifier(),
+        reasoning=_FlakyReasoning(),
+        policy_catalog=PolicyCatalog(),
+        repository=_InMemoryQCRepository(),
+        defect_catalog=StaticDefectCatalog(),
+    )
+    state = {
+        "thread_id": "gen-rec-flaky",
+        "inspection_id": "insp-gen-rec-flaky",
+        "vehicle_id": "veh-gen-rec-flaky",
+        "vehicle_model": "unknown_model",
+        "station_id": "STATION-01",
+        "camera_id": "CAM-01",
+        "zone_name": "unknown_zone",
+        "catalog_defect_type": None,
+        "enriched_defects": [],
+        "primary_detection_id": None,
+        "severity": "UNASSESSED",
+        "visual_measurements": {},
+    }
+
+    result = nodes.generate_recommendation(state)
+
+    assert result["ai_analysis"]["provider"] == "deterministic"
+    assert "LLM giải trình không khả dụng" in result["ai_analysis"]["fallback_reason"]
+    assert result["human_required"] is True
