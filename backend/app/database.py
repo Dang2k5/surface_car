@@ -204,7 +204,6 @@ class Database:
             )""",
             "CREATE INDEX IF NOT EXISTS idx_lot_products_lot ON lot_products(lot_id, seq)",
         "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_vehicle_updated ON agent_graph_runs(vehicle_id, updated_at DESC)",
-        "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_station_updated ON agent_graph_runs(station_id, updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_vehicle_created ON qc_decisions(vehicle_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_inspection ON qc_decisions(inspection_id)",
         )
@@ -214,6 +213,13 @@ class Database:
         self._ensure_columns()
         self.execute(
             "CREATE INDEX IF NOT EXISTS idx_defect_catalog_cv_label ON defect_catalog(cv_label, active)"
+        )
+        # station_id indexes must run after _ensure_columns() above -- on a database
+        # created before this column existed (older schema, additive migration only),
+        # CREATE INDEX on agent_graph_runs(station_id) run any earlier fails outright
+        # because the column doesn't exist yet on that table.
+        self.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_station_updated ON agent_graph_runs(station_id, updated_at DESC)"
         )
         self.execute(
             """CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_trend
