@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # Object storage is AWS S3 (agent/services/object_storage.py). Set
   # OBJECT_STORAGE_PROVIDER=s3, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY,
@@ -16,19 +14,24 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
-    # Higher than the CPU/Railway branch's 1g/512m: the CUDA runtime libs
-    # bundled with the GPU torch wheel (see Dockerfile) plus batched video
-    # frames held in RAM before predict() need more headroom.
-    mem_limit: 4g
-    mem_reservation: 2g
     # Requires the NVIDIA Container Toolkit on the host (preinstalled on the
     # AWS Deep Learning AMI) and `docker compose` v2 -- passes the EC2
     # instance's GPU through to the container. Local `docker compose up`
     # without a GPU host will fail to satisfy this reservation; use the CPU
     # branch's compose file for local dev instead.
+    #
+    # Memory limit/reservation must live under this same `deploy.resources`
+    # block (not the legacy top-level mem_limit/mem_reservation keys) --
+    # Compose v2 rejects mixing both forms on one service. 4g/2g is higher
+    # than the CPU/Railway branch's 1g/512m: the CUDA runtime libs bundled
+    # with the GPU torch wheel (see Dockerfile) plus batched video frames
+    # held in RAM before predict() need more headroom.
     deploy:
       resources:
+        limits:
+          memory: 4g
         reservations:
+          memory: 2g
           devices:
             - driver: nvidia
               count: 1
