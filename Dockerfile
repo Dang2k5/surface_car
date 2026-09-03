@@ -24,6 +24,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# ultralytics pulls in opencv-python (full, non-headless build) transitively --
+# its native cv2 extension dlopen()s X11 client libs even though nothing here
+# ever opens a window. python:3.11-slim doesn't ship them, so cv2 import (and
+# therefore ultralytics import) fails at container startup without this.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 libxcb1 libxext6 libsm6 libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy installed packages from builder
 COPY --from=builder /install /install
 ENV PATH=/install/bin:$PATH
