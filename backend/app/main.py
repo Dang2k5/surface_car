@@ -25,7 +25,6 @@ from agent.services.reasoning import (
     UnavailableReasoningService,
 )
 from agent.services.repository import PostgresQCRepository
-from agent.services.verifier import ModelVerifier
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 
 from .auth_api import router as auth_router
@@ -244,13 +243,8 @@ async def lifespan(app: FastAPI):
         marker_size_mm=app.state.model_settings.marker_size_mm,
         marker_dictionary=app.state.model_settings.marker_dictionary,
     )
-    app.state.qc_verifier = ModelVerifier(
-        app.state.qc_detector,
-        min_confidence=app.state.model_settings.verify_threshold,
-    )
     app.state.qc_langgraph = build_qc_graph(
         detector=app.state.qc_detector,
-        verifier=app.state.qc_verifier,
         reasoning=app.state.qc_reasoning,
         policy_catalog=app.state.qc_policy_catalog,
         repository=app.state.qc_repository,

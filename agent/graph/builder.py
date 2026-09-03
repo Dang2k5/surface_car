@@ -14,13 +14,11 @@ from agent.services.detector import DetectorService
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import DeterministicReasoningService, ReasoningService
 from agent.services.repository import QCRepository
-from agent.services.verifier import VerifierService
 
 
 def build_qc_graph(
     *,
     detector: DetectorService,
-    verifier: VerifierService,
     repository: QCRepository,
     reasoning: ReasoningService | None = None,
     policy_catalog: PolicyCatalog | None = None,
@@ -30,7 +28,6 @@ def build_qc_graph(
     """Compile the Visual QC graph with swappable services and persistence."""
     nodes = QCNodes(
         detector=detector,
-        verifier=verifier,
         reasoning=reasoning or DeterministicReasoningService(),
         policy_catalog=policy_catalog or PolicyCatalog(),
         repository=repository,
@@ -40,7 +37,6 @@ def build_qc_graph(
     builder.add_node("prepare_input", nodes.prepare_input)
     builder.add_node("detect_defect", nodes.detect_defect)
     builder.add_node("assess_result", nodes.assess_result)
-    builder.add_node("verify_defect", nodes.verify_defect)
     builder.add_node("human_review", nodes.human_review)
     builder.add_node("supervisor_review", nodes.supervisor_review)
     builder.add_node("generate_recommendation", nodes.generate_recommendation)
@@ -55,11 +51,9 @@ def build_qc_graph(
         {
             "PASS": "save_result",
             "CONFIRMED": "generate_recommendation",
-            "VERIFY": "verify_defect",
             "HITL": "human_review",
         },
     )
-    builder.add_edge("verify_defect", "assess_result")
     builder.add_conditional_edges(
         "human_review",
         route_after_human_review,

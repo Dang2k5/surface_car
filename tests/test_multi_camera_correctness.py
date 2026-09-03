@@ -163,7 +163,6 @@ class _TwoScratchesOneCameraDetector:
 def test_detect_defect_classifies_every_detection_on_a_camera_not_just_the_worst():
     nodes = QCNodes(
         detector=_TwoScratchesOneCameraDetector(),
-        verifier=None,
         reasoning=DeterministicReasoningService(),
         policy_catalog=None,
         repository=None,

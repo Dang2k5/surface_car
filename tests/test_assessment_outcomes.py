@@ -41,11 +41,6 @@ class _UnusedDetector:
         raise AssertionError("detector.detect() should not run when precomputed_detection is set")
 
 
-class _UnusedVerifier:
-    def verify(self, state: dict[str, Any]) -> dict[str, Any]:
-        raise AssertionError("verify_defect is never reached by PASS/CONFIRMED/HITL routing")
-
-
 class _InMemoryQCRepository:
     def __init__(self) -> None:
         self.saved: dict[str, dict[str, Any]] = {}
@@ -176,7 +171,6 @@ def _initial_state(thread_id: str, precomputed: dict[str, Any]) -> dict[str, Any
 def _build_graph():
     return build_qc_graph(
         detector=_UnusedDetector(),
-        verifier=_UnusedVerifier(),
         repository=_InMemoryQCRepository(),
         reasoning=DeterministicReasoningService(),
     )
@@ -307,7 +301,6 @@ def test_narrative_llm_failure_keeps_deterministic_decision_and_does_not_route_t
     # same as test_medium_scratch_fails, but with a reasoning service that always raises.
     graph = build_qc_graph(
         detector=_UnusedDetector(),
-        verifier=_UnusedVerifier(),
         repository=_InMemoryQCRepository(),
         reasoning=_FlakyReasoning(),
     )
@@ -331,7 +324,6 @@ def test_generate_recommendation_falls_back_when_reasoning_fails_without_stored_
     # try/except at all, so a Groq failure here crashed the request outright.
     nodes = QCNodes(
         detector=_UnusedDetector(),
-        verifier=_UnusedVerifier(),
         reasoning=_FlakyReasoning(),
         policy_catalog=PolicyCatalog(),
         repository=_InMemoryQCRepository(),
@@ -357,3 +349,153 @@ def test_generate_recommendation_falls_back_when_reasoning_fails_without_stored_
     assert result["ai_analysis"]["provider"] == "deterministic"
     assert "LLM giải trình không khả dụng" in result["ai_analysis"]["fallback_reason"]
     assert result["human_required"] is True
+
+
+def test_low_confidence_detection_routes_to_hitl_despite_catalog_match():
+    """Verify that low-confidence findings (below confirmed_threshold) route to HITL
+    even when they cleanly match a defect code -- confidence gate applies BEFORE
+    policy logic gets to decide PASS/FAIL on its own."""
+    nodes = QCNodes(
+        detector=_UnusedDetector(),
+        policy_catalog=PolicyCatalog(),
+        repository=_InMemoryQCRepository(),
+        reasoning=DeterministicReasoningService(),
+        defect_catalog=StaticDefectCatalog(),
+    )
+
+    # SCRATCH02 (50-100mm width) normally FAILs, but with only 30% confidence
+    # it should route HITL instead, not auto-decide FAIL.
+    detection = _detection(0, "scratch", 75.0)  # width that matches SCRATCH02
+    detection["confidence"] = 0.30  # Below default confirmed_threshold of 0.85
+
+    precomp = _precomputed("scratch", [75.0])
+    precomp["detections"][0]["confidence"] = 0.30
+    precomp["confidence"] = 0.30
+
+    thread_id = "low-confidence-scratch-hitl"
+    state = _initial_state(thread_id, precomp)
+    state["confirmed_threshold"] = 0.85  # Default from backend/app/config.py
+
+    graph = build_qc_graph(
+        detector=_UnusedDetector(),
+        policy_catalog=PolicyCatalog(),
+        repository=_InMemoryQCRepository(),
+        reasoning=DeterministicReasoningService(),
+        defect_catalog=StaticDefectCatalog(),
+    )
+    result = graph.invoke(state, config=_config(thread_id))
+
+    # HITL routes trigger the interrupt/human_review node, so __interrupt__ will be present
+    assert result.get("assessment_route") == "HITL", (
+        "Low-confidence finding should route to HITL even if catalog classifies it"
+    )
+    assert "LOW_CONFIDENCE_OR_UNCLASSIFIED_REVIEW_REQUIRED" in result.get("decision", "")
+    assert result["human_required"] is True
+
+
+def test_high_confidence_fail_overrides_ambiguous_findings():
+    """Verify that a high-confidence FAIL decision is decisive and doesn't wait
+    for unrelated ambiguous findings to be resolved first -- the vehicle is already
+    certain to be held, so other low-confidence detections don't matter."""
+    nodes = QCNodes(
+        detector=_UnusedDetector(),
+        policy_catalog=PolicyCatalog(),
+        repository=_InMemoryQCRepository(),
+        reasoning=DeterministicReasoningService(),
+        defect_catalog=StaticDefectCatalog(),
+    )
+
+    # Build a scenario with:
+    # - CAM-01: high-confidence DENT03 (>50mm) -> FAIL at 0.93 confidence
+    # - CAM-02: low-confidence SCRATCH (<25mm) at 0.35 confidence (ambiguous)
+    dent_detection = {
+        "detection_id": "CAM-01_0",
+        "camera_id": "CAM-01",
+        "class_name": "dent",
+        "raw_class_name": "dent",
+        "confidence": 0.93,
+        "bbox": {"x1": 10.0, "y1": 10.0, "x2": 70.0, "y2": 40.0},
+        "visual_measurements": {
+            "estimated_width_mm": 60.0,  # >50mm -> DENT03 -> FAIL
+            "estimated_length_mm": 60.0,
+            "relative_position": "middle_center",
+        },
+        "segmentation": {"format": "polygon", "points": []},
+    }
+
+    scratch_detection = {
+        "detection_id": "CAM-02_0",
+        "camera_id": "CAM-02",
+        "class_name": "scratch",
+        "raw_class_name": "scratch",
+        "confidence": 0.35,  # Low, ambiguous
+        "bbox": {"x1": 10.0, "y1": 10.0, "x2": 35.0, "y2": 40.0},
+        "visual_measurements": {
+            "estimated_width_mm": 25.0,  # Would be SCRATCH01 (small) -> PASS if confident
+            "estimated_length_mm": 25.0,
+            "relative_position": "middle_center",
+        },
+        "segmentation": {"format": "polygon", "points": []},
+    }
+
+    precomp = {
+        "detections": [dent_detection, scratch_detection],
+        "camera_results": [
+            {
+                "camera_id": "CAM-01",
+                "image_url": "https://example.test/cam01.jpg",
+                "image_width": 1280,
+                "image_height": 960,
+                "defect_detected": True,
+                "detections": [dent_detection],
+            },
+            {
+                "camera_id": "CAM-02",
+                "image_url": "https://example.test/cam02.jpg",
+                "image_width": 1280,
+                "image_height": 960,
+                "defect_detected": True,
+                "detections": [scratch_detection],
+            },
+        ],
+        "finding_groups": [],
+        "camera_id": "CAM-01",
+        "primary_detection_id": dent_detection["detection_id"],
+        "image_width": 1280,
+        "image_height": 960,
+        "inference_ms": 5.0,
+        "inference_status": "SUCCESS",
+        "defect_detected": True,
+        "defect_type": "dent",
+        "raw_class_name": "dent",
+        "confidence": 0.93,
+        "bbox": dent_detection["bbox"],
+        "segmentation_result": None,
+        "visual_measurements": dent_detection["visual_measurements"],
+        "severity": "A",
+    }
+
+    thread_id = "high-conf-fail-ignores-ambiguous"
+    state = _initial_state(thread_id, precomp)
+    state["confirmed_threshold"] = 0.85
+
+    graph = build_qc_graph(
+        detector=_UnusedDetector(),
+        policy_catalog=PolicyCatalog(),
+        repository=_InMemoryQCRepository(),
+        reasoning=DeterministicReasoningService(),
+        defect_catalog=StaticDefectCatalog(),
+    )
+    result = graph.invoke(state, config=_config(thread_id))
+
+    assert result.get("__interrupt__") in (None, ())
+    # The high-confidence DENT03 FAIL should decide the outcome immediately, without
+    # waiting for the low-confidence CAM-02 scratch finding to be resolved.
+    assert result["assessment_route"] == "CONFIRMED"
+    assert result["decision"] == "DEFECT_CONFIRMED"
+    assert result["final_status"] == "FAIL"
+    assert result["human_required"] is False
+    # Both cameras' findings are still recorded in the policy audit trail even though
+    # only the confident one drove the decision.
+    audited_cameras = {item["camera_id"] for item in result["camera_policy_decisions"]}
+    assert audited_cameras == {"CAM-01", "CAM-02"}

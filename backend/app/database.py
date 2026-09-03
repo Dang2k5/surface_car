@@ -562,11 +562,10 @@ class Database:
         )
 
     def _seed_stations(self) -> None:
-        """Seed the stations already referenced by default form values elsewhere in the app
-        (inspection.tsx's "QC-03", langgraph_api.py's "FNS_LINE_HA_01") so the dropdown isn't
-        empty on a fresh database. ON CONFLICT DO NOTHING preserves Supervisor edits."""
+        """Seed the standard QC stations so the dropdown isn't empty on a fresh database.
+        ON CONFLICT DO NOTHING preserves Supervisor edits."""
         now = datetime.now(UTC).isoformat()
-        defaults = (("FNS_LINE_HA_01", "Trạm FNS Line HA 01"), ("QC-03", "Trạm QC 03"))
+        defaults = (("QC-01", "Trạm QC 01"), ("QC-02", "Trạm QC 02"), ("QC-03", "Trạm QC 03"))
         statement = text(
             """INSERT INTO stations (station_id, name, active, created_at, updated_at)
             VALUES (:station_id, :name, 1, :created_at, :updated_at)

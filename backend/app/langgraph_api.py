@@ -118,12 +118,10 @@ def _initial_state(
         "image_paths": payload.image_paths,
         "camera_id": payload.camera_id,
         "zone_name": payload.zone_name,
-        "verify_count": 0,
         "retry_count": 0,
         "max_retries": 2,
         "auto_pass_enabled": settings.auto_pass_enabled,
         "confirmed_threshold": settings.confirmed_threshold,
-        "verify_threshold": settings.verify_threshold,
         "execution_trace": [],
     }
 
@@ -526,7 +524,6 @@ def get_agent_graph(request: Request) -> AgentGraphResponse:
             "prepare_input",
             "detect_defect",
             "assess_result",
-            "verify_defect",
             "human_review",
             "supervisor_review",
             "generate_recommendation",
@@ -552,7 +549,7 @@ def run_uploaded_image_inspection(
     lot_id: str | None = Form(default=None),
     shift_id: str | None = Form(default=None),
     production_date: str | None = Form(default=None),
-    station_id: str = Form("FNS_LINE_HA_01"),
+    station_id: str = Form("QC-01"),
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     """Persist the validated image to object storage and run the model-backed graph."""
@@ -640,7 +637,7 @@ def run_uploaded_images_inspection(
     lot_id: str | None = Form(default=None),
     shift_id: str | None = Form(default=None),
     production_date: str | None = Form(default=None),
-    station_id: str = Form("FNS_LINE_HA_01"),
+    station_id: str = Form("QC-01"),
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:
     """Run one vehicle inspection from one to five synchronized camera frames.
@@ -861,7 +858,7 @@ def run_uploaded_videos_inspection(
     lot_id: str | None = Form(default=None),
     shift_id: str | None = Form(default=None),
     production_date: str | None = Form(default=None),
-    station_id: str = Form("FNS_LINE_HA_01"),
+    station_id: str = Form("QC-01"),
     frame_interval: float = Form(default=0.75),
     user: CurrentUser = Depends(get_current_user),
 ) -> LangGraphRunResponse:

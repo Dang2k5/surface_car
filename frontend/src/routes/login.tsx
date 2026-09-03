@@ -50,8 +50,11 @@ function LoginPage() {
   const [confirmEmailPending, setConfirmEmailPending] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
-  const [account, setAccount] = useState("");
-  const [password, setPassword] = useState("");
+  // Pre-filled with the shared demo/admin account (backend/app/auth.py's ADMIN_SEED_EMAIL) so
+  // trying the system out is a single click — create this user in Supabase Auth with this
+  // exact email/password and its first login is auto-provisioned as QC_SUPERVISOR.
+  const [account, setAccount] = useState("admin@domain.com");
+  const [password, setPassword] = useState("123456789");
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
 

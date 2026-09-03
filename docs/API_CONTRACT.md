@@ -26,7 +26,7 @@ Mô hình YOLO Segmentation tập trung nhận diện chuyên sâu 2 loại khuy
   "lot_id": "LOT-20260816-A",
   "shift_id": "SHIFT-A",
   "production_date": "2026-08-16",
-  "station_id": "FNS_LINE_HA_01",
+  "station_id": "QC-01",
   "timestamp": "2026-08-16T12:00:00Z",
   "camera_id": "CAM_FNS_DOOR_LH",
   "vehicle_model": "SUV_EV",
@@ -158,12 +158,16 @@ class QCState(TypedDict):
     # LLM — xem PRD.md FR-03e), không suy diễn từ detection/camera khác.
     camera_classifications: List[Dict[str, Any]]
     # camera_id của các camera có phát hiện nhưng chưa phân loại được defect_code
-    # (rule engine không tự động khớp được, hoặc mã được đánh dấu REQUIRES_HUMAN) —
-    # non-empty thì route sang HITL.
+    # (rule engine không tự động khớp được, hoặc mã được đánh dấu REQUIRES_HUMAN).
+    # Không còn tự nó ép HITL: một finding CONFIRMED FAIL với confidence đủ cao ở
+    # camera khác vẫn chốt FAIL ngay; unresolved_camera_ids chỉ ép HITL khi KHÔNG
+    # có FAIL nào đủ tin cậy để tự quyết (xem confidence gate ở mục "Quy ước tên
+    # trường" bên dưới).
     unresolved_camera_ids: List[str]
     # PolicyDecision (mục 3, agent/services/policy.py) cho từng camera đã phân
-    # loại — final_status tổng hợp theo nguyên tắc FAIL-wins: bất kỳ camera nào
-    # FAIL thì cả inspection FAIL, bất kể camera khác PASS.
+    # loại — final_status tổng hợp theo nguyên tắc FAIL-wins trên tập finding đủ
+    # tin cậy (confidence ≥ CONFIRMED_THRESHOLD): bất kỳ camera nào FAIL thì cả
+    # inspection FAIL, bất kể camera khác PASS hoặc còn finding mơ hồ khác.
     camera_policy_decisions: List[Dict[str, Any]]
     # Mọi mặt xe (front/rear/left/right/top) có phát hiện lỗi trong CHÍNH inspection
     # này — một inspection gộp cả 5 camera cố định nên có thể ảnh hưởng nhiều mặt
@@ -203,12 +207,14 @@ class QCState(TypedDict):
 - `vehicle_id`: mã kỹ thuật bắt buộc để theo dõi một xe/phiên trong hệ thống.
 - `lot_id`, `shift_id`, `production_date`, `station_id`: metadata nghiệp vụ cho Historical Trend (`PRD.md` §6.3); `lot_id`/`shift_id` là tùy chọn ở các luồng chưa gắn lô/ca.
 - `zone_name`: vùng kiểm tra tương đối hoặc khu vực camera quan sát.
-- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` chỉ còn dùng để chọn finding dẫn dắt narrative của reasoning LLM, **không còn quyết định policy**. Từ khi tách policy theo từng camera, `assess_result` (`agent/graph/nodes.py`) phân loại `defect_code` độc lập cho MỖI camera có phát hiện (`camera_classifications`) và gọi `PolicyCatalog.evaluate()` riêng cho từng camera đã phân loại (`camera_policy_decisions`) — mỗi finding có `severity_rank` thật của camera đó (không còn nhãn `UNCLASSIFIED_SECONDARY_FINDING` mặc định cho finding không phải primary). `final_status` tổng hợp theo nguyên tắc **FAIL-wins**: chỉ cần một camera FAIL thì cả inspection FAIL, kể cả khi camera khác PASS; camera nào chưa phân loại được `defect_code` sẽ vào `unresolved_camera_ids` và bắt buộc route sang HITL.
+- `detections`: output đã chuẩn hóa trực tiếp từ YOLO; `enriched_defects`: cùng finding sau khi Agent bổ sung `geometry` (Geometry Processor), zone và metadata vận hành. Mỗi item giữ nguyên toàn bộ finding từ mọi camera (không chỉ lỗi nặng nhất) — mỗi item có `detection_id` (`{camera_id}::{index}`) và `is_primary`; `state.primary_detection_id` chỉ còn dùng để chọn finding dẫn dắt narrative của reasoning LLM, **không còn quyết định policy**. Từ khi tách policy theo từng camera, `assess_result` (`agent/graph/nodes.py`) phân loại `defect_code` độc lập cho MỖI camera có phát hiện (`camera_classifications`) và gọi `PolicyCatalog.evaluate()` riêng cho từng camera đã phân loại (`camera_policy_decisions`, ghi cả những camera chưa đủ tin cậy — audit trail đầy đủ) — mỗi finding có `severity_rank` thật của camera đó (không còn nhãn `UNCLASSIFIED_SECONDARY_FINDING` mặc định cho finding không phải primary).
+  - **Confidence gate (`CONFIRMED_THRESHOLD`, mặc định `0.85`, `ENVIRONMENT.md`):** một finding chỉ được coi là "đáng tin" (confident) khi vừa khớp `defect_catalog` (`catalog_defect_type` khác null) **vừa** có YOLO `confidence ≥ CONFIRMED_THRESHOLD`. Finding dưới ngưỡng này — dù đã khớp danh mục — vẫn bị coi là mơ hồ (ambiguous), y hệt một camera chưa khớp được danh mục (`unresolved_camera_ids`).
+  - **Tổng hợp PASS/FAIL/HITL:** nếu có **ít nhất một** finding confident bị policy xác nhận `FAIL` → cả inspection `FAIL` ngay (worst-wins trên tập finding confident), **không cần chờ** các finding mơ hồ khác được giải quyết. Chỉ khi **không có** FAIL confident nào mà vẫn còn finding mơ hồ (`unresolved_camera_ids` non-empty hoặc dưới ngưỡng confidence) thì mới route sang HITL. Xe chỉ `PASS` khi mọi finding confident đều được policy đánh giá `PASS` và không còn finding mơ hồ nào.
 - `affected_zones`: danh sách tất cả mặt xe (front/rear/left/right/top — 5 camera cố định mỗi camera 1 mặt) có lỗi trong inspection hiện tại; dùng cho mọi nơi hiển thị tổng hợp cả inspection (vd cột "Vùng lỗi" ở màn hình tra cứu). `zone_name` vẫn giữ nguyên nghĩa cũ — một giá trị duy nhất (mặt của lỗi nặng nhất) — cho các ngữ cảnh chỉ có một vùng thật sự (một detection, hoặc một cụm cảnh báo Early Warning ở `backend/app/quality_alerts.py`).
 - `severity` là mức độ tổng thể duy nhất; không tạo thêm alias `overall_severity_rank`.
 - `recommendation_code`: mã hành động chuẩn duy nhất trong `QCState`; `recommendation` là mô tả dễ đọc.
 - `recommended_plan` chỉ tồn tại ở response `/api/v1/inspect` để tương thích client cũ. `final_action` không còn thuộc contract.
-- **`decision` vs `final_status` — không được dùng lẫn nhau:** `decision` là mã trạng thái nội bộ do node `assess_result`/`human_review`/`supervisor_review` sinh ra để mô tả *vì sao* graph chọn nhánh này (ví dụ `DEFECT_CONFIRMED`, `UNKNOWN_CLASS_REVIEW_REQUIRED`, `MODEL_ERROR_REVIEW_REQUIRED`, `DEFECT_REJECTED_BY_QC`, `OVERRIDE_REJECTED_BY_SUPERVISOR`) — đây là lý do vận hành/chẩn đoán, không phải phán quyết QC cuối cùng. `LLM_AGENT_UNAVAILABLE` từng là một giá trị `decision` (ép route sang HITL khi LLM giải trình lỗi) nhưng **đã bị loại bỏ** kể từ bản sửa root-cause ngày 2026-08-31 — LLM giải trình lỗi giờ không còn đổi `decision`/route nữa, chỉ hạ cấp `agent_reasoning_status` xuống `LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC` (xem `ISSUE_REMEDIATION_PLAN.md` mục 1). **`final_status` mới là business decision chuẩn** hiển thị cho QC và đối chiếu với đề bài (PASS/FAIL/cần người kiểm — mục 5.3 `PRD.md`), do QC Rules (`agent/services/policy.py` + `agent/policies/qc_policy_catalog.json`) quyết định; **chỉ hai giá trị**: `PASS` (release, cho phép chạy thử) hoặc `FAIL` (giữ xe, chuyển Rework). Không còn phân biệt `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/`HUMAN_OVERRIDE_APPLIED` — mọi FAIL, dù tự động hay qua HITL/override, đều là cùng một giá trị `FAIL`. UI chỉ hiển thị `final_status`, không hiển thị `decision` thô cho QC (xem `UI_WORKFLOWS.md`).
+- **`decision` vs `final_status` — không được dùng lẫn nhau:** `decision` là mã trạng thái nội bộ do node `assess_result`/`human_review`/`supervisor_review` sinh ra để mô tả *vì sao* graph chọn nhánh này (ví dụ `DEFECT_CONFIRMED`, `LOW_CONFIDENCE_OR_UNCLASSIFIED_REVIEW_REQUIRED` — finding dưới `CONFIRMED_THRESHOLD` hoặc chưa khớp danh mục và không có FAIL confident nào khác chốt được kết quả, `MANUAL_REINSPECTION_REQUIRED` — mọi finding đều confident nhưng không policy `APPROVED` nào khớp, `MODEL_ERROR_REVIEW_REQUIRED`, `MANDATORY_REVIEW_LINE_ALERT`, `DEFECT_REJECTED_BY_QC`, `OVERRIDE_REJECTED_BY_SUPERVISOR`) — đây là lý do vận hành/chẩn đoán, không phải phán quyết QC cuối cùng. `LLM_AGENT_UNAVAILABLE` từng là một giá trị `decision` (ép route sang HITL khi LLM giải trình lỗi) nhưng **đã bị loại bỏ** kể từ bản sửa root-cause ngày 2026-08-31 — LLM giải trình lỗi giờ không còn đổi `decision`/route nữa, chỉ hạ cấp `agent_reasoning_status` xuống `LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC` (xem `ISSUE_REMEDIATION_PLAN.md` mục 1). **`final_status` mới là business decision chuẩn** hiển thị cho QC và đối chiếu với đề bài (PASS/FAIL/cần người kiểm — mục 5.3 `PRD.md`), do QC Rules (`agent/services/policy.py` + `agent/policies/qc_policy_catalog.json`) quyết định; **chỉ hai giá trị**: `PASS` (release, cho phép chạy thử) hoặc `FAIL` (giữ xe, chuyển Rework). Không còn phân biệt `HOLD_FOR_QC`/`HOLD_FOR_REWORK`/`HUMAN_OVERRIDE_APPLIED` — mọi FAIL, dù tự động hay qua HITL/override, đều là cùng một giá trị `FAIL`. UI chỉ hiển thị `final_status`, không hiển thị `decision` thô cho QC (xem `UI_WORKFLOWS.md`).
 - `hitl_status` có 5 giá trị: `PENDING` (đang chờ `human_review`), `CONFIRMED` (không cần HITL, hoặc Inspector đã PASS/FAIL), `OVERRIDDEN` (Inspector chuyển cấp, đang chờ `supervisor_review`), `SUPERVISOR_APPROVED`/`SUPERVISOR_REJECTED` (Supervisor đã xử lý case chuyển cấp). Không có trạng thái `NOT_REQUIRED` riêng — khi HITL không cần thiết, `hitl_status` được gán thẳng `CONFIRMED`.
 - `original_image_key`/`overlay_image_key`/`mask_image_key`/`crop_image_key`: S3/MinIO object key, không phải binary; xem mục 4.
 
@@ -289,7 +295,7 @@ Khởi chạy quy trình kiểm định ảnh trạm FNS và kiểm tra bất th
 **Request:** `multipart/form-data`
 - `file`: Ảnh chụp trạm FNS (`image/jpeg` hoặc `image/png`)
 - `vehicle_id`: `"CAR-20260816-001"`
-- `station_id`: `"FNS_LINE_HA_01"`
+- `station_id`: `"QC-01"`
 - `lot_id` *(tùy chọn)*: `"LOT-20260816-A"`
 - `shift_id` *(tùy chọn)*: `"SHIFT-A"`
 
@@ -354,7 +360,7 @@ Stream trực tiếp các cảnh báo bất thường chuỗi (Sliding Window re
 event: systemic_anomaly_alert
 data: {
   "timestamp": "2026-08-16T12:00:02Z",
-  "station_id": "FNS_LINE_HA_01",
+  "station_id": "QC-01",
   "alert_level": "HIGH",
   "defect_type": "dent",
   "zone": "door_front_left_class_a",

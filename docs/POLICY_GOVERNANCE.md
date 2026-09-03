@@ -67,15 +67,22 @@ loại có kiểm soát của `defect_catalog` trước.
 
 Một inspection có thể có nhiều lỗi (nhiều detection trên cùng 1 camera, hoặc
 trải nhiều camera). `QCNodes.detect_defect` phân loại **từng detection một**
-độc lập qua `defect_catalog`/LLM (không chỉ lỗi nặng nhất mỗi camera), rồi
-`QCNodes.assess_result` gọi `PolicyCatalog.evaluate()` độc lập cho từng lỗi đã
-phân loại đó. Quyết định PASS/FAIL cấp xe là **worst-wins**: bất kỳ lỗi nào
-được đánh giá `FAIL` thì cả xe `FAIL`; xe chỉ `PASS` khi mọi lỗi đã đánh giá
-đều `PASS`. Rule này hiện chưa cấu hình được qua `qc_policy_catalog.json` (mọi
-policy hiện tại gán `final_status` cố định theo `defect_type`, không phân biệt
-severity) — nếu sau này policy được tinh chỉnh để PASS một số mức độ nhẹ, cơ
-chế worst-wins ở trên vẫn áp dụng đúng vì nó đánh giá trên từng lỗi thật, không
-gộp/bỏ sót lỗi nào.
+độc lập qua `defect_catalog`/rule engine (không chỉ lỗi nặng nhất mỗi camera,
+không LLM — `agent/services/defect_rule_engine.py`), rồi `QCNodes.assess_result`
+gọi `PolicyCatalog.evaluate()` độc lập cho từng lỗi đã phân loại đó. Quyết định
+PASS/FAIL cấp xe là **worst-wins trên tập finding "confident"** (confidence
+YOLO ≥ `CONFIRMED_THRESHOLD`, mặc định `0.85`, `ENVIRONMENT.md`): bất kỳ finding
+confident nào được đánh giá `FAIL` thì cả xe `FAIL` ngay lập tức, **không cần
+chờ** các finding khác (kể cả finding chưa đủ tin cậy hoặc chưa khớp danh mục)
+được giải quyết trước — một lỗi FAIL đã chắc chắn thì xe chắc chắn phải giữ
+lại, bất kể phần còn lại của ảnh còn gì mơ hồ. Xe chỉ `PASS` khi **mọi** finding
+confident đều `PASS` **và** không còn finding mơ hồ nào; nếu không có FAIL
+confident nào nhưng vẫn còn finding mơ hồ thì route sang HITL thay vì tự PASS.
+Rule này hiện chưa cấu hình được qua `qc_policy_catalog.json` (mọi policy hiện
+tại gán `final_status` cố định theo `defect_type`, không phân biệt severity) —
+nếu sau này policy được tinh chỉnh để PASS một số mức độ nhẹ, cơ chế worst-wins
+ở trên vẫn áp dụng đúng vì nó đánh giá trên từng lỗi thật, không gộp/bỏ sót lỗi
+nào.
 
 ## Policy `checklist_status`: DRAFT vs APPROVED
 
@@ -202,10 +209,15 @@ GROQ_API_KEY=gsk_...
 GROQ_MODEL=openai/gpt-oss-20b
 ```
 
-If the key is missing, the LLM Agent is marked unavailable and the graph routes
-the inspection to HITL. If a Groq response is invalid, selects values outside
+If the key is missing, or a Groq response is invalid, selects values outside
 the controlled catalog/policy context, or cites an unknown source, the response
-is rejected and no deterministic output is presented as Agent reasoning. This
-applies to both the reasoning/explanation call and, when the same or a
-separate multimodal-capable model is used for visual verification, the
-image-input call — see `ENVIRONMENT.md` for the corresponding variables.
+is rejected. Since 2026-08-31 this **no longer routes the inspection to HITL**
+by itself: the PASS/FAIL/HITL route and `final_status` are already decided by
+`assess_result`'s deterministic policy evaluation before Groq is ever called
+(`agent/graph/nodes.py`), so a Groq failure only degrades the narrative —
+`DeterministicReasoningService` substitutes a rule-based explanation and
+`agent_reasoning_status` is marked `LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC` —
+without changing the decision itself (`PRD.md` FR-15, `ISSUE_REMEDIATION_PLAN.md`
+mục 1). This keeps the LLM's role strictly to explanation (FR-03d): a narrative
+outage must never silently convert every inspection into an unresolvable HITL
+backlog. See `ENVIRONMENT.md` for the corresponding variables.

@@ -1,6 +1,5 @@
 from agent.graph.builder import build_qc_graph, export_graph_mermaid
 from agent.services.repository import PostgresQCRepository
-from agent.services.verifier import ModelVerifier
 from agent.services.yolo_detector import LocalYoloSegmentationDetector
 from backend.app.config import ModelSettings
 from backend.app.database import Database
@@ -18,11 +17,10 @@ if __name__ == "__main__":
         mm_per_pixel_y=settings.calibration_mm_per_pixel_y,
         calibration_profile_id=settings.calibration_profile_id,
     )
-    verifier = ModelVerifier(detector, min_confidence=settings.verify_threshold)
     database = Database(get_database_url())
     repository = PostgresQCRepository(database)
     export_graph_mermaid(
-        build_qc_graph(detector=detector, verifier=verifier, repository=repository),
+        build_qc_graph(detector=detector, repository=repository),
         "agent_flow.mmd",
     )
     database.close()

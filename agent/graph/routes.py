@@ -4,7 +4,7 @@ from typing import Literal
 
 from agent.graph.state import QCState
 
-AssessmentRoute = Literal["PASS", "CONFIRMED", "VERIFY", "HITL"]
+AssessmentRoute = Literal["PASS", "CONFIRMED", "HITL"]
 HumanReviewRoute = Literal["ESCALATE_TO_SUPERVISOR", "CONTINUE"]
 
 

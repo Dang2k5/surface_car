@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 # local development and demo runs working exactly as before RBAC existed.
 DEV_BYPASS_USER_ID = "dev-bypass"
 
+# A shared demo/admin account for people trying the system out: create this user in Supabase
+# Auth (email admin@domain.com, password 123456789) and their very first authenticated request
+# provisions the profile as QC_SUPERVISOR instead of DEFAULT_QC_ROLE — see get_current_user
+# below. The frontend login form (frontend/src/routes/login.tsx) pre-fills these same
+# credentials so trying the system is a single click.
+ADMIN_SEED_EMAIL = "admin@domain.com"
+
 
 @dataclass(frozen=True)
 class CurrentUser:
@@ -99,8 +106,9 @@ def get_current_user(request: Request) -> CurrentUser:
     metadata = claims.get("user_metadata") or {}
     full_name = metadata.get("full_name")
     station_id = metadata.get("station_id")
+    default_role = "QC_SUPERVISOR" if email == ADMIN_SEED_EMAIL else settings.default_qc_role
     profile = request.app.state.database.get_or_create_profile(
-        user_id, email, settings.default_qc_role, full_name, station_id
+        user_id, email, default_role, full_name, station_id
     )
     # Deactivation is enforced here rather than per-endpoint so one check closes the whole API.
     # An already-issued Supabase JWT stays cryptographically valid, so a locked-out account keeps

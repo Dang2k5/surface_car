@@ -30,7 +30,6 @@ class ModelSettings:
     marker_dictionary: str
     auto_pass_enabled: bool
     confirmed_threshold: float
-    verify_threshold: float
     reasoning_provider: str
     groq_api_key: str | None
     groq_model: str
@@ -61,8 +60,7 @@ class ModelSettings:
             marker_size_mm=float(os.getenv("MARKER_SIZE_MM", "0")),
             marker_dictionary=os.getenv("MARKER_DICTIONARY", "DICT_4X4_50").strip(),
             auto_pass_enabled=_env_bool("AUTO_PASS_ENABLED", True),
-            confirmed_threshold=float(os.getenv("CONFIRMED_THRESHOLD", "0.70")),
-            verify_threshold=float(os.getenv("VERIFY_THRESHOLD", "0.40")),
+            confirmed_threshold=float(os.getenv("CONFIRMED_THRESHOLD", "0.85")),
             reasoning_provider=os.getenv("QC_REASONING_PROVIDER", "groq").strip().lower(),
             groq_api_key=os.getenv("GROQ_API_KEY") or None,
             groq_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip(),

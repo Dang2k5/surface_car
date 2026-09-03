@@ -97,16 +97,18 @@ runtime — `PRD.md` §7.3, v1.4); các biến `VISION_LLM_*` không còn đư�
 | Biến | Mặc định | Mục đích |
 |---|---|---|
 | `AUTO_PASS_ENABLED` | `true` | Cho phép nhánh PASS theo rule baseline |
-| `CONFIRMED_THRESHOLD` | `0.70` | Ngưỡng confirmed trong graph |
-| `VERIFY_THRESHOLD` | `0.40` | Ngưỡng verifier |
+| `CONFIRMED_THRESHOLD` | `0.85` | Ngưỡng confidence tối thiểu để một finding được tự động quyết PASS/FAIL trong `assess_result` (agent/graph/nodes.py); dưới ngưỡng này bắt buộc HITL dù đã khớp danh mục lỗi — đây là ngưỡng đáp ứng yêu cầu "ngưỡng tin cậy để tự động chuyển người khi mơ hồ" (`DE_BAI_GOC.md`) |
 | `QC_REASONING_PROVIDER` | `groq` | `groq` cho runtime; `deterministic` chỉ dành cho test/offline diagnostics |
 | `GROQ_MODEL` | `openai/gpt-oss-20b` | Model reasoning (text) tùy chọn |
 | `GROQ_API_KEY` | rỗng | Secret server-side; bắt buộc khi provider là `groq` |
 
-Thiếu `GROQ_API_KEY` hoặc LLM trả output không hợp lệ sẽ chuyển inspection
-sang HITL; runtime không tạo deterministic reasoning thay thế khi provider là
-`groq` (`POLICY_GOVERNANCE.md`). Trạng thái `/agent/status` cho biết LLM đã
-được gọi thành công hay chưa.
+Thiếu `GROQ_API_KEY` hoặc LLM trả output không hợp lệ **không** chuyển
+inspection sang HITL — route/`final_status` đã được `assess_result` quyết định
+xong bằng policy thuần trước khi gọi Groq, nên khi Groq lỗi, backend chỉ thay
+narrative bằng `DeterministicReasoningService` (rule-based) và đánh dấu
+`agent_reasoning_status=LLM_UNAVAILABLE_FALLBACK_DETERMINISTIC`, giữ nguyên
+quyết định (`POLICY_GOVERNANCE.md`, `PRD.md` FR-15). Trạng thái `/agent/status`
+cho biết LLM đã được gọi thành công hay chưa.
 
 ### Authentication and RBAC (Supabase Auth)
 

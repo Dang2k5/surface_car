@@ -18,7 +18,6 @@ from agent.services.reasoning import (
     ReasoningUnavailableError,
 )
 from agent.services.repository import QCRepository
-from agent.services.verifier import VerifierService
 
 
 def _trace(node: str, detail: str, status: str = "COMPLETED") -> list[TraceEvent]:
@@ -76,14 +75,12 @@ class QCNodes:
     def __init__(
         self,
         detector: DetectorService,
-        verifier: VerifierService,
         reasoning: ReasoningService,
         policy_catalog: PolicyCatalog,
         repository: QCRepository,
         defect_catalog: DefectCatalogService,
     ) -> None:
         self.detector = detector
-        self.verifier = verifier
         self.reasoning = reasoning
         self.policy_catalog = policy_catalog
         self.repository = repository
@@ -96,8 +93,6 @@ class QCNodes:
         if not camera_evidence and not image_url and not image_paths:
             raise ValueError("image_url or image_paths is required")
         return {
-            "verify_count": 0,
-            "verify_result": "NOT_RUN",
             "human_required": False,
             "human_decision": None,
             "retry_count": state.get("retry_count", 0),
@@ -336,7 +331,25 @@ class QCNodes:
 
     def assess_result(self, state: QCState) -> dict[str, Any]:
         camera_classifications = state.get("camera_classifications") or []
-        unresolved_camera_ids = state.get("unresolved_camera_ids") or []
+        # Reconnects backend/app/config.py's ModelSettings.confirmed_threshold (already flowed
+        # into initial state by langgraph_api.py) to the actual routing decision -- previously
+        # computed but never read anywhere, so a 26%-confidence detection was treated identically
+        # to a 99%-confidence one. A finding's own YOLO confidence must clear this bar before its
+        # rule-engine/policy classification is trusted to stand on its own; below it, the finding
+        # is "ambiguous" no matter how clean its catalog match looks, and must go to a human
+        # instead of silently deciding PASS/FAIL.
+        confirmed_threshold = float(state.get("confirmed_threshold") or 0.85)
+
+        def _is_confident(item: dict[str, Any]) -> bool:
+            return (
+                item.get("catalog_defect_type") is not None
+                and float(item.get("confidence") or 0.0) >= confirmed_threshold
+            )
+
+        camera_policy_decisions: list[dict[str, Any]] = []
+        analysis: ReasoningAnalysis | None = None
+        reasoning_degraded = False
+        evaluated: list[tuple[dict[str, Any], PolicyDecision]] = []
 
         if state.get("inference_status") == "ERROR":
             route = "HITL"
@@ -346,20 +359,86 @@ class QCNodes:
             route = "PASS"
             decision = "PASS"
             reason = "Không phát hiện lỗi bề mặt nào thuộc danh mục được hỗ trợ."
-        elif unresolved_camera_ids:
-            route = "HITL"
-            decision = "UNKNOWN_CLASS_REVIEW_REQUIRED"
-            reason = (
-                "Phát hiện lỗi mới hoặc chưa có trong danh mục ở camera "
-                f"{', '.join(unresolved_camera_ids)} nên Agent không thể phân loại."
-            )
         else:
-            route = "CONFIRMED"
-            decision = "DEFECT_CONFIRMED"
-            reason = (
-                f"Agent đã phân loại độc lập {len(camera_classifications)} lỗi phát hiện "
-                "và chọn được mã QC đang hoạt động cho từng lỗi."
-            )
+            # Evaluate policy for EVERY camera's own finding independently, confident or not --
+            # ambiguous ones still get a fail-safe policy (manual reinspection) for the audit
+            # trail (camera_policy_decisions), they are just excluded below from driving an
+            # automated decision on their own.
+            for item in camera_classifications:
+                overlay_state = {
+                    **state,
+                    "defect_type": item["defect_type"],
+                    "catalog_defect_type": item["catalog_defect_type"],
+                    "classified_defect_code": item["classified_defect_code"],
+                    "confidence": item["confidence"],
+                    "severity": item["severity"],
+                    "bbox": item["bbox"],
+                    "visual_measurements": item["visual_measurements"],
+                    "camera_id": item["camera_id"],
+                }
+                evaluated.append((item, self.policy_catalog.evaluate(overlay_state)))
+
+            camera_policy_decisions = [
+                {
+                    "camera_id": item["camera_id"],
+                    "detection_id": item["detection_id"],
+                    "policy_decision": policy_decision.model_dump(mode="json"),
+                }
+                for item, policy_decision in evaluated
+            ]
+
+            confident_pairs = [pair for pair in evaluated if _is_confident(pair[0])]
+            ambiguous_pairs = [pair for pair in evaluated if not _is_confident(pair[0])]
+
+            # A confidently classified, policy-confirmed FAIL is decisive on its own: the
+            # vehicle is already certain to need holding, so it must not wait on every OTHER,
+            # unrelated ambiguous finding being resolved first -- that was exactly the "many
+            # confident FAILs but still HITL just because one unrelated finding was unresolved"
+            # bug this closes. human_required is still excluded here even when confident: it
+            # means no approved policy could authorize a disposition, which is a different
+            # problem (missing policy coverage) than an uncertain finding.
+            decisive_fail = [
+                pair for pair in confident_pairs if pair[1].final_status == "FAIL" and not pair[1].human_required
+            ]
+            needs_human = [pair for pair in confident_pairs if pair[1].human_required]
+
+            if decisive_fail:
+                route = "CONFIRMED"
+                decision = "DEFECT_CONFIRMED"
+                reason = (
+                    f"{len(decisive_fail)} lỗi được phân loại tin cậy cao "
+                    f"(≥{confirmed_threshold:.0%}) và chính sách xác nhận FAIL; xe bị giữ lại "
+                    "bất kể các phát hiện khác."
+                )
+                if ambiguous_pairs:
+                    reason += (
+                        f" Còn {len(ambiguous_pairs)} phát hiện chưa đủ tin cậy hoặc chưa khớp "
+                        "danh mục cần QC xem lại bổ sung."
+                    )
+            elif ambiguous_pairs:
+                route = "HITL"
+                decision = "LOW_CONFIDENCE_OR_UNCLASSIFIED_REVIEW_REQUIRED"
+                cameras = ", ".join(sorted({item["camera_id"] for item, _ in ambiguous_pairs}))
+                reason = (
+                    f"{len(ambiguous_pairs)} phát hiện ở camera {cameras} chưa đủ độ tin cậy "
+                    f"(<{confirmed_threshold:.0%}) hoặc chưa khớp danh mục lỗi; cần QC xét duyệt "
+                    "để tránh bỏ sót lỗi thật."
+                )
+            elif needs_human:
+                route = "HITL"
+                decision = "MANUAL_REINSPECTION_REQUIRED"
+                cameras = ", ".join(sorted({item["camera_id"] for item, _ in needs_human}))
+                reason = (
+                    f"Không tìm được chính sách đã duyệt phù hợp cho camera {cameras}; "
+                    "cần QC xét duyệt thủ công."
+                )
+            else:
+                route = "CONFIRMED"
+                decision = "DEFECT_CONFIRMED"
+                reason = (
+                    f"Agent đã phân loại tin cậy cao {len(confident_pairs)} lỗi phát hiện "
+                    "và chọn được mã QC đang hoạt động cho từng lỗi."
+                )
 
         # Andon-style escalation gate (backend/app/hitl_alerts.py's HitlRateAlertService):
         # when this station's HITL rate is CRITICAL, every new inspection is forced through
@@ -379,89 +458,43 @@ class QCNodes:
                 f"kết quả gốc lẽ ra là {original_route} nhưng bắt buộc chuyển sang QC xét duyệt."
             )
 
-        camera_policy_decisions: list[dict[str, Any]] = []
-        analysis: ReasoningAnalysis | None = None
-        reasoning_degraded = False
-
         if route == "CONFIRMED":
-            # Evaluate policy for EVERY camera's own finding independently — a defect on
-            # CAM-03 that the catalog/policy says must FAIL cannot be hidden just because
-            # CAM-01's finding happened to be classified as PASS-eligible.
-            evaluated: list[tuple[dict[str, Any], PolicyDecision]] = []
-            for item in camera_classifications:
-                overlay_state = {
-                    **state,
-                    "defect_type": item["defect_type"],
-                    "catalog_defect_type": item["catalog_defect_type"],
-                    "classified_defect_code": item["classified_defect_code"],
-                    "confidence": item["confidence"],
-                    "severity": item["severity"],
-                    "bbox": item["bbox"],
-                    "visual_measurements": item["visual_measurements"],
-                    "camera_id": item["camera_id"],
-                }
-                evaluated.append((item, self.policy_catalog.evaluate(overlay_state)))
+            # Worst-wins, deterministically, among the CONFIDENT findings only (ambiguous ones
+            # never reach here — either they produced a decisive FAIL already, or route would
+            # have been HITL). The single decision that drives the LLM narrative is the
+            # highest-severity FAIL among them (or, if nothing fails, the highest-severity
+            # finding overall).
+            failing = [pair for pair in confident_pairs if pair[1].final_status == "FAIL"]
+            _worst_item, policy = max(
+                failing or confident_pairs, key=lambda pair: _classification_rank(pair[0])
+            )
+            aggregate_final_status = "FAIL" if failing else "PASS"
 
-            camera_policy_decisions = [
-                {
-                    "camera_id": item["camera_id"],
-                    "detection_id": item["detection_id"],
-                    "policy_decision": decision.model_dump(mode="json"),
-                }
-                for item, decision in evaluated
-            ]
-
-            # A PolicyDecision with human_required=True means no APPROVED, context-matched
-            # policy could authorize an automated disposition for that camera's finding
-            # (PolicyCatalog._manual_reinspection's fail-safe, or an explicit human_required
-            # policy) — that must reach a QC inspector through the HITL queue instead of
-            # silently auto-saving as FAIL, which previously made every unmatched-policy
-            # case look identical to a real, catalog-confirmed FAIL.
-            needs_human = [pair for pair in evaluated if pair[1].human_required]
-            if needs_human:
-                route = "HITL"
-                decision = "MANUAL_REINSPECTION_REQUIRED"
-                _worst_item, policy = max(needs_human, key=lambda pair: _classification_rank(pair[0]))
-                cameras = ", ".join(sorted({item["camera_id"] for item, _ in needs_human}))
-                reason = (
-                    f"Không tìm được chính sách đã duyệt phù hợp cho camera {cameras}; "
-                    "cần QC xét duyệt thủ công."
+            try:
+                analysis = self.reasoning.analyze(state, policy)
+            except ReasoningUnavailableError as error:
+                # route/decision above are already final -- they come entirely from
+                # deterministic policy evaluation. Groq only ever adds the human-readable
+                # narrative on top (docs/DE_BAI_GOC.md: LLM explains, it does not decide),
+                # so losing it must never force HITL or change the outcome -- substitute a
+                # deterministic narrative instead.
+                reasoning_degraded = True
+                analysis = DeterministicReasoningService().analyze(state, policy).model_copy(
+                    update={"fallback_reason": f"LLM giải trình không khả dụng: {error}."}
                 )
-            else:
-                # Worst-wins, deterministically: ANY camera FAILing fails the whole vehicle.
-                # The single decision that drives the LLM narrative is the highest-severity
-                # FAIL (or, if nothing fails, just the highest-severity finding overall).
-                failing = [pair for pair in evaluated if pair[1].final_status == "FAIL"]
-                _worst_item, policy = max(
-                    failing or evaluated, key=lambda pair: _classification_rank(pair[0])
+
+            # The LLM only ever reasons about ONE camera's policy — it cannot know a
+            # DIFFERENT camera's defect is what actually fails the vehicle, so the
+            # deterministic cross-camera aggregate always overrides its free-form status.
+            if analysis.final_status != aggregate_final_status:
+                analysis = analysis.model_copy(
+                    update={
+                        "final_status": aggregate_final_status,
+                        "allow_test_drive": (
+                            aggregate_final_status == "PASS" and analysis.allow_test_drive
+                        ),
+                    }
                 )
-                aggregate_final_status = "FAIL" if failing else "PASS"
-
-                try:
-                    analysis = self.reasoning.analyze(state, policy)
-                except ReasoningUnavailableError as error:
-                    # route/decision above are already final -- they come entirely from
-                    # deterministic policy evaluation. Groq only ever adds the human-readable
-                    # narrative on top (docs/DE_BAI_GOC.md: LLM explains, it does not decide),
-                    # so losing it must never force HITL or change the outcome -- substitute a
-                    # deterministic narrative instead.
-                    reasoning_degraded = True
-                    analysis = DeterministicReasoningService().analyze(state, policy).model_copy(
-                        update={"fallback_reason": f"LLM giải trình không khả dụng: {error}."}
-                    )
-
-                # The LLM only ever reasons about ONE camera's policy — it cannot know a
-                # DIFFERENT camera's defect is what actually fails the vehicle, so the
-                # deterministic cross-camera aggregate always overrides its free-form status.
-                if analysis.final_status != aggregate_final_status:
-                    analysis = analysis.model_copy(
-                        update={
-                            "final_status": aggregate_final_status,
-                            "allow_test_drive": (
-                                aggregate_final_status == "PASS" and analysis.allow_test_drive
-                            ),
-                        }
-                    )
         else:
             policy = self.policy_catalog.evaluate(state)
 
@@ -494,16 +527,6 @@ class QCNodes:
             ),
         }
 
-    def verify_defect(self, state: QCState) -> dict[str, Any]:
-        result = self.verifier.verify(state)
-        return {
-            **result,
-            "execution_trace": _trace(
-                "verify_defect",
-                f"Lượt xác minh {result['verify_count']} trả về kết quả {result['verify_result']}.",
-            ),
-        }
-
     def human_review(self, state: QCState) -> dict[str, Any]:
         response = interrupt(
             {
@@ -512,7 +535,6 @@ class QCNodes:
                 "vehicle_id": state["vehicle_id"],
                 "defect_type": state.get("defect_type"),
                 "confidence": state.get("confidence"),
-                "verify_count": state.get("verify_count", 0),
                 "reason": state.get("reason"),
                 "allowed_actions": ["APPROVE", "REJECT", "OVERRIDE"],
             }

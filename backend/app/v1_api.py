@@ -28,7 +28,7 @@ def inspect_vehicle(
     request: Request,
     file: UploadFile = File(...),
     vehicle_id: str = Form(...),
-    station_id: str = Form("FNS_LINE_HA_01"),
+    station_id: str = Form("QC-01"),
     vehicle_model: str = Form("unknown_model"),
     zone_name: str = Form("unknown_zone"),
     lot_id: str | None = Form(default=None),

@@ -86,8 +86,8 @@ backend/
 agent/
   LangGraph state machine
   ├── DetectorService  → LocalYoloSegmentationDetector(best.pt)
-  ├── VerifierService  → model second pass
-  ├── ReasoningService → Groq LLM Agent + schema/policy validation
+  ├── defect_rule_engine → phân loại mã lỗi theo ngưỡng mm/số lượng, không LLM
+  ├── ReasoningService → Groq LLM (chỉ giải thích sau quyết định) + schema/policy validation
   └── QCRepository     → Supabase PostgreSQL / SQLite test fallback
        │
        ▼
@@ -103,9 +103,7 @@ flowchart TD
     detect_defect --> assess_result
     assess_result -->|PASS| save_result
     assess_result -->|CONFIRMED| generate_recommendation
-    assess_result -->|VERIFY| verify_defect
     assess_result -->|HITL| human_review
-    verify_defect --> assess_result
     human_review --> generate_recommendation
     generate_recommendation --> save_result
     save_result --> END
@@ -129,7 +127,7 @@ Kết quả được lưu tại `agent_flow.mmd`; bản giải thích trực qua
 - `defect_detected`, `defect_type`, `confidence`, bbox/segmentation;
 - `detections` từ detector và `enriched_defects` sau khi Agent bổ sung ngữ cảnh;
 - `severity`, `decision`, `reason`, `assessment_route`;
-- `verify_count`, `verify_result`, retry/error metadata;
+- `confirmed_threshold` (ngưỡng confidence tự động quyết PASS/FAIL), retry/error metadata;
 - `human_required`, `human_decision`, `hitl_status`;
 - `recommendation_code`, `recommendation`, `final_status`; mức độ tổng thể dùng trực tiếp trường `severity`;
 - `allow_test_drive` là cờ an toàn do policy quyết định;
@@ -146,8 +144,7 @@ tránh hai trường cùng mô tả một quyết định. `vehicle_id` là khó
 | ------------------------- | ------------------------------------------------------ |
 | `prepare_input`           | Kiểm tra ảnh đầu vào và khởi tạo metadata an toàn      |
 | `detect_defect`           | Gọi detector adapter và chuẩn hóa kết quả CV           |
-| `assess_result`           | Tự xác nhận label/mã đã biết; chỉ chuyển ngoại lệ sang HITL |
-| `verify_defect`           | Node dự phòng, không dùng trong chế độ Agent-first hiện tại |
+| `assess_result`           | Đánh giá policy + ngưỡng confidence (`CONFIRMED_THRESHOLD`); finding mơ hồ hoặc dưới ngưỡng chuyển HITL trừ khi có finding khác đã chốt FAIL |
 | `human_review`            | Dừng graph bằng `interrupt()` để QC quyết định         |
 | `generate_recommendation` | Dùng quyết định LLM đã validate để tạo phương án vận hành |
 | `save_result`             | Lưu state cuối qua repository                          |
@@ -157,11 +154,14 @@ tránh hai trường cùng mô tả một quyết định. `vehicle_id` là khó
 Rule baseline:
 
 1. Không phát hiện lỗi → `PASS` → lưu kết quả.
-2. Label đã biết và Agent chọn được mã catalog → `CONFIRMED`, không phụ thuộc confidence.
-3. Model error, label mới hoặc không có mã catalog phù hợp → `HITL`.
+2. Model error → `HITL` ngay (an toàn tuyệt đối).
+3. Mỗi finding được xét "confident" khi đã khớp mã catalog **và** YOLO confidence
+   ≥ `CONFIRMED_THRESHOLD` (mặc định `0.85`). Nếu có ít nhất một finding confident
+   bị policy xác nhận `FAIL` → cả xe `FAIL` ngay (worst-wins), không chờ finding
+   khác. Nếu không có FAIL confident nào mà vẫn còn finding mơ hồ (chưa khớp
+   catalog hoặc dưới ngưỡng confidence) → `HITL`. Nếu mọi finding confident đều
+   `PASS` và không còn finding mơ hồ → `CONFIRMED` (PASS).
 4. `severity` là mức ảnh hưởng lấy từ mã QC: A cao, B đáng chú ý, C nhẹ; không phải confidence.
-
-Node verify vẫn được giữ để có thể bật lại khi policy sản xuất yêu cầu second pass.
 
 ### HITL pause/resume
 
@@ -330,8 +330,7 @@ CALIBRATION_MM_PER_PIXEL_X=0.8
 CALIBRATION_MM_PER_PIXEL_Y=0.8
 CALIBRATION_PROFILE_ID=FNS_FRONT_PILOT_1280
 AUTO_PASS_ENABLED=true
-CONFIRMED_THRESHOLD=0.70
-VERIFY_THRESHOLD=0.40
+CONFIRMED_THRESHOLD=0.85
 QC_REASONING_PROVIDER=groq
 GROQ_MODEL=openai/gpt-oss-20b
 # GROQ_API_KEY=gsk_...
@@ -409,12 +408,6 @@ bằng `pnpm dev`.
 `LocalYoloSegmentationDetector` hiện chạy `best.pt`. Khi model của team sẵn sàng,
 thay đường dẫn `MODEL_PATH`; giữ nguyên contract `defect_detected`, `defect_type`,
 confidence, bbox và segmentation result trong `QCState`.
-
-### Verifier
-
-`ModelVerifier` hiện chạy second pass bằng cùng model. Production có thể chuyển
-sang crop độ phân giải cao, camera thứ hai hoặc model ensemble đã được phê duyệt,
-nhưng phải giữ contract `verify_count/verify_result`.
 
 ### PostgreSQL checkpoint/database
 

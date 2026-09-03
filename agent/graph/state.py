@@ -81,9 +81,7 @@ class QCState(TypedDict, total=False):
     evidence_tags: list[str]
     decision: str
     reason: str
-    assessment_route: Literal["PASS", "CONFIRMED", "VERIFY", "HITL"]
-    verify_count: int
-    verify_result: str
+    assessment_route: Literal["PASS", "CONFIRMED", "HITL"]
     human_required: bool
     human_decision: dict[str, Any] | None
     qc_decision_record: dict[str, Any] | None
@@ -102,7 +100,6 @@ class QCState(TypedDict, total=False):
     max_retries: int
     auto_pass_enabled: bool
     confirmed_threshold: float
-    verify_threshold: float
     # Set by the upload endpoints (backend/app/langgraph_api.py) from a live
     # HitlRateAlertService.analyze() call, never persisted as sticky state — a CRITICAL HITL
     # escalation rate at this station forces EVERY new inspection through human_review

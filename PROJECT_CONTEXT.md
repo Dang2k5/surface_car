@@ -129,7 +129,6 @@ Các node hiện tại:
 - `prepare_input`
 - `detect_defect`
 - `assess_result`
-- `verify_defect`
 - `human_review`
 - `generate_recommendation`
 - `save_result`
@@ -222,8 +221,7 @@ DELETE /agent/runs
 GET  /api/quality-alerts
 ```
 
-Baseline đang dùng SQLite local, `best.pt`, ModelVerifier, LangGraph và frontend
-workstation. Chưa tích hợp model CV thật, PostgreSQL checkpointer hoặc MinIO.
+Baseline đang dùng `best.pt`, LangGraph và frontend workstation.
 
 ## 12. Checkpoints phát triển
 

@@ -63,8 +63,6 @@ def build_audit_export(state: dict[str, Any]) -> dict[str, Any]:
         "workflow": {
             "assessment_route": state.get("assessment_route"),
             "camera_policy_decisions": state.get("camera_policy_decisions", []),
-            "verify_count": state.get("verify_count", 0),
-            "verify_result": state.get("verify_result"),
             "human_required": state.get("human_required", False),
             "hitl_status": state.get("hitl_status"),
             "human_decision": state.get("human_decision"),

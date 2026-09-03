@@ -482,7 +482,6 @@ class GroqReasoningService:
                 "visual_measurements": state.get("visual_measurements"),
                 "severity": state.get("severity"),
                 "severity_source_id": state.get("severity_source_id"),
-                "verify_result": state.get("verify_result"),
                 "similar_defect_warning": state.get("similar_defect_warning"),
                 "total_camera_views": len(state.get("camera_results") or []) or 1,
                 "cross_camera_findings": state.get("finding_groups") or [],
