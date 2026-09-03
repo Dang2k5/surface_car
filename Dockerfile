@@ -4,12 +4,14 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 
 COPY requirements.txt .
-# ultralytics pulls in torch as a dependency; on Linux the default PyPI wheel
-# bundles CUDA runtime libs (nvidia-cublas-cu12, nvidia-cudnn-cu12, ...) that
-# get loaded into RAM on import even though MODEL_DEVICE=cpu never uses a GPU.
-# Installing the CPU-only wheel first satisfies that dependency and keeps
-# pip from pulling the CUDA build afterwards.
-RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
+# GPU branch: install PyTorch from the default PyPI index. On Linux this wheel
+# bundles the matching CUDA 12.x runtime libs (nvidia-cublas-cu12,
+# nvidia-cudnn-cu12, ...) needed for torch.cuda -- no system CUDA toolkit or
+# nvidia/cuda base image required inside the container. The EC2 host only
+# needs the NVIDIA driver + nvidia-container-toolkit (both preinstalled on the
+# AWS Deep Learning AMI) so `docker run --gpus all` passes the GPU through;
+# ultralytics then runs inference on MODEL_DEVICE=cuda:0.
+RUN pip install --no-cache-dir --user torch
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # ---- Stage 2: Production ----
@@ -34,7 +36,9 @@ USER appuser
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
+# start-period is longer than the CPU branch's 90s: CUDA context init plus
+# loading the model onto VRAM adds to cold-start time.
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=120s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

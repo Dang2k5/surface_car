@@ -200,7 +200,7 @@ cuối để History và QC Queue vẫn đọc được sau khi backend restart.
 
 ## 6. API chính
 
-Swagger: `http://127.0.0.1:8000/docs`
+Swagger: `http://127.0.0.1:8001/docs` (local dev; container/production vẫn dùng 8000, xem mục Docker bên dưới)
 
 ### LangGraph API
 
@@ -280,7 +280,7 @@ python -m pip install -r requirements.txt
 Chạy backend:
 
 ```powershell
-python -m uvicorn backend.app.main:app --reload
+python -m uvicorn backend.app.main:app --reload --port 8001
 ```
 
 Mở PowerShell thứ hai và chạy frontend:
@@ -288,11 +288,11 @@ Mở PowerShell thứ hai và chạy frontend:
 ```powershell
 cd frontend
 Copy-Item .env.example .env.local
-npm ci
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-Mở `http://localhost:3000`; API mặc định tại `http://127.0.0.1:8000`.
+Mở `http://localhost:3000`; API mặc định tại `http://127.0.0.1:8001` (đổi từ 8000 để không đụng bản Railway chạy local song song).
 
 ### Linux/macOS
 
@@ -302,7 +302,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m uvicorn backend.app.main:app --reload
+python -m uvicorn backend.app.main:app --reload --port 8001
 ```
 
 Trong terminal thứ hai:
@@ -310,8 +310,8 @@ Trong terminal thứ hai:
 ```bash
 cd frontend
 cp .env.example .env.local
-npm ci
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ## 9. Cấu hình môi trường
@@ -351,7 +351,7 @@ backend và không được commit. Frontend không được nhận database URL
 `frontend/.env.local`:
 
 ```dotenv
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+VITE_API_BASE_URL=http://127.0.0.1:8001
 ```
 
 ## 10. Chuẩn bị và chạy demo
@@ -400,7 +400,7 @@ docker compose up --build
 ```
 
 Container phục vụ backend tại `http://127.0.0.1:8000`. Frontend vẫn chạy riêng
-bằng `npm run dev`.
+bằng `pnpm dev`.
 
 ## 13. Mở rộng thành phần production
 

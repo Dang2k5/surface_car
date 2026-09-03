@@ -58,9 +58,9 @@ backend proxy hoặc presigned URL do backend cấp.
 |---|---|---|
 | `DETECTOR_PROVIDER` | `local_yolo` | Chỉ hỗ trợ `local_yolo` — hệ thống luôn chạy model YOLO thật, không còn chế độ mock |
 | `MODEL_PATH` | `./data/best.pt` | Đường dẫn model Ultralytics (YOLO Segmentation) |
-| `MODEL_DEVICE` | `cpu` | `cpu`, CUDA device hoặc cấu hình Ultralytics hợp lệ |
+| `MODEL_DEVICE` | `cpu` | `cpu`, CUDA device (`cuda:0`) hoặc cấu hình Ultralytics hợp lệ. Nhánh AWS GPU (`feature_dang`) đặt mặc định `cuda:0` — xem `docs/DEPLOYMENT_PLAN_AWS_GPU.md` |
 | `MODEL_CONFIDENCE` | `0.25` | Ngưỡng detection ban đầu |
-| `MODEL_IMAGE_SIZE` | `640` | Kích thước inference tối ưu cho CPU demo; tăng lên `1280` khi cần ưu tiên độ chính xác |
+| `MODEL_IMAGE_SIZE` | `640` | Kích thước inference tối ưu cho CPU demo; tăng lên `1280` khi có GPU và ưu tiên độ chính xác (đo P95 latency thật trước khi đổi ở production) |
 
 ### Geometry Processor / Pilot camera calibration
 

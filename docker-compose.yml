@@ -16,11 +16,23 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
-    # Caps the container so a memory spike (e.g. two instances briefly
-    # overlapping during a deploy) OOM-kills this container instead of
-    # starving the whole host.
-    mem_limit: 1g
-    mem_reservation: 512m
+    # Higher than the CPU/Railway branch's 1g/512m: the CUDA runtime libs
+    # bundled with the GPU torch wheel (see Dockerfile) plus batched video
+    # frames held in RAM before predict() need more headroom.
+    mem_limit: 4g
+    mem_reservation: 2g
+    # Requires the NVIDIA Container Toolkit on the host (preinstalled on the
+    # AWS Deep Learning AMI) and `docker compose` v2 -- passes the EC2
+    # instance's GPU through to the container. Local `docker compose up`
+    # without a GPU host will fail to satisfy this reservation; use the CPU
+    # branch's compose file for local dev instead.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

@@ -3,6 +3,7 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
@@ -10,9 +11,6 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
-  },
-  "overrides": {
-    "rolldown": "1.2.1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

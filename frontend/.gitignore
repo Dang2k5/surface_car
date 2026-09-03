@@ -16,9 +16,12 @@ dist-ssr
 .nitro
 *.local
 
-# Wrangler / Cloudflare
+# Wrangler / Cloudflare (legacy build output, kept ignored in case of local testing)
 .wrangler/
 .dev.vars
+
+# Vercel (deploy target — see docs/DEPLOYMENT_PLAN_AWS_GPU.md, vite.config.ts nitro.preset)
+.vercel/
 
 # Editor directories and files
 .vscode/*
