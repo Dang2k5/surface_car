@@ -37,6 +37,27 @@ def _detection_priority_key(item: dict[str, Any]) -> tuple[int, float, float]:
     )
 
 
+def _finding_detail_line(
+    item: dict[str, Any], decision: PolicyDecision, confirmed_threshold: float
+) -> str:
+    """One human-readable line per camera finding, naming the exact policy evaluate()
+    matched (or why none could) -- used to expand the terse aggregate `reason` string
+    (assess_result, below) into something a QC operator can actually act on instead of
+    a bare camera-id list."""
+    conf_pct = f"{float(item.get('confidence') or 0.0):.0%}"
+    code = item.get("classified_defect_code") or item.get("defect_type") or "chưa xác định"
+    if item.get("catalog_defect_type") is None:
+        policy_note = "chưa khớp được mã lỗi nào trong danh mục — không có chính sách nào áp dụng được"
+    else:
+        policy_note = f"chính sách khớp: '{decision.policy_title}' ({decision.policy_id}) → {decision.final_status}"
+        if decision.human_required:
+            policy_note += ", chính sách này tự yêu cầu QC xét duyệt thủ công"
+    return (
+        f"{item.get('camera_id', '?')}: {code}, độ tin cậy {conf_pct} "
+        f"(ngưỡng {confirmed_threshold:.0%}) — {policy_note}"
+    )
+
+
 _SEVERITY_LETTER_RANK = {"A": 3, "B": 2, "C": 1}
 
 
@@ -405,32 +426,46 @@ class QCNodes:
             if decisive_fail:
                 route = "CONFIRMED"
                 decision = "DEFECT_CONFIRMED"
+                fail_details = "\n".join(
+                    _finding_detail_line(item, decision_item, confirmed_threshold)
+                    for item, decision_item in decisive_fail
+                )
                 reason = (
                     f"{len(decisive_fail)} lỗi được phân loại tin cậy cao "
                     f"(≥{confirmed_threshold:.0%}) và chính sách xác nhận FAIL; xe bị giữ lại "
-                    "bất kể các phát hiện khác."
+                    f"bất kể các phát hiện khác:\n{fail_details}"
                 )
                 if ambiguous_pairs:
+                    ambiguous_details = "\n".join(
+                        _finding_detail_line(item, decision_item, confirmed_threshold)
+                        for item, decision_item in ambiguous_pairs
+                    )
                     reason += (
-                        f" Còn {len(ambiguous_pairs)} phát hiện chưa đủ tin cậy hoặc chưa khớp "
-                        "danh mục cần QC xem lại bổ sung."
+                        f"\nCòn {len(ambiguous_pairs)} phát hiện chưa đủ tin cậy hoặc chưa khớp "
+                        f"danh mục cần QC xem lại bổ sung:\n{ambiguous_details}"
                     )
             elif ambiguous_pairs:
                 route = "HITL"
                 decision = "LOW_CONFIDENCE_OR_UNCLASSIFIED_REVIEW_REQUIRED"
-                cameras = ", ".join(sorted({item["camera_id"] for item, _ in ambiguous_pairs}))
+                ambiguous_details = "\n".join(
+                    _finding_detail_line(item, decision_item, confirmed_threshold)
+                    for item, decision_item in ambiguous_pairs
+                )
                 reason = (
-                    f"{len(ambiguous_pairs)} phát hiện ở camera {cameras} chưa đủ độ tin cậy "
-                    f"(<{confirmed_threshold:.0%}) hoặc chưa khớp danh mục lỗi; cần QC xét duyệt "
-                    "để tránh bỏ sót lỗi thật."
+                    f"{len(ambiguous_pairs)} phát hiện chưa đủ độ tin cậy (<{confirmed_threshold:.0%}) "
+                    "hoặc chưa khớp danh mục lỗi; cần QC xét duyệt để tránh bỏ sót lỗi thật:\n"
+                    f"{ambiguous_details}"
                 )
             elif needs_human:
                 route = "HITL"
                 decision = "MANUAL_REINSPECTION_REQUIRED"
-                cameras = ", ".join(sorted({item["camera_id"] for item, _ in needs_human}))
+                needs_human_details = "\n".join(
+                    _finding_detail_line(item, decision_item, confirmed_threshold)
+                    for item, decision_item in needs_human
+                )
                 reason = (
-                    f"Không tìm được chính sách đã duyệt phù hợp cho camera {cameras}; "
-                    "cần QC xét duyệt thủ công."
+                    "Không tìm được chính sách đã duyệt phù hợp; cần QC xét duyệt thủ công:\n"
+                    f"{needs_human_details}"
                 )
             else:
                 route = "CONFIRMED"

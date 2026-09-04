@@ -475,7 +475,7 @@ function HitlQueue() {
                 />
                 <div className="col-span-2 min-w-0">
                   <div className="label-caps">Lý do AI</div>
-                  <div className="mt-1 text-sm text-warning">{state.reason || "—"}</div>
+                  <div className="mt-1 whitespace-pre-line text-sm text-warning">{state.reason || "—"}</div>
                 </div>
               </div>
 
