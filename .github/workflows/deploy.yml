@@ -10,6 +10,7 @@ on:
       - "docker-compose.yml"
       - "requirements.txt"
       - ".github/workflows/deploy.yml"
+  workflow_dispatch: {}
 
 permissions:
   id-token: write # required for OIDC -> AssumeRoleWithWebIdentity
