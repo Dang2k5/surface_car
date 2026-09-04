@@ -147,12 +147,21 @@ function HitlQueue() {
   }, [active?.thread_id]);
 
   // Vị trí lỗi bám theo camera đang xem, chứ không phải nhập tay — 5 camera mount cố định
-  // (CAMERA_POSITION_LABELS) là vị trí thật duy nhất mà hệ thống biết chắc chắn.
+  // (CAMERA_POSITION_LABELS) là vị trí thật duy nhất mà hệ thống biết chắc chắn. Mặc định
+  // (chưa bấm chọn camera nào) phải bám theo camera của primary_detection_id -- lỗi thực sự
+  // khiến ca này vào HITL -- chứ không phải state.camera_id (chỉ là camera nộp ảnh đầu tiên,
+  // xem giải thích ở primaryDefectCameraId bên dưới).
   useEffect(() => {
-    const camId = selectedCameraId ?? (active?.state.camera_id as CameraId | undefined);
+    const primaryDefectCamId = active?.state.enriched_defects?.find(
+      (d) => d.detection_id === active.state.primary_detection_id,
+    )?.camera_id;
+    const camId =
+      selectedCameraId ??
+      (primaryDefectCamId as CameraId | undefined) ??
+      (active?.state.camera_id as CameraId | undefined);
     const known = camId && KNOWN_CAMERA_IDS.includes(camId) ? camId : undefined;
     setLocation(known ? CAMERA_POSITION_LABELS[known] : "");
-  }, [active?.thread_id, active?.state.camera_id, selectedCameraId]);
+  }, [active?.thread_id, active?.state.camera_id, active?.state.primary_detection_id, active?.state.enriched_defects, selectedCameraId]);
 
   if (isLoading) {
     return (
@@ -200,9 +209,20 @@ function HitlQueue() {
   // ever seeing the single primary detection's photo.
   const allDefects = defectsFromState(state);
   const capturedCameras = camerasFromState(state).filter((c) => c.image);
-  const primaryCameraId = KNOWN_CAMERA_IDS.includes(state.camera_id as CameraId)
-    ? (state.camera_id as CameraId)
-    : capturedCameras[0]?.id;
+  // state.camera_id is just whichever camera was submitted FIRST in the request
+  // (backend/app/langgraph_api.py's `primary = camera_evidence[0]`) -- it has nothing to do
+  // with which camera actually caught the worst finding that routed this case to HITL. The
+  // camera that matters is the one holding state.primary_detection_id (agent/graph/nodes.py
+  // ranks every camera's findings and picks the single worst one across all of them), so look
+  // that up first and only fall back to camera_id / the first captured photo if it's missing.
+  const primaryDefectCameraId = state.enriched_defects?.find(
+    (d) => d.detection_id === state.primary_detection_id,
+  )?.camera_id;
+  const primaryCameraId = KNOWN_CAMERA_IDS.includes(primaryDefectCameraId as CameraId)
+    ? (primaryDefectCameraId as CameraId)
+    : KNOWN_CAMERA_IDS.includes(state.camera_id as CameraId)
+      ? (state.camera_id as CameraId)
+      : capturedCameras[0]?.id;
   const featuredCameraId = selectedCameraId ?? primaryCameraId;
   const featuredIsPrimary = featuredCameraId === primaryCameraId;
 
