@@ -23,6 +23,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - name: Configure AWS credentials (OIDC, no static keys)
         uses: aws-actions/configure-aws-credentials@v4
@@ -51,7 +52,11 @@ jobs:
 
       - name: Wait for deploy command to finish
         run: |
-          for i in $(seq 1 60); do
+          # docker compose --build can cold-build the torch/ultralytics/CUDA
+          # image from scratch (no layer cache after an instance
+          # stop/start) -- this can take well over 10 minutes, so poll for
+          # up to 40 minutes (240 * 10s) instead of a short fixed window.
+          for i in $(seq 1 240); do
             STATUS=$(aws ssm get-command-invocation \
               --command-id "${{ steps.deploy.outputs.command_id }}" \
               --instance-id i-0da4fa435ec1d5d6d \
@@ -67,7 +72,7 @@ jobs:
                 --instance-id i-0da4fa435ec1d5d6d
               exit 1
             fi
-            sleep 5
+            sleep 10
           done
           echo "Timed out waiting for deploy command"
           exit 1
