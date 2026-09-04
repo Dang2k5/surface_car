@@ -7,7 +7,7 @@ import { CameraFeed } from "@/components/qc/CameraFeed";
 import { ImageLightbox } from "@/components/qc/ImageLightbox";
 import { Field, Meter, Panel, VerdictBadge } from "@/components/qc/primitives";
 import { cn } from "@/lib/utils";
-import { assetUrl } from "@/lib/auth";
+import { assetUrl, useAuth } from "@/lib/auth";
 import {
   useAgentRuns,
   useAllocateLotProduct,
@@ -77,6 +77,8 @@ function emptyDraft(): UploadDraft {
 let uploadDraft: UploadDraft = emptyDraft();
 
 function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) {
+  const { profile } = useAuth();
+  const assignedStationId = profile?.station_id || "";
   const submit = useSubmitInspection();
   const shiftsQuery = useShifts();
   const lotsQuery = useLots();
@@ -106,11 +108,13 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   const shifts = shiftsQuery.data ?? [];
   const lots = lotsQuery.data ?? [];
   const stations = stationsQuery.data ?? [];
+  const stationById = new Map(stations.map((s) => [s.station_id, s]));
 
+  // Accounts with a station already assigned always inspect at that station -- never let the
+  // dropdown below (which only renders for unassigned accounts, e.g. supervisors) override it.
   useEffect(() => {
-    if (!stationId && stations.length > 0) setStationId(stations[0]!.station_id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stationId, stations.length]);
+    if (assignedStationId && stationId !== assignedStationId) setStationId(assignedStationId);
+  }, [assignedStationId, stationId]);
 
   // Selecting a lot is what determines its Trạm+Ca (handleLotChange below), not the other way
   // around — there's no station picker in this form, and Ca starts unselected, so filtering the
@@ -121,7 +125,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   function handleLotChange(nextLotId: string) {
     setLotId(nextLotId);
     const lot = lots.find((l) => l.lot_id === nextLotId);
-    if (lot?.station_id) setStationId(lot.station_id);
+    if (lot?.station_id && !assignedStationId) setStationId(lot.station_id);
     if (lot?.shift_id) setShiftId(lot.shift_id);
     setVehicleModel(lot?.product_model ?? "");
   }
@@ -177,6 +181,7 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
   };
 
   const missing: string[] = [];
+  if (!stationId) missing.push("Trạm sản xuất");
   if (!lotId) missing.push("Lô sản xuất");
   if (!shiftId) missing.push("Ca làm việc");
   if (lotId && !vehicleModel)
@@ -336,6 +341,27 @@ function UploadPanel({ onSubmitted }: { onSubmitted: (run: GraphRun) => void }) 
           onChange={(e) => setProductionDate(e.target.value)}
           className="rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
         />
+        {assignedStationId ? (
+          <input
+            value={stationById.get(assignedStationId)?.name ?? assignedStationId}
+            readOnly
+            title="Trạm gán cho tài khoản của bạn"
+            className="rounded-sm border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-foreground"
+          />
+        ) : (
+          <select
+            value={stationId}
+            onChange={(e) => setStationId(e.target.value)}
+            className="rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
+          >
+            <option value="">Chọn trạm</option>
+            {stations.map((s) => (
+              <option key={s.station_id} value={s.station_id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="mt-3 space-y-2">
