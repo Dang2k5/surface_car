@@ -235,9 +235,15 @@ function HitlQueue() {
   // non-primary camera.
   const featuredResult = state.camera_results?.find((r) => r.camera_id === featuredCameraId);
   const featuredEvidence = state.camera_evidence?.find((e) => e.camera_id === featuredCameraId);
-  const featuredImage = featuredIsPrimary
-    ? assetUrl(state.image_url)
-    : (capturedCameras.find((c) => c.id === featuredCameraId)?.image ?? "");
+  // state.image_url is fixed at submission time to camera_evidence[0]'s photo
+  // (backend/app/langgraph_api.py's `primary = camera_evidence[0]`) and is NEVER updated to
+  // track whichever camera later turns out to hold the actual worst finding -- so using it here
+  // whenever featuredIsPrimary is true showed camera 1's raw photo even when e.g. camera 5 was
+  // the real primary camera. Always resolve the photo from camera_evidence by featuredCameraId
+  // instead (correct for every camera, primary included); only fall back to state.image_url for
+  // legacy runs that predate camera_evidence.
+  const featuredImage =
+    capturedCameras.find((c) => c.id === featuredCameraId)?.image || assetUrl(state.image_url) || "";
   const featuredVideoUrl = featuredIsPrimary
     ? (assetUrl(featuredEvidence?.video_url || featuredResult?.video_url) ?? undefined)
     : capturedCameras.find((c) => c.id === featuredCameraId)?.videoUrl;
