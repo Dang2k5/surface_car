@@ -394,8 +394,10 @@ class DefectDeduplicator:
         # Use highest confidence detection as base
         best = max(detections, key=lambda d: d.get("confidence", 0))
 
-        # Average measurements from all detections
-        measurements = best.get("visual_measurements", {})
+        # Average measurements from all detections. Copy first -- best's own
+        # visual_measurements dict must not be mutated in place, since best is still one of
+        # the caller's original per-frame detections and may be read again elsewhere.
+        measurements = dict(best.get("visual_measurements") or {})
         if len(detections) > 1:
             measurement_keys = ["estimated_width_mm", "estimated_height_mm", "estimated_length_mm"]
             for key in measurement_keys:
@@ -407,6 +409,7 @@ class DefectDeduplicator:
 
         # Create merged detection
         merged = dict(best)
+        merged["visual_measurements"] = measurements
         merged["_merge_count"] = len(detections)
         merged["_frame_timestamps"] = sorted(
             set(d.get("_frame_timestamp", 0) for d in detections)

@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
-from .auth import CurrentUser, require_role
+from .auth import CurrentUser, get_current_user, require_role
 from .qc_schemas import PolicyItemCreate, PolicyItemUpdate, PolicySourceCreate
 
 router = APIRouter(prefix="/api/policies", tags=["QC policy catalog"])
@@ -14,12 +14,14 @@ MAX_SOURCE_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 @router.get("")
-def get_policy_catalog(request: Request) -> dict:
+def get_policy_catalog(request: Request, user: CurrentUser = Depends(get_current_user)) -> dict:
     return request.app.state.qc_policy_catalog.public_catalog()
 
 
 @router.get("/{policy_id}")
-def get_policy(policy_id: str, request: Request) -> dict:
+def get_policy(
+    policy_id: str, request: Request, user: CurrentUser = Depends(get_current_user)
+) -> dict:
     catalog = request.app.state.qc_policy_catalog.public_catalog()
     policy = next((item for item in catalog["policies"] if item["id"] == policy_id), None)
     if policy is None:

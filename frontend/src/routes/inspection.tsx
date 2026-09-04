@@ -614,7 +614,13 @@ function InspectionPage() {
                     <Field
                       label="Kết luận"
                       value={defect.decision}
-                      tone={defect.decision === "FAIL" ? "danger" : "success"}
+                      tone={
+                        defect.decision === "FAIL"
+                          ? "danger"
+                          : defect.decision === "PASS"
+                            ? "success"
+                            : "warning"
+                      }
                     />
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">

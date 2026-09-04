@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 
@@ -26,7 +26,7 @@ from agent.services.video_processor import (
 )
 from agent.services.yolo_detector import _group_findings, detection_priority_key
 
-from .auth import CurrentUser, get_current_user
+from .auth import CurrentUser, get_current_user, require_role
 from .langgraph_schemas import (
     AgentGraphResponse,
     LangGraphInspectionCreate,
@@ -443,7 +443,9 @@ def resume_langgraph_inspection(
 
 @router.get("/inspections/{thread_id}/state", response_model=LangGraphRunResponse)
 @router.get("/api/langgraph/inspections/{thread_id}", response_model=LangGraphRunResponse)
-def get_langgraph_inspection(request: Request, thread_id: str) -> LangGraphRunResponse:
+def get_langgraph_inspection(
+    request: Request, thread_id: str, user: CurrentUser = Depends(get_current_user)
+) -> LangGraphRunResponse:
     graph = request.app.state.qc_langgraph
     snapshot = graph.get_state(_config(thread_id))
     if not snapshot.values:
@@ -459,7 +461,12 @@ def get_langgraph_inspection(request: Request, thread_id: str) -> LangGraphRunRe
 
 @router.get("/agent/runs", response_model=list[LangGraphRunResponse])
 @router.get("/api/agent/runs", response_model=list[LangGraphRunResponse])
-def list_agent_runs(request: Request) -> list[LangGraphRunResponse]:
+def list_agent_runs(
+    request: Request,
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    user: CurrentUser = Depends(get_current_user),
+) -> list[LangGraphRunResponse]:
     return [
         LangGraphRunResponse(
             thread_id=state["thread_id"],
@@ -467,13 +474,15 @@ def list_agent_runs(request: Request) -> list[LangGraphRunResponse]:
             state=state,
             interrupt=None,
         )
-        for state in request.app.state.qc_repository.list_with_metadata()
+        for state in request.app.state.qc_repository.list_with_metadata(limit=limit, offset=offset)
     ]
 
 
 @router.get("/agent/runs/export.jsonl")
 @router.get("/api/agent/runs/export.jsonl")
-def export_agent_runs(request: Request) -> StreamingResponse:
+def export_agent_runs(
+    request: Request, user: CurrentUser = Depends(get_current_user)
+) -> StreamingResponse:
     """Download all persisted run audits as one portable JSONL file."""
     records = [build_audit_export(state) for state in request.app.state.qc_repository.list()]
     payload = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
@@ -487,7 +496,9 @@ def export_agent_runs(request: Request) -> StreamingResponse:
 
 @router.get("/agent/runs/{thread_id}/export.json")
 @router.get("/api/agent/runs/{thread_id}/export.json")
-def export_agent_run(request: Request, thread_id: str) -> StreamingResponse:
+def export_agent_run(
+    request: Request, thread_id: str, user: CurrentUser = Depends(get_current_user)
+) -> StreamingResponse:
     """Download one inspection with CV, LangGraph, policy, HITL and reasoning evidence."""
     state = request.app.state.qc_repository.get(thread_id)
     if state is None:
@@ -503,7 +514,7 @@ def export_agent_run(request: Request, thread_id: str) -> StreamingResponse:
 @router.delete("/agent/runs")
 @router.delete("/api/agent/runs")
 def clear_agent_runs(
-    request: Request, user: CurrentUser = Depends(get_current_user)
+    request: Request, user: CurrentUser = Depends(require_role("QC_SUPERVISOR"))
 ) -> dict[str, Any]:
     """Clear persisted traces and invalidate the persisted LangGraph checkpoints."""
     deleted = request.app.state.qc_repository.clear()
@@ -516,7 +527,9 @@ def clear_agent_runs(
 
 @router.get("/agent/graph", response_model=AgentGraphResponse)
 @router.get("/api/agent/graph", response_model=AgentGraphResponse)
-def get_agent_graph(request: Request) -> AgentGraphResponse:
+def get_agent_graph(
+    request: Request, user: CurrentUser = Depends(get_current_user)
+) -> AgentGraphResponse:
     mermaid = request.app.state.qc_langgraph.get_graph().draw_mermaid()
     return AgentGraphResponse(
         mermaid=mermaid,

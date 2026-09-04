@@ -29,9 +29,11 @@ class QCRepository(Protocol):
 
     def get(self, thread_id: str) -> dict[str, Any] | None: ...
 
-    def list(self) -> list[dict[str, Any]]: ...
+    def list(self, *, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]: ...
 
-    def list_with_metadata(self) -> list[dict[str, Any]]: ...
+    def list_with_metadata(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> list[dict[str, Any]]: ...
 
     def clear(self) -> int: ...
 
@@ -96,9 +98,8 @@ class PostgresQCRepository:
         )
         return _sanitize_state(json.loads(row["state_json"])) if row else None
 
-    def list(self) -> list[dict[str, Any]]:
-        rows = self.database.fetch_all(
-            """SELECT current.state_json
+    def list(self, *, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        query = """SELECT current.state_json
             FROM agent_graph_runs AS current
             WHERE current.updated_at = (
                 SELECT MAX(candidate.updated_at)
@@ -106,12 +107,17 @@ class PostgresQCRepository:
                 WHERE candidate.vehicle_id = current.vehicle_id
             )
             ORDER BY current.updated_at DESC"""
-        )
+        params: dict[str, Any] = {}
+        if limit is not None:
+            query += " LIMIT :limit OFFSET :offset"
+            params = {"limit": limit, "offset": offset}
+        rows = self.database.fetch_all(query, params)
         return [_sanitize_state(json.loads(row["state_json"])) for row in rows]
 
-    def list_with_metadata(self) -> list[dict[str, Any]]:
-        rows = self.database.fetch_all(
-            """SELECT current.state_json, current.updated_at
+    def list_with_metadata(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        query = """SELECT current.state_json, current.updated_at
             FROM agent_graph_runs AS current
             WHERE current.updated_at = (
                 SELECT MAX(candidate.updated_at)
@@ -119,7 +125,11 @@ class PostgresQCRepository:
                 WHERE candidate.vehicle_id = current.vehicle_id
             )
             ORDER BY current.updated_at DESC"""
-        )
+        params: dict[str, Any] = {}
+        if limit is not None:
+            query += " LIMIT :limit OFFSET :offset"
+            params = {"limit": limit, "offset": offset}
+        rows = self.database.fetch_all(query, params)
         return [
             {**_sanitize_state(json.loads(row["state_json"])), "_persisted_at": row["updated_at"]}
             for row in rows

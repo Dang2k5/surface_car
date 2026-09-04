@@ -19,8 +19,10 @@ class _Repository:
     def __init__(self, states: list[dict[str, Any]]) -> None:
         self._states = states
 
-    def list_with_metadata(self) -> list[dict[str, Any]]:
-        return self._states
+    def list_with_metadata(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        return self._states[offset : offset + limit] if limit is not None else self._states[offset:]
 
 
 def _state(

@@ -497,7 +497,9 @@ class GroqReasoningService:
                 "Only cite source IDs included in controlled_policy_context.references.",
                 "Select action_code and final_status only from allowed_decision.",
                 "Never allow test drive when allowed_decision.test_drive_may_be_allowed is false.",
-                "Determine severity from the selected catalog code, geometry and policy context.",
+                "severity in inspection is already final, decided by the rule engine from the "
+                "catalog code's geometry (size/location) -- copy it into your severity field "
+                "verbatim and reference it in the narrative; never re-derive or change it.",
                 "Explain the exact policy status and approval scope; demo approval is not production release authority.",
                 "Return concise Vietnamese and English summaries.",
                 "Explain the selected defect code, confidence, estimated length, location, action plan, and warnings when present.",

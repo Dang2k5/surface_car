@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 from pathlib import Path
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class ObjectStorageService(Protocol):
@@ -91,6 +94,9 @@ class S3ObjectStorage:
             config=Config(
                 signature_version="s3v4",
                 s3={"addressing_style": "path"} if endpoint else {},
+                connect_timeout=5,
+                read_timeout=30,
+                retries={"max_attempts": 3, "mode": "standard"},
             ),
         )
         self._ensure_bucket()
@@ -100,10 +106,23 @@ class S3ObjectStorage:
 
         try:
             self.client.head_bucket(Bucket=self.bucket)
-        except ClientError:
-            # Bucket is provisioned as infrastructure, not auto-created here;
-            # a missing bucket will surface as a clear error on first read/write.
-            return
+        except ClientError as error:
+            error_code = error.response.get("Error", {}).get("Code", "")
+            if error_code in {"404", "NoSuchBucket"}:
+                # Bucket is provisioned as infrastructure, not auto-created here;
+                # a missing bucket will surface as a clear error on first read/write.
+                return
+            # Anything else (bad credentials, permission denied, network failure) is a real
+            # misconfiguration -- surface it now instead of only on the first upload, without
+            # blocking startup (a transient network blip here shouldn't crash the app).
+            logger.warning(
+                "S3 head_bucket check for bucket %r failed unexpectedly (%s) -- credentials "
+                "or permissions may be misconfigured; continuing startup, but object storage "
+                "reads/writes will likely fail.",
+                self.bucket,
+                error_code,
+                exc_info=True,
+            )
 
     def put(self, key: str, data: bytes, content_type: str) -> None:
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)

@@ -24,8 +24,16 @@ def _with_source(request: Request, row: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/defect-codes", response_model=list[dict[str, Any]])
-def list_defect_codes(request: Request, active_only: bool = True) -> list[dict[str, Any]]:
-    rows = request.app.state.database.list_defect_codes(active_only=active_only)
+def list_defect_codes(
+    request: Request,
+    active_only: bool = True,
+    limit: int = Query(default=500, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0),
+    user: CurrentUser = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    rows = request.app.state.database.list_defect_codes(
+        active_only=active_only, limit=limit, offset=offset
+    )
     return [_with_source(request, row) for row in rows]
 
 
@@ -80,8 +88,13 @@ def delete_defect_code(
 def list_qc_decisions(
     request: Request,
     inspection_id: str | None = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0),
+    user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    return request.app.state.database.list_qc_decisions(inspection_id=inspection_id)
+    return request.app.state.database.list_qc_decisions(
+        inspection_id=inspection_id, limit=limit, offset=offset
+    )
 
 
 @router.post("/decisions", response_model=dict[str, Any], status_code=201)

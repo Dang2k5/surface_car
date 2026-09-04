@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
+from .auth import CurrentUser, get_current_user, require_role
 from .quality_alerts import (
     QualityAlertSummary,
     RepetitionAlertService,
@@ -53,6 +54,7 @@ def list_quality_alerts(
     in_window_threshold: int = Query(default=4, ge=2, le=100),
     critical_consecutive_threshold: int = Query(default=5, ge=2, le=20),
     critical_window_threshold: int = Query(default=7, ge=2, le=100),
+    user: CurrentUser = Depends(get_current_user),
 ) -> QualityAlertSummary:
     return _summary(
         request,
@@ -78,6 +80,7 @@ def download_quality_alert_report(
     in_window_threshold: int = Query(default=4, ge=2, le=100),
     critical_consecutive_threshold: int = Query(default=5, ge=2, le=20),
     critical_window_threshold: int = Query(default=7, ge=2, le=100),
+    user: CurrentUser = Depends(require_role("QC_SUPERVISOR")),
 ) -> StreamingResponse:
     summary = _summary(
         request,

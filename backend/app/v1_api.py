@@ -107,7 +107,9 @@ def _compatibility_plan(state: dict[str, Any]) -> str:
 
 
 @router.get("/station/stream-alerts")
-async def stream_station_alerts(request: Request) -> StreamingResponse:
+async def stream_station_alerts(
+    request: Request, user: CurrentUser = Depends(get_current_user)
+) -> StreamingResponse:
     """SSE stream over the database-backed 10-vehicle anomaly window."""
 
     async def events():

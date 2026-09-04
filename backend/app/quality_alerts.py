@@ -155,9 +155,16 @@ class RepetitionAlertService:
         now = datetime.now(UTC)
         cutoff = now - timedelta(hours=window_hours)
         candidates = []
-        for state in self.repository.list_with_metadata():
+        # list_with_metadata() is ordered updated_at DESC (newest first), so once a row falls
+        # before the window cutoff every remaining row is also older -- stop scanning instead
+        # of touching the rest of a potentially large audit history on every call (this runs
+        # every 2s off the SSE loop in backend/app/v1_api.py). `limit=500` is a defense-in-depth
+        # cap, generous relative to window_size/window_hours' realistic values.
+        for state in self.repository.list_with_metadata(limit=500):
             persisted_at = _parse_timestamp(state.get("_persisted_at"))
-            if persisted_at < cutoff or not state.get("defect_detected"):
+            if persisted_at < cutoff:
+                break
+            if not state.get("defect_detected"):
                 continue
             if state.get("defect_type") not in {"scratch", "dent"}:
                 continue

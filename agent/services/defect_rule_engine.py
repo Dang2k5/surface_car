@@ -46,9 +46,16 @@ def classify_by_rule(
     # (e.g. "at least 2 dent detections") is a categorically different, worse condition than
     # any single finding's own size band, and must win over a width-band match rather than
     # be treated as merely "ambiguous with it".
+    #
+    # "Cluster" means physically localized: same defect_type AND same camera (i.e. the same
+    # general body area), not just anywhere on the vehicle -- a scratch on the front bumper
+    # and an unrelated one on the tailgate must not count as a 2-vết cluster.
     defect_type = str(overlay.get("defect_type") or "")
+    camera_id = overlay.get("camera_id")
     sibling_count = sum(
-        1 for item in (overlay.get("detections") or []) if item.get("class_name") == defect_type
+        1
+        for item in (overlay.get("detections") or [])
+        if item.get("class_name") == defect_type and item.get("camera_id") == camera_id
     )
     count_matches = [
         item

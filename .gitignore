@@ -64,3 +64,6 @@ out/
 .ai-log/archive/
 .vercel
 .env*
+
+# Scratch/debug dumps
+/out.txt

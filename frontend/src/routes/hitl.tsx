@@ -181,6 +181,7 @@ function HitlQueue() {
   }
 
   const state = active.state;
+  const casePriority = derivePriority(state.severity);
 
   // A case can have more than one independently-classified finding still waiting for a
   // defect_code (agent/graph/nodes.py's QCNodes.detect_defect classifies every detection,
@@ -437,7 +438,15 @@ function HitlQueue() {
                 <Field label="Camera" value={state.camera_id} tone="info" />
                 <Field label="Model xe" value={state.vehicle_model} />
                 <Field label="Loại lỗi" value={state.defect_type || "—"} />
-                <Field label="Mức ưu tiên" value={derivePriority(state.severity)} tone="danger" />
+                <Field
+                  label="Mức ưu tiên"
+                  value={casePriority}
+                  {...(casePriority === "Critical"
+                    ? { tone: "danger" as const }
+                    : casePriority === "High"
+                      ? { tone: "warning" as const }
+                      : {})}
+                />
                 <div className="col-span-2 min-w-0">
                   <div className="label-caps">Lý do AI</div>
                   <div className="mt-1 text-sm text-warning">{state.reason || "—"}</div>

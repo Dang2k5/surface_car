@@ -184,8 +184,12 @@ function thresholdFor(
   if (code.rule_type === "MIN_COUNT" && code.min_detection_count != null) {
     // Show what actually decided this classification (achieved/needed), not just the bare
     // threshold — mirrors agent/services/defect_rule_engine.py's own sibling_count: how many
-    // detections across all 5 cameras share this finding's defect_type.
-    const achieved = cameraClassifications?.filter((c) => c.defect_type === own.defect_type).length ?? 0;
+    // detections on THIS SAME CAMERA share this finding's defect_type (a cluster is a
+    // physically localized condition, not a vehicle-wide tally).
+    const achieved =
+      cameraClassifications?.filter(
+        (c) => c.defect_type === own.defect_type && c.camera_id === own.camera_id,
+      ).length ?? 0;
     return `${achieved}/${code.min_detection_count} vết`;
   }
   return code.classification_rule ? numericThresholdFromRule(code.classification_rule) : "—";
@@ -199,8 +203,8 @@ function thresholdFor(
 function decisionFor(
   d: EnrichedDefect,
   cameraPolicyDecisions: CameraPolicyDecision[] | undefined,
-  overallDecision: "PASS" | "FAIL",
-): "PASS" | "FAIL" {
+  overallDecision: "PASS" | "FAIL" | "HITL",
+): "PASS" | "FAIL" | "HITL" {
   const own = cameraPolicyDecisions?.find((c) => c.detection_id === d.detection_id);
   const ownStatus = own?.policy_decision?.final_status;
   return ownStatus === "PASS" || ownStatus === "FAIL" ? ownStatus : overallDecision;
@@ -209,7 +213,7 @@ function decisionFor(
 function toDefect(
   d: EnrichedDefect,
   index: number,
-  overallDecision: "PASS" | "FAIL",
+  overallDecision: "PASS" | "FAIL" | "HITL",
   imageWidth: number | undefined,
   imageHeight: number | undefined,
   cameraClassifications: CameraClassification[] | undefined,
@@ -248,7 +252,13 @@ function toDefect(
 
 export function defectsFromState(state: QCState | undefined): Defect[] {
   if (!state?.enriched_defects?.length) return [];
-  const overallPass = state.final_status === "PASS";
+  // final_status is unset both for a genuine FAIL-in-progress narrative gap and for a run
+  // still paused mid-HITL (agent/graph/nodes.py only sets it once generate_recommendation
+  // runs) -- collapsing both to "FAIL" would show a red verdict on a finding nobody has
+  // actually failed yet. Fall back to "HITL" (VerdictBadge already renders it as the same
+  // amber tone used for the overall run banner) instead of assuming the worst.
+  const overallDecision: "PASS" | "FAIL" | "HITL" =
+    state.final_status === "PASS" ? "PASS" : state.final_status === "FAIL" ? "FAIL" : "HITL";
   return state.enriched_defects.map((d, i) => {
     // Each camera photo has its own resolution (agent/services/yolo_detector.py builds bbox/mask
     // pixel coordinates per-camera). state.image_width/height only reflect the PRIMARY camera's
@@ -260,7 +270,7 @@ export function defectsFromState(state: QCState | undefined): Defect[] {
     return toDefect(
       d,
       i,
-      overallPass ? "PASS" : "FAIL",
+      overallDecision,
       imageWidth,
       imageHeight,
       state.camera_classifications,

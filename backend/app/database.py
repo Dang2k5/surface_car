@@ -663,12 +663,14 @@ class Database:
         with self.begin() as connection:
             connection.execute(text(query), parameters or {})
 
-    def list_defect_codes(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+    def list_defect_codes(
+        self, *, active_only: bool = True, limit: int = 500, offset: int = 0
+    ) -> list[dict[str, Any]]:
         query = "SELECT * FROM defect_catalog"
         if active_only:
             query += " WHERE active = 1"
-        query += " ORDER BY defect_type, defect_code"
-        return self.fetch_all(query)
+        query += " ORDER BY defect_type, defect_code LIMIT :limit OFFSET :offset"
+        return self.fetch_all(query, {"limit": limit, "offset": offset})
 
     def get_defect_code(self, defect_code: str) -> dict[str, Any] | None:
         return self.fetch_one(
@@ -775,13 +777,19 @@ class Database:
             {"decision_id": values["decision_id"]},
         ) or {}
 
-    def list_qc_decisions(self, *, inspection_id: str | None = None) -> list[dict[str, Any]]:
+    def list_qc_decisions(
+        self, *, inspection_id: str | None = None, limit: int = 500, offset: int = 0
+    ) -> list[dict[str, Any]]:
         if inspection_id:
             return self.fetch_all(
-                "SELECT * FROM qc_decisions WHERE inspection_id = :inspection_id ORDER BY created_at DESC",
-                {"inspection_id": inspection_id},
+                """SELECT * FROM qc_decisions WHERE inspection_id = :inspection_id
+                ORDER BY created_at DESC LIMIT :limit OFFSET :offset""",
+                {"inspection_id": inspection_id, "limit": limit, "offset": offset},
             )
-        return self.fetch_all("SELECT * FROM qc_decisions ORDER BY created_at DESC")
+        return self.fetch_all(
+            "SELECT * FROM qc_decisions ORDER BY created_at DESC LIMIT :limit OFFSET :offset",
+            {"limit": limit, "offset": offset},
+        )
 
     def get_or_create_profile(
         self,

@@ -35,7 +35,7 @@ export type Defect = {
   camera: CameraId;
   measurement: string;
   threshold: string;
-  decision: "FAIL" | "PASS";
+  decision: "FAIL" | "PASS" | "HITL";
   /** bounding box in % of the camera frame */
   box: { x: number; y: number; w: number; h: number };
   /** YOLO segmentation mask outline in % of the camera frame, when the model returned one */

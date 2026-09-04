@@ -13,7 +13,6 @@ ultralytics>=8.3,<9.0
 groq>=0.31,<2.0
 sqlalchemy>=2.0,<3.0
 psycopg[binary]>=3.2,<4.0
-alembic>=1.14,<2.0
 boto3>=1.35,<2.0
 
 # Agent orchestration (APIs used are compatible with LangGraph 0.2.74+ and 1.x)

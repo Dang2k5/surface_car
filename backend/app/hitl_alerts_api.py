@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
-from .auth import CurrentUser, require_role
+from .auth import CurrentUser, get_current_user, require_role
 
 router = APIRouter(prefix="/api/production-line", tags=["Production line control"])
 
@@ -34,7 +34,9 @@ def _line_status_payload(station_id: str, row: dict[str, Any] | None) -> dict[st
 
 
 @router.get("/{station_id}/status")
-def get_line_status(request: Request, station_id: str) -> dict[str, Any]:
+def get_line_status(
+    request: Request, station_id: str, user: CurrentUser = Depends(get_current_user)
+) -> dict[str, Any]:
     row = request.app.state.database.get_line_status(station_id)
     return _line_status_payload(station_id, row)
 
@@ -66,6 +68,8 @@ def resume_line(
 
 
 @router.get("/{station_id}/hitl-alert")
-def get_hitl_alert(request: Request, station_id: str) -> dict[str, Any] | None:
+def get_hitl_alert(
+    request: Request, station_id: str, user: CurrentUser = Depends(get_current_user)
+) -> dict[str, Any] | None:
     alert = request.app.state.hitl_alert_service.analyze(station_id=station_id)
     return alert.model_dump(mode="json") if alert else None

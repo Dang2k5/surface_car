@@ -350,7 +350,13 @@ function InspectionExplorer() {
                             <span className="font-mono text-xs font-semibold text-foreground">
                               {d.camera} · {d.type}
                             </span>
-                            <Badge tone={d.decision === "PASS" ? "pass" : "fail"}>{d.decision}</Badge>
+                            <Badge
+                              tone={
+                                d.decision === "PASS" ? "pass" : d.decision === "FAIL" ? "fail" : "warn"
+                              }
+                            >
+                              {d.decision}
+                            </Badge>
                           </div>
                           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
                             <span>Vị trí: {d.location}</span>

@@ -622,7 +622,19 @@ class QCNodes:
         }
 
     def generate_recommendation(self, state: QCState) -> dict[str, Any]:
-        policy = self.policy_catalog.evaluate(state)
+        # assess_result already computed and stored the authoritative policy decision. For the
+        # CONFIRMED route specifically it picks the worst finding via _classification_rank
+        # across all confident findings -- which does not always match what a fresh
+        # evaluate(state) call would re-derive from top-level state fields (those track
+        # primary_detection_id, chosen by a different priority order in detection_priority_key).
+        # Reusing it keeps the persisted policy_decision/recommendation describing the same
+        # finding that actually decided FAIL/PASS instead of silently drifting to another one.
+        stored_policy_decision = state.get("policy_decision")
+        policy = (
+            PolicyDecision.model_validate(stored_policy_decision)
+            if stored_policy_decision
+            else self.policy_catalog.evaluate(state)
+        )
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()
         supervisor_action = str((state.get("human_decision") or {}).get("supervisor_action") or "").strip()
         # An OVERRIDE only reaches here after supervisor_review resolves it (routes.py's
@@ -678,15 +690,14 @@ class QCNodes:
         warnings = list(analysis.risk_flags)
         if state.get("similar_defect_warning"):
             warnings.append("MULTIPLE_SIMILAR_DEFECT_REGIONS")
-        primary_detection_id = state.get("primary_detection_id")
-        enriched_defects = [
-            {**item, "severity_rank": analysis.severity}
-            if item.get("detection_id") == primary_detection_id
-            else item
-            for item in state.get("enriched_defects") or []
-        ]
+        # severity_rank on every item (including the primary detection) was already set
+        # correctly by _enrich_defects() from the rule engine's catalog match -- it must not
+        # be re-derived by the LLM narrative step. Groq/DeterministicReasoningService only
+        # describe an already-fixed severity, they never get to change it (see analyze()'s
+        # prompt constraints in agent/services/reasoning.py).
+        enriched_defects = state.get("enriched_defects") or []
         return {
-            "severity": analysis.severity,
+            "severity": state.get("severity") or analysis.severity,
             "enriched_defects": enriched_defects,
             "recommendation_code": analysis.action_code,
             "recommendation": analysis.action_label,
