@@ -64,6 +64,8 @@ class DefectCodeClassification(BaseModel):
 class ReasoningService(Protocol):
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis: ...
 
+    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str: ...
+
     def classify_defect_code(
         self, state: QCState, candidates: list[dict[str, object]]
     ) -> DefectCodeClassification: ...
@@ -193,6 +195,12 @@ class DeterministicReasoningService:
             model="policy-extract-heuristic-v1",
         )
 
+    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str:
+        """No-op passthrough -- used directly in tests and as the QC_REASONING_PROVIDER!=groq
+        provider, so `reason` (already a fully deterministic, fact-grounded string built in
+        agent/graph/nodes.py's assess_result) simply stands as-is with no LLM rewrite."""
+        return reason
+
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
         defect = state.get("defect_type", "unknown")
         confidence = float(state.get("confidence", 0.0))
@@ -314,6 +322,9 @@ class UnavailableReasoningService:
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
         raise ReasoningUnavailableError(self.reason)
 
+    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str:
+        raise ReasoningUnavailableError(self.reason)
+
 
 class GroqReasoningService:
     """LLM decision service constrained by catalog, evidence and policy guards."""
@@ -403,6 +414,56 @@ class GroqReasoningService:
         except Exception as exc:
             self._mark_failure(exc)
             logger.warning("Groq code classification failed; HITL is required: %s", exc)
+            raise ReasoningUnavailableError(type(exc).__name__) from exc
+
+    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str:
+        """Rewrites an already-final, deterministic HITL/PASS/FAIL `reason` string into a
+        clearer Vietnamese narrative for the QC operator -- the LLM never sees the raw
+        route-selection logic and cannot alter route/decision (both are passed in already
+        final and are not part of the returned value), it only paraphrases the given facts."""
+        prompt = {
+            "task": (
+                "Rewrite the following already-finalized QC routing explanation into clear, "
+                "flowing Vietnamese prose for a QC operator, so they immediately understand "
+                "why this inspection needs review. Return JSON: {\"narrative_vi\": \"...\"}."
+            ),
+            "route": route,
+            "decision": decision,
+            "deterministic_facts": reason,
+            "constraints": [
+                "Never change or contradict route/decision -- they are already final and outside your control.",
+                "Never invent a camera id, defect code, confidence value, or policy name/id not present in deterministic_facts.",
+                "Preserve every camera id and policy name/id mentioned in deterministic_facts.",
+                "Do not add a recommendation or disposition of your own -- only explain the given facts.",
+                "Write only in Vietnamese, in flowing prose, not a bare fact list.",
+            ],
+        }
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You explain an already-finalized QC routing decision to a human "
+                            "operator. You never decide or change anything yourself, only "
+                            "explain the given facts clearly in Vietnamese. Return JSON only."
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+                response_format={"type": "json_object"},
+            )
+            payload = json.loads(completion.choices[0].message.content or "{}")
+            narrative = str(payload.get("narrative_vi") or "").strip()
+            if not narrative:
+                raise ValueError("Groq returned an empty narrative")
+            self._mark_success()
+            return narrative
+        except Exception as exc:
+            self._mark_failure(exc)
+            logger.warning("Groq reason explanation failed; keeping deterministic reason: %s", exc)
             raise ReasoningUnavailableError(type(exc).__name__) from exc
 
     def extract_policy_draft(

@@ -533,6 +533,22 @@ class QCNodes:
         else:
             policy = self.policy_catalog.evaluate(state)
 
+        reason_explained = False
+        if route == "HITL":
+            # The route/decision and the underlying fact string above are already 100% final
+            # (deterministic policy evaluation) -- this call can only rewrite `reason` into
+            # clearer prose for the operator, it cannot change what was decided or why
+            # (agent/services/reasoning.py's explain_reason receives no ability to alter
+            # route/decision, only to paraphrase the already-final `reason` text).
+            try:
+                reason = self.reasoning.explain_reason(
+                    state, route=route, decision=decision, reason=reason
+                )
+                reason_explained = True
+            except ReasoningUnavailableError as error:
+                reasoning_degraded = True
+                reason += f"\n(LLM giải trình chi tiết không khả dụng: {error}; hiển thị lý do gốc.)"
+
         review = policy.document_review
         return {
             "assessment_route": route,
@@ -550,6 +566,8 @@ class QCNodes:
                 if reasoning_degraded
                 else "LLM_DECISION_COMPLETED"
                 if analysis
+                else "LLM_EXPLANATION_COMPLETED"
+                if reason_explained
                 else state.get("agent_reasoning_status", "NOT_RUN")
             ),
             "execution_trace": _trace(
