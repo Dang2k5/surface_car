@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from agent.services.policy import PolicyCatalog
 from agent.services.reasoning import DeterministicReasoningService
+from backend.app.database import Database
 from backend.app.main import app
 
 
-def test_surface_policy_is_cited_but_blocked_from_production_release():
-    catalog = PolicyCatalog()
+def test_surface_policy_is_cited_but_blocked_from_production_release(test_database):
+    catalog = PolicyCatalog(test_database)
     decision = catalog.evaluate(
         {
             "defect_type": "scratch",
@@ -66,26 +65,44 @@ def test_surface_policy_is_cited_but_blocked_from_production_release():
     }
 
 
-def test_document_review_blocks_expired_and_conflicting_revisions(tmp_path):
-    source = PolicyCatalog().public_catalog()
-    catalog_document = json.loads(json.dumps(source))
-    base = catalog_document["sources"][0]
-    base.update(
+def test_document_review_blocks_expired_and_conflicting_revisions(test_database):
+    catalog = PolicyCatalog(test_database)
+    controlled_expired = catalog.create_source(
         {
+            "id": "TEST-CONTROLLED-EXPIRED-001",
+            "document_family": "IATF-16949",
+            "revision": "2020",
+            "section": "Khung quản lý chất lượng ngành ô tô",
             "document_status": "APPROVED",
             "authority": "CONTROLLED_POLICY",
+            "title": "Test controlled/expired copy",
+            "scope": "Test-only expired controlled reference.",
+            "url": "https://example.invalid/iatf-2020",
             "effective_date": "2020-01-01",
             "expiry_date": "2020-12-31",
         }
     )
-    conflicting = {**base, "id": "IATF-16949-2024", "revision": "2024", "expiry_date": None}
-    catalog_document["sources"].append(conflicting)
-    surface = next(item for item in catalog_document["policies"] if item["id"] == "FNS-SURFACE-001")
-    surface["source_ids"] = [base["id"], conflicting["id"]]
-    path = tmp_path / "catalog.json"
-    path.write_text(json.dumps(catalog_document), encoding="utf-8")
+    controlled_conflicting = catalog.create_source(
+        {
+            "id": "TEST-CONTROLLED-CONFLICT-001",
+            "document_family": "IATF-16949",
+            "revision": "2024",
+            "section": "Khung quản lý chất lượng ngành ô tô",
+            "document_status": "APPROVED",
+            "authority": "CONTROLLED_POLICY",
+            "title": "Test controlled/conflicting-revision copy",
+            "scope": "Test-only conflicting-revision controlled reference.",
+            "url": "https://example.invalid/iatf-2024",
+            "effective_date": "2020-01-01",
+            "expiry_date": None,
+        }
+    )
+    catalog.update_policy(
+        "FNS-SURFACE-001",
+        {"source_ids": [controlled_expired["id"], controlled_conflicting["id"]]},
+    )
 
-    decision = PolicyCatalog(path).evaluate(
+    decision = catalog.evaluate(
         {
             "vehicle_model": "SUV_EV_2026",
             "defect_type": "scratch",
@@ -99,8 +116,8 @@ def test_document_review_blocks_expired_and_conflicting_revisions(tmp_path):
     assert decision.production_eligible is False
 
 
-def _catalog_with_draft_policy(tmp_path, defect_type: str):
-    catalog_document = json.loads(json.dumps(PolicyCatalog().public_catalog()))
+def _catalog_with_draft_policy(test_database: Database, defect_type: str) -> PolicyCatalog:
+    catalog = PolicyCatalog(test_database)
     draft_policy = {
         "id": "FNS-DRAFT-TEST-001",
         "title": "Draft policy not yet reviewed",
@@ -116,19 +133,24 @@ def _catalog_with_draft_policy(tmp_path, defect_type: str):
         "steps": [],
         "source_ids": [],
     }
-    # Insert ahead of any approved policy so a naive "first match wins" lookup
-    # would pick the DRAFT one if the approval gate were missing.
-    catalog_document["policies"].insert(0, draft_policy)
-    path = tmp_path / "catalog.json"
-    path.write_text(json.dumps(catalog_document), encoding="utf-8")
-    return path
+    catalog.create_policy(draft_policy)
+    # New policies always sort_order-append last (see Database.create_policy) -- force this
+    # one ahead of every existing policy instead, so a naive "first match wins" lookup would
+    # pick the DRAFT one if the approval gate (PolicyCatalog.is_approved) were missing. Only
+    # reachable by going straight at the DB: PolicyCatalog's own API deliberately has no way
+    # to insert at an arbitrary position.
+    test_database.execute(
+        "UPDATE policies SET sort_order = -1 WHERE id = :id", {"id": draft_policy["id"]}
+    )
+    catalog._reload()
+    return catalog
 
 
-def test_draft_policy_is_skipped_in_favor_of_an_approved_match(tmp_path):
+def test_draft_policy_is_skipped_in_favor_of_an_approved_match(test_database):
     # scratch already has an APPROVED policy (FNS-SURFACE-001) -- the DRAFT one
-    # must never win the match just by being listed first.
-    path = _catalog_with_draft_policy(tmp_path, "scratch")
-    decision = PolicyCatalog(path).evaluate(
+    # must never win the match just by sorting first.
+    catalog = _catalog_with_draft_policy(test_database, "scratch")
+    decision = catalog.evaluate(
         {
             "defect_type": "scratch",
             "catalog_defect_type": "scratch",
@@ -140,30 +162,32 @@ def test_draft_policy_is_skipped_in_favor_of_an_approved_match(tmp_path):
 
     # Naming it explicitly (evaluate_named) is an internal/administrative lookup,
     # not the automatic per-defect routing path, so it is not gated the same way.
-    named = PolicyCatalog(path).evaluate_named(
+    named = catalog.evaluate_named(
         "FNS-DRAFT-TEST-001", {"defect_type": "scratch", "vehicle_model": "unknown_model"}
     )
     assert named.policy_id == "FNS-DRAFT-TEST-001"
 
 
-def test_unclassified_finding_never_lets_policy_decide_from_raw_cv_label():
+def test_unclassified_finding_never_lets_policy_decide_from_raw_cv_label(test_database):
     # A raw CV label alone (no defect_catalog-confirmed defect_code yet) must never let
     # Policy infer an action_code/final_status -- even though "scratch" alone would match
     # FNS-SURFACE-001, evaluate() must fall through to the manual-reinspection fail-safe
     # because catalog_defect_type is absent (agent/services/policy.py's evaluate()).
-    decision = PolicyCatalog().evaluate({"defect_type": "scratch", "vehicle_model": "unknown_model"})
+    decision = PolicyCatalog(test_database).evaluate(
+        {"defect_type": "scratch", "vehicle_model": "unknown_model"}
+    )
     assert decision.policy_id == "FNS-MANUAL-001"
     assert decision.final_status == "FAIL"
     assert decision.human_required is True
 
 
-def test_draft_policy_with_no_approved_alternative_falls_back_to_manual_reinspection(tmp_path):
+def test_draft_policy_with_no_approved_alternative_falls_back_to_manual_reinspection(test_database):
     # A DRAFT policy (freshly saved from the Rules UI, or AI-extracted but not yet
     # reviewed) must not silently start deciding real vehicles -- with no other
     # approved policy for this defect type, routing must fall through to the
     # manual-reinspection fail-safe until a supervisor approves it.
-    path = _catalog_with_draft_policy(tmp_path, "custom_test_defect")
-    decision = PolicyCatalog(path).evaluate(
+    catalog = _catalog_with_draft_policy(test_database, "custom_test_defect")
+    decision = catalog.evaluate(
         {
             "defect_type": "custom_test_defect",
             "catalog_defect_type": "custom_test_defect",

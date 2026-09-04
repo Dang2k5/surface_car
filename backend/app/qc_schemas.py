@@ -46,10 +46,11 @@ class DefectCodeCreate(BaseModel):
     default_severity: str = Field(default="UNASSESSED", min_length=1, max_length=30)
     measurement_required: bool = False
     active: bool = True
-    # Traces which controlled-policy source (agent/policies/qc_policy_catalog.json's
-    # sources[]) justifies default_severity/classification_rule — e.g. the mm bands
-    # SCRATCH01-05/DENT01-05 ship with cite "FNS-SEVERITY-CRITERIA-INTERNAL" (DRAFT).
-    # Not a foreign key: the source registry lives in the policy catalog, not this DB.
+    # Traces which controlled-policy source (the policy_sources table, backend/app/database.py)
+    # justifies default_severity/classification_rule — e.g. the mm bands SCRATCH01-05/DENT01-05
+    # ship with cite "FNS-SEVERITY-CRITERIA-INTERNAL" (DRAFT). Not a DB-level foreign key:
+    # policy_sources is a separate table (agent/services/policy.py's PolicyCatalog owns it),
+    # not one this defect_catalog row references directly.
     source_id: str | None = Field(default=None, max_length=64)
     # Structured rule the deterministic rule engine evaluates automatically -- see
     # agent/services/defect_rule_engine.py. Left unset (None), a code can never auto-match
@@ -217,6 +218,12 @@ class PolicyItemCreate(BaseModel):
     conditions: list[str] = Field(default_factory=list)
     checklist_status: Literal["DRAFT", "APPROVED"] = "DRAFT"
     defect_types: list[str] = Field(min_length=1)
+    # Optional finer-grained gate on top of defect_types -- when set, this policy only
+    # governs findings classified to one of these specific defect_catalog codes (e.g.
+    # DENT02/DENT03) instead of every finding of the selected defect_types. Left empty/unset,
+    # the policy is unrestricted within its defect_types, exactly as before this field existed
+    # (agent/services/policy.py's PolicyCatalog._matches_defect_code).
+    defect_codes: list[str] | None = None
     action_code: str | None = None
     action_code_by_defect: dict[str, str] | None = None
     final_status: str = Field(min_length=1, max_length=60)
@@ -266,6 +273,7 @@ class PolicyItemUpdate(BaseModel):
     conditions: list[str] | None = None
     checklist_status: Literal["DRAFT", "APPROVED"] | None = None
     defect_types: list[str] | None = Field(default=None, min_length=1)
+    defect_codes: list[str] | None = None
     action_code: str | None = None
     action_code_by_defect: dict[str, str] | None = None
     final_status: str | None = Field(default=None, min_length=1, max_length=60)

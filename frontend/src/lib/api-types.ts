@@ -511,6 +511,10 @@ export type PolicyCatalogItem = {
   conditions: string[];
   checklist_status: string;
   defect_types: string[];
+  // Optional finer-grained gate on top of defect_types (backend/app/qc_schemas.py's
+  // PolicyItemCreate.defect_codes): when set, this policy only governs findings classified to
+  // one of these specific defect_catalog codes. Absent/empty = unrestricted within defect_types.
+  defect_codes?: string[];
   action_code?: string;
   action_code_by_defect?: Record<string, string>;
   final_status: string;
@@ -528,6 +532,7 @@ export type PolicyItemCreate = {
   conditions?: string[];
   checklist_status?: "DRAFT" | "APPROVED";
   defect_types: string[];
+  defect_codes?: string[];
   action_code?: string;
   action_code_by_defect?: Record<string, string>;
   final_status: string;

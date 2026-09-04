@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -9,15 +7,10 @@ from agent.services.policy import PolicyCatalog
 from backend.app.main import app
 
 
-def test_create_source_registers_a_new_document_and_rejects_duplicates(tmp_path):
-    # Exercises PolicyCatalog directly against a throwaway copy of the catalog file --
-    # never through the live app, which is wired to the real, git-tracked
-    # agent/policies/qc_policy_catalog.json (see test_document_review_blocks_expired_and_conflicting_revisions
-    # in test_policy_reasoning.py for the same isolation pattern).
-    source_document = PolicyCatalog().public_catalog()
-    path = tmp_path / "catalog.json"
-    path.write_text(json.dumps(source_document), encoding="utf-8")
-    catalog = PolicyCatalog(path)
+def test_create_source_registers_a_new_document_and_rejects_duplicates(test_database):
+    # test_database is a real Database on an isolated per-test PostgreSQL schema
+    # (tests/conftest.py) -- never the live app's schema.
+    catalog = PolicyCatalog(test_database)
 
     new_source = {
         "id": "FNS-WI-BODY-COSMETIC-001",
@@ -33,8 +26,8 @@ def test_create_source_registers_a_new_document_and_rejects_duplicates(tmp_path)
     created = catalog.create_source(new_source)
     assert created["id"] == "FNS-WI-BODY-COSMETIC-001"
     assert "FNS-WI-BODY-COSMETIC-001" in catalog.sources
-    # Persisted to disk, and reloadable.
-    reloaded = PolicyCatalog(path)
+    # Persisted to the DB, and reloadable by a fresh instance against the same schema.
+    reloaded = PolicyCatalog(test_database)
     assert "FNS-WI-BODY-COSMETIC-001" in reloaded.sources
 
     with pytest.raises(ValueError, match="already exists"):
@@ -116,60 +109,47 @@ def _source_form_fields(source_id: str) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_create_source_requires_qc_supervisor_role(tmp_path):
+async def test_create_source_requires_qc_supervisor_role():
+    # No manual catalog-isolation needed: the autouse test_db_schema fixture
+    # (tests/conftest.py) already points app.state.database (and therefore
+    # app.state.qc_policy_catalog, built during lifespan startup below) at a fresh,
+    # throwaway PostgreSQL schema for this test.
     transport = ASGITransport(app=app)
     async with app.router.lifespan_context(app):
-        # Swap in a throwaway catalog copy so this test never writes to the real,
-        # git-tracked agent/policies/qc_policy_catalog.json (same isolation as
-        # test_create_source_registers_a_new_document_and_rejects_duplicates above).
-        real_catalog = app.state.qc_policy_catalog
-        path = tmp_path / "catalog.json"
-        path.write_text(json.dumps(real_catalog.public_catalog()), encoding="utf-8")
-        app.state.qc_policy_catalog = PolicyCatalog(path)
-        try:
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/policies/sources",
-                    headers={"X-Dev-Role": "QC_OPERATOR"},
-                    data=_source_form_fields("FNS-WI-ROLE-TEST-001"),
-                    files={"file": ("wi.txt", b"content", "text/plain")},
-                )
-                assert response.status_code == 403
-        finally:
-            app.state.qc_policy_catalog = real_catalog
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/policies/sources",
+                headers={"X-Dev-Role": "QC_OPERATOR"},
+                data=_source_form_fields("FNS-WI-ROLE-TEST-001"),
+                files={"file": ("wi.txt", b"content", "text/plain")},
+            )
+            assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_create_source_writes_file_only_on_save_and_rejects_duplicate_id(tmp_path):
+async def test_create_source_writes_file_only_on_save_and_rejects_duplicate_id():
     # This is the endpoint that actually writes to object storage -- POST
     # /api/policies/extract (above) never does, so a supervisor who only extracts
     # and never saves leaves nothing behind to clean up.
     transport = ASGITransport(app=app)
     source_id = "FNS-WI-SAVE-TEST-001"
     async with app.router.lifespan_context(app):
-        real_catalog = app.state.qc_policy_catalog
-        path = tmp_path / "catalog.json"
-        path.write_text(json.dumps(real_catalog.public_catalog()), encoding="utf-8")
-        app.state.qc_policy_catalog = PolicyCatalog(path)
-        try:
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/policies/sources",
-                    headers={"X-Dev-Role": "QC_SUPERVISOR"},
-                    data=_source_form_fields(source_id),
-                    files={"file": ("wi.txt", b"noi dung tai lieu", "text/plain")},
-                )
-                assert response.status_code == 201
-                body = response.json()
-                assert body["id"] == source_id
-                assert body["url"].startswith("/assets/objects/policy-sources/")
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/policies/sources",
+                headers={"X-Dev-Role": "QC_SUPERVISOR"},
+                data=_source_form_fields(source_id),
+                files={"file": ("wi.txt", b"noi dung tai lieu", "text/plain")},
+            )
+            assert response.status_code == 201
+            body = response.json()
+            assert body["id"] == source_id
+            assert body["url"].startswith("/assets/objects/policy-sources/")
 
-                duplicate = await client.post(
-                    "/api/policies/sources",
-                    headers={"X-Dev-Role": "QC_SUPERVISOR"},
-                    data=_source_form_fields(source_id),
-                    files={"file": ("wi.txt", b"noi dung khac", "text/plain")},
-                )
-                assert duplicate.status_code == 409
-        finally:
-            app.state.qc_policy_catalog = real_catalog
+            duplicate = await client.post(
+                "/api/policies/sources",
+                headers={"X-Dev-Role": "QC_SUPERVISOR"},
+                data=_source_form_fields(source_id),
+                files={"file": ("wi.txt", b"noi dung khac", "text/plain")},
+            )
+            assert duplicate.status_code == 409

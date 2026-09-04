@@ -24,30 +24,60 @@ and must not be presented as ISO/GD&T-mandated limits for a real vehicle.
 | AIAG CQI-8 | Layered process audit governance and effectiveness | Licensed detail must be supplied by the organization |
 | FNS-SEVERITY-CRITERIA-INTERNAL | Internal `DRAFT` mm severity bands for scratch/dent (`SCRATCH01-05`, `DENT01-05`): scratch ≤50/50-100/>100mm (C/B/A) follows the Japan used-vehicle auction-sheet scratch-length grading convention (A1/A2/A3); dent ≤25/25-50/>50mm (C/B/A) follows the PDR (Paintless Dent Repair) industry dent-diameter reference chart | Working assumption grounded in a real, independently checkable industry convention — not an approved OEM control plan; both source conventions apply to used-vehicle grading / consumer PDR, more lenient than new-vehicle-release acceptance |
 
-Source links are stored in `agent/policies/qc_policy_catalog.json` and returned
-by `GET /api/policies`.
+Sources and policies are stored in Postgres (`policy_sources`/`policies` tables,
+`backend/app/database.py`, seeded once by `_seed_policy_catalog()`) and returned
+by `GET /api/policies`. This replaced a container-local JSON file
+(`agent/policies/qc_policy_catalog.json`, now deleted) that was baked into the
+Docker image at build time — any policy/source a supervisor created or edited
+live via the "Chính sách QC" UI was silently lost on the next deploy
+(`docker compose up --build` recreates the container from a fresh image). Edits
+are now durable across deploys, same as every other catalog in this project.
 
 Each `defect_catalog` row (`backend/app/database.py`, `SCRATCH01-05`/`DENT01-05`)
-carries its own `source_id` pointing back into this same register — all 10 default
-rows currently cite `FNS-SEVERITY-CRITERIA-INTERNAL`. `GET /api/qc/defect-codes`
-enriches each row with that source's `document_status`/`title` (looked up from
-`PolicyCatalog.sources`, not a second registry), so the API surfaces the same
-DRAFT/APPROVED status a client already gets for policies. Severity is no longer
-an orphaned number — it always resolves to a citable, status-tracked document.
+carries its own `source_id` pointing back into the same `policy_sources` register —
+all 10 default rows currently cite `FNS-SEVERITY-CRITERIA-INTERNAL`. `GET
+/api/qc/defect-codes` enriches each row with that source's
+`document_status`/`title` (looked up from `PolicyCatalog.sources`, not a second
+registry), so the API surfaces the same DRAFT/APPROVED status a client already
+gets for policies. Severity is no longer an orphaned number — it always
+resolves to a citable, status-tracked document.
 
-`qc_policy_catalog.json` chỉ còn 3 policy khớp đúng taxonomy CV thật của MVP
-(`scratch` → `FNS-SURFACE-001`, `dent` → `FNS-GEOMETRY-001`, mọi loại lỗi lặp
-lại → `FNS-TREND-001`, `PRD.md` §7.1). Các entry trước đây cho
-`weld_imperfection`, `vin_mismatch`/`vin_unreadable`,
-`glass_shatter`/`lamp_broken`/`tire_flat` (`FNS-SAFETY-001`, `FNS-WELD-001`,
-`FNS-VIN-001`, cùng các source ISO 17637/5817/3779 tương ứng) đã bị xoá khỏi
-catalog vì `agent/services/yolo_detector.py` chỉ nhận diện `dent`/`scratch` —
-các entry đó chưa từng reachable qua luồng tự động và không thuộc phạm vi đề
-tài. Cùng lý do đó, `paint_defect` và `crack` cũng đã bị xoá khỏi
-`defect_types` của hai policy trên (trước đây bị bỏ sót trong đợt dọn dẹp
-này): `paint_defect` vẫn ghi ở `PRD.md` §11 (Future Extension), còn `crack`
-chưa từng có căn cứ trong `PRD.md`. Khôi phục lại nếu taxonomy CV được mở
-rộng trong tương lai (`PRD.md` §11).
+The seeded catalog has 7 policies matching the real CV taxonomy of the MVP
+(`scratch`/`dent` only, `agent/services/yolo_detector.py`), each scoped to a
+specific severity band via `defect_codes` (see below) instead of the whole
+`defect_type`: `SCRATCH01`→`FNS-SURFACE-PASS-001` (PASS), `SCRATCH02-03`→
+`FNS-SURFACE-001` (FAIL), `SCRATCH04-05`→`FNS-SURFACE-HITL-001` (HITL);
+`DENT01`→`FNS-GEOMETRY-PASS-001` (PASS), `DENT02-03`→`FNS-GEOMETRY-001` (FAIL),
+`DENT04-05`→`FNS-GEOMETRY-HITL-001` (HITL); repeated defects across vehicles →
+`FNS-TREND-001` (`PRD.md` §7.1, reached only via `evaluate_named`, never the
+generic `evaluate()` scan). Earlier demo entries for `weld_imperfection`,
+`vin_mismatch`/`vin_unreadable`, `glass_shatter`/`lamp_broken`/`tire_flat`,
+`paint_defect`, and `crack` were removed — none of those are in
+`agent/services/yolo_detector.py`'s CLASS_MAP, so they were never reachable
+through the automatic flow.
+
+### `defect_codes`: scoping a policy below `defect_types`
+
+A policy may optionally set `defect_codes` (a list of `defect_catalog` codes,
+e.g. `["DENT02", "DENT03"]`) to govern only those specific codes instead of
+every finding of its `defect_types` — `PolicyCatalog._matches_defect_code`
+(`agent/services/policy.py`). Left empty/unset, a policy is unrestricted within
+its `defect_types`, exactly as before this field existed. The Supervisor
+"Chính sách QC" form (`frontend/src/routes/supervisor/rules.tsx`) exposes this
+as a checkbox list scoped to the selected `defect_types`.
+
+`PolicyCatalog.evaluate()` is a **first-match-wins** scan over `policies` in
+their stored `sort_order` (`backend/app/database.py`'s `policies.sort_order`
+column — the original JSON array order this table replaced; `list_policies()`
+always `ORDER BY sort_order`). A newly created policy always sorts last
+(`Database.create_policy` assigns `MAX(sort_order) + 1`). This means a new,
+*unrestricted* policy for a `defect_type` that's already fully covered by
+earlier, narrower `defect_codes`-scoped policies is silently unreachable — it
+will never actually decide any inspection. The Rules form computes this
+client-side (`computeShadowWarnings` in `rules.tsx`, using the already-loaded
+`usePolicyCatalog()` data — no extra request) and shows a non-blocking warning
+naming exactly which codes would be shadowed and by which existing policy, so
+a supervisor authoring a new policy sees the conflict before saving it.
 
 ## Policy không được quyết định trực tiếp từ nhãn CV thô
 

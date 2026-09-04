@@ -211,7 +211,7 @@ async def lifespan(app: FastAPI):
     app.state.model_settings = ModelSettings.from_env()
     app.state.reasoning_requested_provider = app.state.model_settings.reasoning_provider
     app.state.reasoning_key_configured = bool(app.state.model_settings.groq_api_key)
-    app.state.qc_policy_catalog = PolicyCatalog()
+    app.state.qc_policy_catalog = PolicyCatalog(app.state.database)
     if app.state.model_settings.reasoning_provider == "groq" and app.state.model_settings.groq_api_key:
         app.state.qc_reasoning = GroqReasoningService(
             api_key=app.state.model_settings.groq_api_key,

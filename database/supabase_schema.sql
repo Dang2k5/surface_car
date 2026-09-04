@@ -164,5 +164,52 @@ create table if not exists public.lot_products (
 alter table public.lot_products add column if not exists vehicle_model text not null default '';
 alter table public.lot_products drop column if exists vehicle_type;
 
+-- Policy catalog (agent/services/policy.py's PolicyCatalog, backend/app/policy_api.py).
+-- Previously a JSON file baked into the Docker image (agent/policies/qc_policy_catalog.json,
+-- now deleted) -- any policy/source a supervisor created or edited live via the "Chinh sach QC"
+-- UI was lost on every redeploy. Now durable here instead. `sort_order` preserves the original
+-- authoring order PolicyCatalog.evaluate()'s first-match-wins scan depends on; a bare SELECT has
+-- no inherent row order in PostgreSQL. See backend/app/database.py's _seed_policy_catalog() for
+-- the actual seed this project runs automatically on every backend startup -- the inserts below
+-- are for fresh-install documentation/consistency, not the live self-healing mechanism.
+create table if not exists public.policy_sources (
+  id text primary key,
+  document_family text not null,
+  revision text not null,
+  section text not null,
+  effective_date text,
+  expiry_date text,
+  document_status text not null default 'DRAFT',
+  authority text not null default 'REFERENCE',
+  title text not null,
+  scope text not null default '',
+  url text not null default '',
+  created_at text not null,
+  updated_at text not null
+);
+
+create table if not exists public.policies (
+  id text primary key,
+  title text not null,
+  applicability_json text not null default '{"vehicle_models":["*"]}',
+  conditions_json text not null default '[]',
+  checklist_status text not null default 'DRAFT',
+  defect_types_json text not null default '[]',
+  defect_codes_json text,
+  action_code text,
+  action_code_by_defect_json text,
+  final_status text not null,
+  test_drive_allowed integer,
+  human_required integer not null default 0,
+  required_evidence_json text not null default '[]',
+  steps_json text not null default '[]',
+  source_ids_json text not null default '[]',
+  sort_order integer not null,
+  created_at text not null,
+  updated_at text not null
+);
+
+create index if not exists idx_policies_sort_order on public.policies (sort_order);
+
 -- The browser never accesses these tables directly in this architecture.
 -- FastAPI owns database access through its server-side DATABASE_URL.

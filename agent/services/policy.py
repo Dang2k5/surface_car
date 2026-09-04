@@ -1,15 +1,32 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, date, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from agent.graph.state import QCState
 
-CATALOG_PATH = Path(__file__).resolve().parents[1] / "policies" / "qc_policy_catalog.json"
+if TYPE_CHECKING:
+    from backend.app.database import Database
+
+# Catalog-level metadata -- nothing mutates these today (no endpoint exists for it), so
+# they're a plain constant rather than a DB row. Values match the last content of the
+# now-deleted agent/policies/qc_policy_catalog.json (sources/policies moved to the
+# policy_sources/policies tables -- see backend/app/database.py's _seed_policy_catalog()).
+CATALOG_META: dict[str, Any] = {
+    "catalog_id": "VISUAL-QC-FNS-PILOT",
+    "revision": "2026.08.1",
+    "status": "APPROVED",
+    "approval_scope": "DEMO_BASELINE_ONLY",
+    "effective_date": "2026-08-12",
+    "owner": "Quality Engineering",
+    "disclaimer": (
+        "Chỉ tạm thời phê duyệt để trình diễn baseline và kiểm chứng quy trình. Đây KHÔNG "
+        "phải thẩm quyền phát hành sản xuất. Phải thay thế bằng control plan của OEM và "
+        "hướng dẫn công việc đã được phê duyệt trước khi triển khai sản xuất."
+    ),
+}
 
 
 class PolicyReference(BaseModel):
@@ -85,12 +102,26 @@ ACTION_LABELS = {
 
 
 class PolicyCatalog:
-    """Versioned policy catalog backed by public standards and plant-approval guards."""
+    """Versioned policy catalog backed by public standards and plant-approval guards.
 
-    def __init__(self, path: Path = CATALOG_PATH) -> None:
-        self.path = path
-        self.document = json.loads(path.read_text(encoding="utf-8"))
-        self.sources = {item["id"]: item for item in self.document["sources"]}
+    Sources/policies are stored in Postgres (`policy_sources`/`policies` tables,
+    `backend/app/database.py`) -- not a container-local file, so edits made live via the
+    Supervisor "Chính sách QC" UI survive a redeploy. `evaluate()` and every other matching/
+    decision method below only ever reads `self.document`/`self.sources` in memory; only
+    `__init__`/`_reload`/the mutating methods touch the database.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+        self._reload()
+
+    def _reload(self) -> None:
+        self.sources = {row["id"]: row for row in self.database.list_policy_sources()}
+        self.document = {
+            **CATALOG_META,
+            "sources": list(self.sources.values()),
+            "policies": self.database.list_policies(),
+        }
 
     def public_catalog(self) -> dict[str, Any]:
         return self.document
@@ -98,44 +129,29 @@ class PolicyCatalog:
     def create_source(self, data: dict[str, Any]) -> dict[str, Any]:
         if data["id"] in self.sources:
             raise ValueError(f"Source already exists: {data['id']}")
-        self.document["sources"].append(data)
-        self.sources[data["id"]] = data
-        self._persist()
-        return data
+        self.database.create_policy_source(data)
+        self._reload()
+        return self.sources[data["id"]]
 
     def create_policy(self, data: dict[str, Any]) -> dict[str, Any]:
         if any(item["id"] == data["id"] for item in self.document["policies"]):
             raise ValueError(f"Policy already exists: {data['id']}")
-        self.document["policies"].append(data)
-        self._persist()
-        return data
+        self.database.create_policy(data)
+        self._reload()
+        return next(item for item in self.document["policies"] if item["id"] == data["id"])
 
     def update_policy(self, policy_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
-        policies = self.document["policies"]
-        index = next((i for i, item in enumerate(policies) if item["id"] == policy_id), None)
-        if index is None:
+        updated = self.database.update_policy(policy_id, changes)
+        if updated is None:
             return None
-        policies[index] = {**policies[index], **changes}
-        self._persist()
-        return policies[index]
+        self._reload()
+        return next(item for item in self.document["policies"] if item["id"] == policy_id)
 
     def delete_policy(self, policy_id: str) -> bool:
-        policies = self.document["policies"]
-        remaining = [item for item in policies if item["id"] != policy_id]
-        if len(remaining) == len(policies):
-            return False
-        self.document["policies"] = remaining
-        self._persist()
-        return True
-
-    def _persist(self) -> None:
-        # Write to a sibling temp file first so a crash mid-write can't leave the
-        # production policy catalog (read on every inspection) truncated or corrupt.
-        tmp_path = self.path.with_suffix(".json.tmp")
-        tmp_path.write_text(
-            json.dumps(self.document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-        tmp_path.replace(self.path)
+        deleted = self.database.delete_policy(policy_id)
+        if deleted:
+            self._reload()
+        return deleted
 
     def evaluate(self, state: QCState) -> PolicyDecision:
         human_action = str((state.get("human_decision") or {}).get("action", "")).upper()

@@ -20,16 +20,20 @@ def build_qc_graph(
     *,
     detector: DetectorService,
     repository: QCRepository,
+    policy_catalog: PolicyCatalog,
     reasoning: ReasoningService | None = None,
-    policy_catalog: PolicyCatalog | None = None,
     checkpointer: Any | None = None,
     defect_catalog: DefectCatalogService | None = None,
 ):
-    """Compile the Visual QC graph with swappable services and persistence."""
+    """Compile the Visual QC graph with swappable services and persistence.
+
+    `policy_catalog` has no default -- it's now DB-backed (`agent/services/policy.py`)
+    and requires a `Database` instance to construct, so callers must build one explicitly
+    instead of relying on an implicit fallback (every caller already did this anyway)."""
     nodes = QCNodes(
         detector=detector,
         reasoning=reasoning or DeterministicReasoningService(),
-        policy_catalog=policy_catalog or PolicyCatalog(),
+        policy_catalog=policy_catalog,
         repository=repository,
         defect_catalog=defect_catalog or StaticDefectCatalog(),
     )

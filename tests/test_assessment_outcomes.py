@@ -27,7 +27,8 @@ class _FlakyReasoning(DeterministicReasoningService):
 # This project only classifies scratch/dent (agent/services/yolo_detector.py's
 # CLASS_MAP) -- these scenarios stay entirely inside that domain and instead vary
 # SEVERITY (small / medium-large / cluster) to exercise all three routing outcomes,
-# mirroring the 3-tier split in agent/policies/qc_policy_catalog.json:
+# mirroring the 3-tier split in the seeded policy catalog
+# (backend/app/database.py's _seed_policy_catalog()):
 #   SCRATCH01/DENT01 (small)          -> PASS  (FNS-*-PASS-001)
 #   SCRATCH02-03/DENT02-03 (med/large) -> FAIL  (FNS-SURFACE-001 / FNS-GEOMETRY-001)
 #   SCRATCH04-05/DENT04-05 (cluster/crease) -> HITL (FNS-*-HITL-001, human_required=true)
@@ -168,16 +169,17 @@ def _initial_state(thread_id: str, precomputed: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _build_graph():
+def _build_graph(test_database):
     return build_qc_graph(
         detector=_UnusedDetector(),
         repository=_InMemoryQCRepository(),
         reasoning=DeterministicReasoningService(),
+        policy_catalog=PolicyCatalog(test_database),
     )
 
 
-def test_no_defect_detected_passes_without_any_policy_lookup():
-    graph = _build_graph()
+def test_no_defect_detected_passes_without_any_policy_lookup(test_database):
+    graph = _build_graph(test_database)
     thread_id = "no-defect"
     result = graph.invoke(_initial_state(thread_id, _precomputed_clean()), config=_config(thread_id))
     assert result.get("__interrupt__") in (None, ())
@@ -187,10 +189,10 @@ def test_no_defect_detected_passes_without_any_policy_lookup():
     assert result["human_required"] is False
 
 
-def test_small_scratch_passes_within_tolerance():
+def test_small_scratch_passes_within_tolerance(test_database):
     # width 20mm -> SCRATCH01 -> FNS-SURFACE-PASS-001 (PASS): a real, catalog-confirmed
     # defect that the policy explicitly allows, distinct from PASS-by-no-detection above.
-    graph = _build_graph()
+    graph = _build_graph(test_database)
     thread_id = "scratch-small-pass"
     result = graph.invoke(
         _initial_state(thread_id, _precomputed("scratch", [20.0])), config=_config(thread_id)
@@ -202,9 +204,9 @@ def test_small_scratch_passes_within_tolerance():
     assert result["human_required"] is False
 
 
-def test_medium_scratch_fails():
+def test_medium_scratch_fails(test_database):
     # width 70mm -> SCRATCH02 -> FNS-SURFACE-001 (FAIL).
-    graph = _build_graph()
+    graph = _build_graph(test_database)
     thread_id = "scratch-medium-fail"
     result = graph.invoke(
         _initial_state(thread_id, _precomputed("scratch", [70.0])), config=_config(thread_id)
@@ -216,9 +218,9 @@ def test_medium_scratch_fails():
     assert result["human_required"] is False
 
 
-def test_small_dent_passes_within_tolerance():
+def test_small_dent_passes_within_tolerance(test_database):
     # width 10mm -> DENT01 -> FNS-GEOMETRY-PASS-001 (PASS).
-    graph = _build_graph()
+    graph = _build_graph(test_database)
     thread_id = "dent-small-pass"
     result = graph.invoke(
         _initial_state(thread_id, _precomputed("dent", [10.0])), config=_config(thread_id)
@@ -230,9 +232,9 @@ def test_small_dent_passes_within_tolerance():
     assert result["human_required"] is False
 
 
-def test_medium_dent_fails():
+def test_medium_dent_fails(test_database):
     # width 40mm -> DENT02 -> FNS-GEOMETRY-001 (FAIL).
-    graph = _build_graph()
+    graph = _build_graph(test_database)
     thread_id = "dent-medium-fail"
     result = graph.invoke(
         _initial_state(thread_id, _precomputed("dent", [40.0])), config=_config(thread_id)
@@ -244,12 +246,12 @@ def test_medium_dent_fails():
     assert result["human_required"] is False
 
 
-def test_scratch_cluster_has_no_automated_disposition_and_routes_to_hitl():
+def test_scratch_cluster_has_no_automated_disposition_and_routes_to_hitl(test_database):
     # >=2 scratch detections -> DeterministicReasoningService picks SCRATCH04 (cluster) ->
     # FNS-SURFACE-HITL-001 sets human_required=true -- this is exactly the fail-safe that
     # agent/graph/nodes.py's assess_result must catch and route to human_review instead
     # of silently auto-saving a FAIL.
-    graph = _build_graph()
+    graph = _build_graph(test_database)
     thread_id = "scratch-cluster-hitl"
     config = _config(thread_id)
     result = graph.invoke(
@@ -275,9 +277,9 @@ def test_scratch_cluster_has_no_automated_disposition_and_routes_to_hitl():
     assert resumed["final_status"] == "FAIL"
 
 
-def test_dent_cluster_has_no_automated_disposition_and_routes_to_hitl():
+def test_dent_cluster_has_no_automated_disposition_and_routes_to_hitl(test_database):
     # >=2 dent detections -> DENT05 (cluster) -> FNS-GEOMETRY-HITL-001 (human_required=true).
-    graph = _build_graph()
+    graph = _build_graph(test_database)
     thread_id = "dent-cluster-hitl"
     config = _config(thread_id)
     result = graph.invoke(
@@ -294,7 +296,7 @@ def test_dent_cluster_has_no_automated_disposition_and_routes_to_hitl():
     assert state["policy_decision"]["policy_id"] == "FNS-GEOMETRY-HITL-001"
 
 
-def test_narrative_llm_failure_keeps_deterministic_decision_and_does_not_route_to_hitl():
+def test_narrative_llm_failure_keeps_deterministic_decision_and_does_not_route_to_hitl(test_database):
     # Root-cause regression test: assess_result's decision (route/final_status) is fully
     # determined by policy evaluation BEFORE the LLM narrative call -- losing the LLM must
     # never force everything to HITL nor crash. width 70mm scratch -> SCRATCH02 -> FAIL,
@@ -303,6 +305,7 @@ def test_narrative_llm_failure_keeps_deterministic_decision_and_does_not_route_t
         detector=_UnusedDetector(),
         repository=_InMemoryQCRepository(),
         reasoning=_FlakyReasoning(),
+        policy_catalog=PolicyCatalog(test_database),
     )
     thread_id = "scratch-medium-fail-llm-down"
     result = graph.invoke(
@@ -318,14 +321,14 @@ def test_narrative_llm_failure_keeps_deterministic_decision_and_does_not_route_t
     assert "LLM giải trình không khả dụng" in result["ai_analysis"]["fallback_reason"]
 
 
-def test_generate_recommendation_falls_back_when_reasoning_fails_without_stored_analysis():
+def test_generate_recommendation_falls_back_when_reasoning_fails_without_stored_analysis(test_database):
     # Covers the second Groq call site (agent/graph/nodes.py::generate_recommendation),
     # reached without a prior stored ai_analysis or human_decision -- previously had no
     # try/except at all, so a Groq failure here crashed the request outright.
     nodes = QCNodes(
         detector=_UnusedDetector(),
         reasoning=_FlakyReasoning(),
-        policy_catalog=PolicyCatalog(),
+        policy_catalog=PolicyCatalog(test_database),
         repository=_InMemoryQCRepository(),
         defect_catalog=StaticDefectCatalog(),
     )
@@ -351,13 +354,13 @@ def test_generate_recommendation_falls_back_when_reasoning_fails_without_stored_
     assert result["human_required"] is True
 
 
-def test_low_confidence_detection_routes_to_hitl_despite_catalog_match():
+def test_low_confidence_detection_routes_to_hitl_despite_catalog_match(test_database):
     """Verify that low-confidence findings (below confirmed_threshold) route to HITL
     even when they cleanly match a defect code -- confidence gate applies BEFORE
     policy logic gets to decide PASS/FAIL on its own."""
     nodes = QCNodes(
         detector=_UnusedDetector(),
-        policy_catalog=PolicyCatalog(),
+        policy_catalog=PolicyCatalog(test_database),
         repository=_InMemoryQCRepository(),
         reasoning=DeterministicReasoningService(),
         defect_catalog=StaticDefectCatalog(),
@@ -378,7 +381,7 @@ def test_low_confidence_detection_routes_to_hitl_despite_catalog_match():
 
     graph = build_qc_graph(
         detector=_UnusedDetector(),
-        policy_catalog=PolicyCatalog(),
+        policy_catalog=PolicyCatalog(test_database),
         repository=_InMemoryQCRepository(),
         reasoning=DeterministicReasoningService(),
         defect_catalog=StaticDefectCatalog(),
@@ -393,13 +396,13 @@ def test_low_confidence_detection_routes_to_hitl_despite_catalog_match():
     assert result["human_required"] is True
 
 
-def test_high_confidence_fail_overrides_ambiguous_findings():
+def test_high_confidence_fail_overrides_ambiguous_findings(test_database):
     """Verify that a high-confidence FAIL decision is decisive and doesn't wait
     for unrelated ambiguous findings to be resolved first -- the vehicle is already
     certain to be held, so other low-confidence detections don't matter."""
     nodes = QCNodes(
         detector=_UnusedDetector(),
-        policy_catalog=PolicyCatalog(),
+        policy_catalog=PolicyCatalog(test_database),
         repository=_InMemoryQCRepository(),
         reasoning=DeterministicReasoningService(),
         defect_catalog=StaticDefectCatalog(),
@@ -481,7 +484,7 @@ def test_high_confidence_fail_overrides_ambiguous_findings():
 
     graph = build_qc_graph(
         detector=_UnusedDetector(),
-        policy_catalog=PolicyCatalog(),
+        policy_catalog=PolicyCatalog(test_database),
         repository=_InMemoryQCRepository(),
         reasoning=DeterministicReasoningService(),
         defect_catalog=StaticDefectCatalog(),

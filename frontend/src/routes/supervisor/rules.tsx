@@ -17,12 +17,14 @@ import {
 import {
   useCreatePolicy,
   useCreateSource,
+  useDefectCodes,
   useDeletePolicy,
   useExtractPolicyDraft,
   usePolicyCatalog,
   useUpdatePolicy,
 } from "@/lib/queries";
 import type {
+  DefectCode,
   PolicyCatalog,
   PolicyCatalogItem,
   PolicyExtractionResult,
@@ -70,6 +72,9 @@ type FormState = {
   conditions: string;
   checklistStatus: "DRAFT" | "APPROVED";
   defectTypes: string[];
+  // Optional finer-grained gate on top of defectTypes -- empty means unrestricted within
+  // defectTypes (backend/app/qc_schemas.py's PolicyItemCreate.defect_codes).
+  defectCodes: string[];
   // Whether 1 action code covers every selected defect type or each defect type gets
   // its own is derived from defectTypes.length, not stored separately -- keeping both
   // maps around means nothing is lost when a checkbox is toggled on/off.
@@ -96,6 +101,7 @@ const emptyForm: FormState = {
   conditions: "",
   checklistStatus: "DRAFT",
   defectTypes: [],
+  defectCodes: [],
   actionCodeSingle: "",
   actionCodeByDefect: {},
   finalStatus: "FAIL",
@@ -143,6 +149,7 @@ function formFromExtraction(draft: PolicyExtractionResult["policy_draft"]): Form
     conditions: draft.conditions.join("\n"),
     checklistStatus: "DRAFT",
     defectTypes: draft.defect_types,
+    defectCodes: [],
     actionCodeSingle: draft.action_code,
     actionCodeByDefect: Object.fromEntries(draft.defect_types.map((dt) => [dt, draft.action_code])),
     finalStatus: draft.final_status,
@@ -167,6 +174,7 @@ function formFromPolicy(p: PolicyCatalogItem): FormState {
     conditions: p.conditions.join("\n"),
     checklistStatus: p.checklist_status === "APPROVED" ? "APPROVED" : "DRAFT",
     defectTypes: p.defect_types,
+    defectCodes: p.defect_codes ?? [],
     actionCodeSingle: p.action_code ?? "",
     actionCodeByDefect: p.action_code_by_defect ?? {},
     finalStatus: p.final_status,
@@ -195,6 +203,12 @@ function payloadFromForm(form: FormState): PolicyItemCreate {
     conditions: lines(form.conditions),
     checklist_status: form.checklistStatus,
     defect_types: form.defectTypes,
+    // Always sent explicitly (even []) rather than omitted when empty -- PATCH only applies
+    // fields actually present in the payload (backend's exclude_unset=True), so omitting this
+    // key would silently prevent clearing an existing restriction back to "unrestricted".
+    // An empty array and "key absent" are handled identically server-side either way
+    // (agent/services/policy.py's _matches_defect_code / Database._encode_policy_fields).
+    defect_codes: form.defectCodes,
     ...(singleAction
       ? { action_code: form.actionCodeSingle.trim() }
       : { action_code_by_defect: actionCodeByDefect }),
@@ -208,8 +222,60 @@ function payloadFromForm(form: FormState): PolicyItemCreate {
   };
 }
 
+/** Which of the form's target defect codes would never actually be matched, because an
+ * earlier (lower sort_order), APPROVED policy in `policies` already claims that code --
+ * `evaluate()` (agent/services/policy.py) is a first-match-wins scan over that exact array
+ * order, so a later policy for an already-fully-covered code/type is silently unreachable.
+ * `policies` must be in the same order PolicyCatalog.evaluate() sees them
+ * (usePolicyCatalog()'s `catalog.policies`, already sort_order-ordered by the API). */
+function computeShadowWarnings(
+  form: FormState,
+  policies: PolicyCatalogItem[],
+  allCodes: DefectCode[],
+  selfId: string | null,
+): string[] {
+  if (form.defectTypes.length === 0) return [];
+
+  const codesByType = new Map<string, string[]>();
+  for (const c of allCodes) {
+    const list = codesByType.get(c.defect_type) ?? [];
+    list.push(c.defect_code);
+    codesByType.set(c.defect_type, list);
+  }
+  const codeToType = new Map(allCodes.map((c) => [c.defect_code, c.defect_type]));
+
+  const targetCodes =
+    form.defectCodes.length > 0
+      ? form.defectCodes
+      : form.defectTypes.flatMap((dt) => codesByType.get(dt) ?? []);
+
+  // New policies always sort last (Database.create_policy); an edited one keeps its
+  // existing position -- either way, only a policy at an earlier index can shadow this one.
+  const selfIndex = selfId ? policies.findIndex((p) => p.id === selfId) : -1;
+  const earlierPolicies = selfIndex === -1 ? policies : policies.slice(0, selfIndex);
+
+  const warnings: string[] = [];
+  for (const code of targetCodes) {
+    const defectType = codeToType.get(code);
+    if (!defectType) continue;
+    const shadowedBy = earlierPolicies.find(
+      (p) =>
+        p.checklist_status === "APPROVED" &&
+        p.defect_types.includes(defectType) &&
+        (!p.defect_codes || p.defect_codes.length === 0 || p.defect_codes.includes(code)),
+    );
+    if (shadowedBy) {
+      warnings.push(
+        `Mã ${code}: sẽ không bao giờ áp dụng vì chính sách "${shadowedBy.id}" (đã duyệt, đứng trước) đã bao trùm mã này.`,
+      );
+    }
+  }
+  return warnings;
+}
+
 function Rules() {
   const catalogQuery = usePolicyCatalog();
+  const defectCodesQuery = useDefectCodes();
   const createPolicy = useCreatePolicy();
   const createSource = useCreateSource();
   const updatePolicy = useUpdatePolicy();
@@ -233,9 +299,27 @@ function Rules() {
 
   const catalog = catalogQuery.data;
   const sourceById = new Map((catalog?.sources ?? []).map((s) => [s.id, s]));
+  const allDefectCodes = defectCodesQuery.data ?? [];
 
   const form = creating ?? editing;
   const isCreateMode = !!creating;
+
+  const defectCodeOptions = useMemo(
+    () => allDefectCodes.filter((c) => form?.defectTypes.includes(c.defect_type)),
+    [allDefectCodes, form?.defectTypes],
+  );
+  const shadowWarnings = useMemo(
+    () =>
+      form
+        ? computeShadowWarnings(
+            form,
+            catalog?.policies ?? [],
+            allDefectCodes,
+            isCreateMode ? null : (editing?.id ?? null),
+          )
+        : [],
+    [form, catalog?.policies, allDefectCodes, isCreateMode, editing?.id],
+  );
 
   const knownEvidence = useMemo(() => collectVocab(catalog, (p) => p.required_evidence), [catalog]);
   const evidenceOptions = useMemo(() => {
@@ -274,16 +358,25 @@ function Rules() {
       adding && !(value in form.actionCodeByDefect)
         ? { ...form.actionCodeByDefect, [value]: form.actionCodeSingle }
         : form.actionCodeByDefect;
+    // Dropping a defect type must also drop any defect_codes that only made sense under
+    // it, so a removed type never leaves stale codes silently lingering in the payload.
+    const nextDefectCodes = adding
+      ? form.defectCodes
+      : form.defectCodes.filter(
+          (code) => allDefectCodes.find((c) => c.defect_code === code)?.defect_type !== value,
+        );
     if (isCreateMode && creating) {
       setCreating({
         ...creating,
         defectTypes: nextDefectTypes,
+        defectCodes: nextDefectCodes,
         actionCodeByDefect: nextActionByDefect,
       });
     } else if (editing) {
       setEditing({
         ...editing,
         defectTypes: nextDefectTypes,
+        defectCodes: nextDefectCodes,
         actionCodeByDefect: nextActionByDefect,
       });
     }
@@ -299,6 +392,14 @@ function Rules() {
   const setActionCodeForDefect = (defectType: string, code: string) => {
     if (!form) return;
     setField("actionCodeByDefect", { ...form.actionCodeByDefect, [defectType]: code });
+  };
+
+  const toggleDefectCode = (value: string) => {
+    if (!form) return;
+    const next = form.defectCodes.includes(value)
+      ? form.defectCodes.filter((v) => v !== value)
+      : [...form.defectCodes, value];
+    setField("defectCodes", next);
   };
 
   const toggleEvidence = (value: string) => {
@@ -780,6 +881,38 @@ function Rules() {
                 <option key={m} value={m} />
               ))}
             </datalist>
+
+            {form.defectTypes.length > 0 && (
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <span className="label-caps">
+                  Mã lỗi áp dụng (để trống = áp dụng toàn bộ loại lỗi đã chọn)
+                </span>
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                  {defectCodeOptions.length === 0 ? (
+                    <span className="text-[11.5px] text-muted-foreground">
+                      Chưa có mã lỗi nào cho loại đã chọn (xem "Ca, Lô & Trạm QC").
+                    </span>
+                  ) : (
+                    defectCodeOptions.map((c) => (
+                      <Checkbox
+                        key={c.defect_code}
+                        label={`${c.defect_code} — ${c.display_name}`}
+                        checked={form.defectCodes.includes(c.defect_code)}
+                        onChange={() => toggleDefectCode(c.defect_code)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {shadowWarnings.length > 0 && (
+              <div className="rounded-sm border border-warning/45 bg-warning/10 px-3 py-2 text-[11.5px] leading-relaxed text-warning">
+                {shadowWarnings.map((message) => (
+                  <div key={message}>{message}</div>
+                ))}
+              </div>
+            )}
 
             <TextArea
               label="Điều kiện bổ sung"

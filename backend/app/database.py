@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -202,7 +203,49 @@ class Database:
                 resumed_at TEXT,
                 updated_at TEXT NOT NULL
             )""",
+            # Backs agent/services/policy.py's PolicyCatalog -- was previously a JSON file
+            # baked into the Docker image (agent/policies/qc_policy_catalog.json), which
+            # meant any policy/source a supervisor created or edited via the "Chinh sach QC"
+            # UI was silently lost on the next deploy (docker compose up --build recreates
+            # the container from a fresh image, discarding that file's runtime writes). Now
+            # durable across deploys like every other catalog in this file.
+            """CREATE TABLE IF NOT EXISTS policy_sources (
+                id TEXT PRIMARY KEY,
+                document_family TEXT NOT NULL,
+                revision TEXT NOT NULL,
+                section TEXT NOT NULL,
+                effective_date TEXT,
+                expiry_date TEXT,
+                document_status TEXT NOT NULL DEFAULT 'DRAFT',
+                authority TEXT NOT NULL DEFAULT 'REFERENCE',
+                title TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '',
+                url TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
+            """CREATE TABLE IF NOT EXISTS policies (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                applicability_json TEXT NOT NULL DEFAULT '{"vehicle_models":["*"]}',
+                conditions_json TEXT NOT NULL DEFAULT '[]',
+                checklist_status TEXT NOT NULL DEFAULT 'DRAFT',
+                defect_types_json TEXT NOT NULL DEFAULT '[]',
+                defect_codes_json TEXT,
+                action_code TEXT,
+                action_code_by_defect_json TEXT,
+                final_status TEXT NOT NULL,
+                test_drive_allowed INTEGER,
+                human_required INTEGER NOT NULL DEFAULT 0,
+                required_evidence_json TEXT NOT NULL DEFAULT '[]',
+                steps_json TEXT NOT NULL DEFAULT '[]',
+                source_ids_json TEXT NOT NULL DEFAULT '[]',
+                sort_order INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
             "CREATE INDEX IF NOT EXISTS idx_lot_products_lot ON lot_products(lot_id, seq)",
+            "CREATE INDEX IF NOT EXISTS idx_policies_sort_order ON policies(sort_order)",
         "CREATE INDEX IF NOT EXISTS idx_agent_graph_runs_vehicle_updated ON agent_graph_runs(vehicle_id, updated_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_vehicle_created ON qc_decisions(vehicle_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_qc_decisions_inspection ON qc_decisions(inspection_id)",
@@ -227,6 +270,7 @@ class Database:
         )
         self._seed_shifts()
         self._seed_stations()
+        self._seed_policy_catalog()
 
     def _ensure_columns(self) -> None:
         """Apply additive baseline migrations to databases created by older MVPs."""
@@ -609,6 +653,93 @@ class Database:
                         "updated_at": now,
                     }
                     for station_id, name in defaults
+                ],
+            )
+
+    def _seed_policy_catalog(self) -> None:
+        """One-time, idempotent seed of the policy catalog (agent/services/policy.py's
+        PolicyCatalog) -- the exact 6 sources / 7 policies that previously lived in
+        agent/policies/qc_policy_catalog.json (now deleted; this table is the sole source
+        of truth). ON CONFLICT DO NOTHING preserves any Supervisor edits. `sort_order`
+        preserves the original JSON array order, which PolicyCatalog.evaluate()'s
+        first-match-wins scan depends on -- list_policies() must ORDER BY it, and
+        create_policy() must append after the current max so newly authored policies keep
+        landing last, exactly like appending to the old JSON array did."""
+        now = datetime.now(UTC).isoformat()
+        sources = (
+            {"id": "IATF-16949-2016", "document_family": "IATF-16949", "revision": "2016", "section": "Khung quản lý chất lượng ngành ô tô", "effective_date": None, "expiry_date": None, "document_status": "REFERENCE_ONLY", "authority": "REFERENCE", "title": "Hệ thống quản lý chất lượng ngành ô tô — Yêu cầu cụ thể khi áp dụng ISO 9001:2015", "scope": "Khung quản trị chất lượng đặc thù ô tô (kiểm soát sản phẩm không phù hợp, hồ sơ, kiểm soát vận hành); không quy định ngưỡng kích thước lỗi cụ thể. Thay thế ISO-4628 (tiêu chuẩn đánh giá suy giảm lớp phủ do thời tiết/lão hóa, không áp dụng cho nghiệm thu lỗi bề mặt trên dây chuyền sản xuất) đã bị trích dẫn sai ngữ cảnh trong bản demo trước.", "url": "https://www.aiag.org/expertise-areas/quality/iatf-16949-2016"},
+            {"id": "FNS-SEVERITY-CRITERIA-INTERNAL", "document_family": "FNS-INTERNAL", "revision": "2026.08.2", "section": "Ngưỡng phân cấp mức độ lỗi bề mặt theo kích thước đo được (xước, móp)", "effective_date": "2026-08-28", "expiry_date": None, "document_status": "DRAFT", "authority": "REFERENCE", "title": "Tiêu chí phân cấp mức độ lỗi bề mặt nội bộ do nhóm đề tài xây dựng", "scope": "Ngưỡng mm dùng để phân loại mức độ C/B/A cho SCRATCH01-05, DENT01-05 (agent/services/defect_catalog.py, backend/app/database.py, agent/services/reasoning.py) — 3 nơi này phải luôn khớp số với mô tả dưới đây. Không phải tiêu chuẩn OEM đã phê duyệt — quy đổi trực tiếp từ 2 quy chuẩn ngành công khai, có thể tra cứu độc lập: (1) thang chấm điểm vết xước trên phiếu đấu giá ô tô cũ Nhật Bản (quy ước USS/JAA): A1 xước nhỏ ≤5cm, A2 xước vừa 5-10cm, A3/W xước dài hoặc lan rộng >10cm — áp cho SCRATCH01 (≤50mm, severity C), SCRATCH02 (50-100mm, severity B), SCRATCH03 (>100mm, severity A); (2) bảng quy đổi kích thước móp theo đường kính dùng trong đào tạo kỹ thuật viên PDR (Paintless Dent Repair): nhỏ (đồng xu, ≤2.5cm) xử lý được bằng PDR không cần sơn lại, trung bình (đồng nửa dollar-bóng golf, 2.5-5cm) PDR xử lý được nhưng tốn công hơn, lớn (bóng tennis trở lên, >5cm) thường vượt khả năng PDR — áp cho DENT01 (≤25mm, severity C), DENT02 (25-50mm, severity B), DENT03 (>50mm, severity A). SCRATCH04/05 và DENT04/05 dùng tiêu chí hình học (số lượng phát hiện, vị trí, tỷ lệ khung) chứ không theo kích thước nên không nằm trong 2 thang trên, giữ nguyên severity A/B đã gán theo mức rủi ro. Lưu ý: cả 2 quy chuẩn tham chiếu đều dành cho xe đã qua sử dụng/PDR dân dụng, khoan dung hơn nghiệm thu xe mới xuất xưởng — ngưỡng thực tế production phải lấy từ control plan OEM đã phê duyệt trước khi triển khai.", "url": "/api/policies"},
+            {"id": "ISO-1101-2017", "document_family": "ISO-1101", "revision": "2017", "section": "Khung phạm vi và đặc tính hình học", "effective_date": None, "expiry_date": None, "document_status": "REFERENCE_ONLY", "authority": "REFERENCE", "title": "Đặc tính hình học sản phẩm — Dung sai hình học", "scope": "Ngôn ngữ và cách diễn giải đặc tính hình học; giới hạn thực tế phải lấy từ bản vẽ đã được phê duyệt.", "url": "https://www.iso.org/standard/66777.html"},
+            {"id": "ISO-9001-2015", "document_family": "ISO-9001", "revision": "2015", "section": "Thông tin dạng văn bản và kiểm soát vận hành", "effective_date": None, "expiry_date": None, "document_status": "REFERENCE_ONLY", "authority": "REFERENCE", "title": "Hệ thống quản lý chất lượng — Các yêu cầu", "scope": "Thông tin dạng văn bản, kiểm soát vận hành, theo dõi, đo lường, đánh giá và cải tiến.", "url": "https://www.iso.org/standard/62085.html"},
+            {"id": "AIAG-CQI-8", "document_family": "AIAG-CQI-8", "revision": "publisher-current", "section": "Quản trị đánh giá quy trình phân lớp", "effective_date": None, "expiry_date": None, "document_status": "REFERENCE_ONLY", "authority": "REFERENCE", "title": "Hướng dẫn đánh giá quy trình phân lớp (LPA)", "scope": "Xác minh quy trình có cấu trúc, phân công trách nhiệm, phát hiện lỗi và theo dõi hiệu quả.", "url": "https://www.aiag.org/training-and-resources/manuals/details/CQI-8"},
+            {"id": "FNS-QC-POLICY-DEMO-2026", "document_family": "FNS-QC-POLICY", "revision": "2026.08.1", "section": "FNS-SURFACE-001 đến FNS-TREND-001", "effective_date": "2026-08-12", "expiry_date": None, "document_status": "APPROVED", "authority": "CONTROLLED_POLICY", "title": "Chính sách trình diễn baseline QC bằng hình ảnh (FNS)", "scope": "Baseline nội bộ được phê duyệt tạm thời để trình diễn truy xuất tài liệu, so sánh bằng chứng, định tuyến LangGraph, HITL và hành vi kiểm toán. Không có giá trị cho việc phát hành xe sản xuất.", "url": "/api/policies"},
+        )
+        policies = (
+            {"id": "FNS-SURFACE-PASS-001", "title": "Vết xước nhỏ trong dung sai thẩm mỹ — cho qua", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Loại lỗi là trầy xước, mã SCRATCH01 (nhỏ, <=50mm)", "Nằm trong dung sai thẩm mỹ cho phép, không cần sửa chữa"], "checklist_status": "APPROVED", "defect_types": ["scratch"], "defect_codes": ["SCRATCH01"], "action_code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE", "action_code_by_defect": None, "final_status": "PASS", "test_drive_allowed": True, "human_required": False, "required_evidence": [], "steps": ["QC_SIGN_OFF"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]},
+            {"id": "FNS-SURFACE-001", "title": "Ngăn giữ và đánh giá lỗi bề mặt", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Loại lỗi là trầy xước, mã SCRATCH02/SCRATCH03 (trung bình/lớn)", "Phải xác định được mức độ lỗi", "Phải có tiêu chí thẩm mỹ OEM đã phê duyệt trước khi xuất xưởng"], "checklist_status": "APPROVED", "defect_types": ["scratch"], "defect_codes": ["SCRATCH02", "SCRATCH03"], "action_code": "SURFACE_DAMAGE_ASSESSMENT_AND_REINSPECT", "action_code_by_defect": None, "final_status": "FAIL", "test_drive_allowed": False, "human_required": False, "required_evidence": ["controlled_light_reinspection", "defect_extent_measurement", "approved_oem_acceptance_criteria"], "steps": ["CONTAIN_VEHICLE", "CAPTURE_CONTROLLED_LIGHT_IMAGE", "MEASURE_DEFECT_EXTENT", "APPLY_APPROVED_OEM_CRITERIA", "QC_SIGN_OFF"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "IATF-16949-2016", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]},
+            {"id": "FNS-SURFACE-HITL-001", "title": "Xước dạng cụm hoặc sát mép — cần QC xác nhận trực tiếp", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Loại lỗi là trầy xước, mã SCRATCH04 (cụm nhiều vết) hoặc SCRATCH05 (sát mép)", "Không có ngưỡng mm đơn giản nào đủ để tự động quyết định PASS/FAIL cho hình học này", "Bắt buộc QC xác nhận trực tiếp trước khi ra quyết định"], "checklist_status": "APPROVED", "defect_types": ["scratch"], "defect_codes": ["SCRATCH04", "SCRATCH05"], "action_code": "MANUAL_VISUAL_REINSPECTION", "action_code_by_defect": None, "final_status": "FAIL", "test_drive_allowed": False, "human_required": True, "required_evidence": ["qc_reinspection", "controlled_light_reinspection"], "steps": ["CONTAIN_VEHICLE", "CAPTURE_CONTROLLED_LIGHT_IMAGE", "QC_SIGN_OFF"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "IATF-16949-2016", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]},
+            {"id": "FNS-GEOMETRY-PASS-001", "title": "Vết móp nhỏ trong dung sai — cho qua", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Loại lỗi là móp, mã DENT01 (nhỏ, <=25mm)", "Nằm trong dung sai hình học cho phép, không cần sửa chữa"], "checklist_status": "APPROVED", "defect_types": ["dent"], "defect_codes": ["DENT01"], "action_code": "PASS_MINOR_COSMETIC_BLEMISH_WITHIN_TOLERANCE", "action_code_by_defect": None, "final_status": "PASS", "test_drive_allowed": True, "human_required": False, "required_evidence": [], "steps": ["QC_SIGN_OFF"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]},
+            {"id": "FNS-GEOMETRY-001", "title": "Ngăn giữ biến dạng bề mặt và đánh giá hình học", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Loại lỗi là móp, mã DENT02/DENT03 (trung bình/lớn)", "Phải đo được hình học của lỗi", "Phải có tiêu chí hình học đã ban hành trước khi ra quyết định sửa chữa"], "checklist_status": "APPROVED", "defect_types": ["dent"], "defect_codes": ["DENT02", "DENT03"], "action_code": "ISOLATE_FOR_BODY_REPAIR_ASSESSMENT", "action_code_by_defect": None, "final_status": "FAIL", "test_drive_allowed": False, "human_required": False, "required_evidence": ["approved_geometry_criteria", "geometry_measurement", "body_repair_signoff"], "steps": ["APPLY_HOLD", "TRANSFER_TO_BODY_REPAIR_ASSESSMENT", "MEASURE_PANEL_GEOMETRY", "COMPARE_WITH_APPROVED_DRAWING", "QC_REINSPECTION"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-1101-2017", "IATF-16949-2016", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]},
+            {"id": "FNS-GEOMETRY-HITL-001", "title": "Móp có nếp gấp hoặc dạng cụm — cần QC xác nhận trực tiếp", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Loại lỗi là móp, mã DENT04 (nếp gấp) hoặc DENT05 (cụm nhiều vết)", "Không có ngưỡng mm đơn giản nào đủ để tự động quyết định PASS/FAIL cho hình học này", "Bắt buộc QC xác nhận trực tiếp trước khi ra quyết định"], "checklist_status": "APPROVED", "defect_types": ["dent"], "defect_codes": ["DENT04", "DENT05"], "action_code": "MANUAL_VISUAL_REINSPECTION", "action_code_by_defect": None, "final_status": "FAIL", "test_drive_allowed": False, "human_required": True, "required_evidence": ["qc_reinspection", "geometry_measurement"], "steps": ["CONTAIN_VEHICLE", "MEASURE_PANEL_GEOMETRY", "QC_SIGN_OFF"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "ISO-1101-2017", "IATF-16949-2016", "ISO-9001-2015", "FNS-SEVERITY-CRITERIA-INTERNAL"]},
+            {"id": "FNS-TREND-001", "title": "Leo thang lên nguồn cho lỗi lặp lại", "applicability": {"vehicle_models": ["*"]}, "conditions": ["Số lần phát hiện lặp lại vượt ngưỡng xe đã cấu hình", "Camera, khu vực kiểm tra và khung thời gian được nhóm nhất quán"], "checklist_status": "APPROVED", "defect_types": ["*"], "defect_codes": None, "action_code": "OPEN_UPSTREAM_PROCESS_CHECK", "action_code_by_defect": None, "final_status": "QUALITY_ALERT_OPEN", "test_drive_allowed": None, "human_required": True, "required_evidence": ["affected_vehicle_list", "time_window", "camera_and_zone_group", "process_owner", "corrective_action_record"], "steps": ["CONTAIN_AFFECTED_SCOPE", "VERIFY_DETECTION_SYSTEM", "CHECK_UPSTREAM_PROCESS", "ASSIGN_OWNER", "RECORD_CORRECTIVE_ACTION"], "source_ids": ["FNS-QC-POLICY-DEMO-2026", "AIAG-CQI-8", "ISO-9001-2015"]},
+        )
+        with self.begin() as connection:
+            connection.execute(
+                text(
+                    """INSERT INTO policy_sources
+                    (id, document_family, revision, section, effective_date, expiry_date,
+                     document_status, authority, title, scope, url, created_at, updated_at)
+                    VALUES (:id, :document_family, :revision, :section, :effective_date, :expiry_date,
+                            :document_status, :authority, :title, :scope, :url, :created_at, :updated_at)
+                    ON CONFLICT (id) DO NOTHING"""
+                ),
+                [{**source, "created_at": now, "updated_at": now} for source in sources],
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO policies
+                    (id, title, applicability_json, conditions_json, checklist_status,
+                     defect_types_json, defect_codes_json, action_code, action_code_by_defect_json,
+                     final_status, test_drive_allowed, human_required, required_evidence_json,
+                     steps_json, source_ids_json, sort_order, created_at, updated_at)
+                    VALUES (:id, :title, :applicability_json, :conditions_json, :checklist_status,
+                            :defect_types_json, :defect_codes_json, :action_code, :action_code_by_defect_json,
+                            :final_status, :test_drive_allowed, :human_required, :required_evidence_json,
+                            :steps_json, :source_ids_json, :sort_order, :created_at, :updated_at)
+                    ON CONFLICT (id) DO NOTHING"""
+                ),
+                [
+                    {
+                        "id": policy["id"],
+                        "title": policy["title"],
+                        "applicability_json": json.dumps(policy["applicability"], ensure_ascii=False),
+                        "conditions_json": json.dumps(policy["conditions"], ensure_ascii=False),
+                        "checklist_status": policy["checklist_status"],
+                        "defect_types_json": json.dumps(policy["defect_types"], ensure_ascii=False),
+                        "defect_codes_json": (
+                            json.dumps(policy["defect_codes"], ensure_ascii=False)
+                            if policy["defect_codes"] is not None
+                            else None
+                        ),
+                        "action_code": policy["action_code"],
+                        "action_code_by_defect_json": (
+                            json.dumps(policy["action_code_by_defect"], ensure_ascii=False)
+                            if policy["action_code_by_defect"] is not None
+                            else None
+                        ),
+                        "final_status": policy["final_status"],
+                        "test_drive_allowed": (
+                            None if policy["test_drive_allowed"] is None else int(policy["test_drive_allowed"])
+                        ),
+                        "human_required": int(policy["human_required"]),
+                        "required_evidence_json": json.dumps(policy["required_evidence"], ensure_ascii=False),
+                        "steps_json": json.dumps(policy["steps"], ensure_ascii=False),
+                        "source_ids_json": json.dumps(policy["source_ids"], ensure_ascii=False),
+                        "sort_order": index,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    for index, policy in enumerate(policies)
                 ],
             )
 
@@ -1061,6 +1192,158 @@ class Database:
             {"station_id": station_id, "user_id": user_id, "now": now},
         )
         return self.get_line_status(station_id)
+
+    def list_policy_sources(self) -> list[dict[str, Any]]:
+        return self.fetch_all("SELECT * FROM policy_sources ORDER BY id")
+
+    def create_policy_source(self, record: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        self.execute(
+            """INSERT INTO policy_sources
+            (id, document_family, revision, section, effective_date, expiry_date,
+             document_status, authority, title, scope, url, created_at, updated_at)
+            VALUES (:id, :document_family, :revision, :section, :effective_date, :expiry_date,
+                    :document_status, :authority, :title, :scope, :url, :created_at, :updated_at)""",
+            {
+                "id": record["id"],
+                "document_family": record["document_family"],
+                "revision": record["revision"],
+                "section": record["section"],
+                "effective_date": record.get("effective_date"),
+                "expiry_date": record.get("expiry_date"),
+                "document_status": record.get("document_status") or "DRAFT",
+                "authority": record.get("authority") or "REFERENCE",
+                "title": record["title"],
+                "scope": record.get("scope") or "",
+                "url": record.get("url") or "",
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        return self.fetch_one("SELECT * FROM policy_sources WHERE id = :id", {"id": record["id"]}) or {}
+
+    @staticmethod
+    def _decode_policy_row(row: dict[str, Any]) -> dict[str, Any]:
+        """Reconstruct the nested-dict policy shape agent/services/policy.py's PolicyCatalog
+        works with in memory (matches the old qc_policy_catalog.json array item shape
+        exactly) from the flat *_json TEXT columns policies is actually stored as."""
+        defect_codes = row.get("defect_codes_json")
+        action_code_by_defect = row.get("action_code_by_defect_json")
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "applicability": json.loads(row["applicability_json"]),
+            "conditions": json.loads(row["conditions_json"]),
+            "checklist_status": row["checklist_status"],
+            "defect_types": json.loads(row["defect_types_json"]),
+            "defect_codes": json.loads(defect_codes) if defect_codes is not None else None,
+            "action_code": row.get("action_code"),
+            "action_code_by_defect": (
+                json.loads(action_code_by_defect) if action_code_by_defect is not None else None
+            ),
+            "final_status": row["final_status"],
+            "test_drive_allowed": (
+                None if row.get("test_drive_allowed") is None else bool(row["test_drive_allowed"])
+            ),
+            "human_required": bool(row.get("human_required")),
+            "required_evidence": json.loads(row["required_evidence_json"]),
+            "steps": json.loads(row["steps_json"]),
+            "source_ids": json.loads(row["source_ids_json"]),
+        }
+
+    def list_policies(self) -> list[dict[str, Any]]:
+        """Ordered by sort_order -- PolicyCatalog.evaluate()'s first-match-wins scan depends
+        on this being the exact original authoring order (a bare SELECT has no inherent
+        order in PostgreSQL)."""
+        rows = self.fetch_all("SELECT * FROM policies ORDER BY sort_order")
+        return [self._decode_policy_row(row) for row in rows]
+
+    @staticmethod
+    def _encode_policy_fields(data: dict[str, Any]) -> dict[str, Any]:
+        """Encode the nested-dict policy fields PolicyCatalog passes in (same shape as the
+        old JSON array item) into the flat *_json TEXT columns policies stores -- only
+        includes keys actually present in `data`, so update_policy's partial-patch callers
+        never clobber a column the caller didn't mean to touch."""
+        encoded: dict[str, Any] = {}
+        if "title" in data:
+            encoded["title"] = data["title"]
+        if "applicability" in data:
+            encoded["applicability_json"] = json.dumps(data["applicability"], ensure_ascii=False)
+        if "conditions" in data:
+            encoded["conditions_json"] = json.dumps(data["conditions"], ensure_ascii=False)
+        if "checklist_status" in data:
+            encoded["checklist_status"] = data["checklist_status"]
+        if "defect_types" in data:
+            encoded["defect_types_json"] = json.dumps(data["defect_types"], ensure_ascii=False)
+        if "defect_codes" in data:
+            value = data["defect_codes"]
+            encoded["defect_codes_json"] = (
+                json.dumps(value, ensure_ascii=False) if value else None
+            )
+        if "action_code" in data:
+            encoded["action_code"] = data["action_code"]
+        if "action_code_by_defect" in data:
+            value = data["action_code_by_defect"]
+            encoded["action_code_by_defect_json"] = (
+                json.dumps(value, ensure_ascii=False) if value else None
+            )
+        if "final_status" in data:
+            encoded["final_status"] = data["final_status"]
+        if "test_drive_allowed" in data:
+            value = data["test_drive_allowed"]
+            encoded["test_drive_allowed"] = None if value is None else int(bool(value))
+        if "human_required" in data:
+            encoded["human_required"] = int(bool(data["human_required"]))
+        if "required_evidence" in data:
+            encoded["required_evidence_json"] = json.dumps(data["required_evidence"], ensure_ascii=False)
+        if "steps" in data:
+            encoded["steps_json"] = json.dumps(data["steps"], ensure_ascii=False)
+        if "source_ids" in data:
+            encoded["source_ids_json"] = json.dumps(data["source_ids"], ensure_ascii=False)
+        return encoded
+
+    def create_policy(self, data: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        fields = self._encode_policy_fields(data)
+        next_sort_order = self.fetch_one("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM policies")
+        columns = ["id", "sort_order", "created_at", "updated_at", *fields.keys()]
+        placeholders = ", ".join(f":{column}" for column in columns)
+        self.execute(
+            f"INSERT INTO policies ({', '.join(columns)}) VALUES ({placeholders})",
+            {
+                "id": data["id"],
+                "sort_order": (next_sort_order or {}).get("next", 0),
+                "created_at": now,
+                "updated_at": now,
+                **fields,
+            },
+        )
+        return self._decode_policy_row(
+            self.fetch_one("SELECT * FROM policies WHERE id = :id", {"id": data["id"]})
+        )
+
+    def update_policy(self, policy_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
+        existing = self.fetch_one("SELECT 1 FROM policies WHERE id = :id", {"id": policy_id})
+        if existing is None:
+            return None
+        fields = self._encode_policy_fields(changes)
+        if fields:
+            fields["updated_at"] = datetime.now(UTC).isoformat()
+            assignments = ", ".join(f"{key} = :{key}" for key in fields)
+            self.execute(
+                f"UPDATE policies SET {assignments} WHERE id = :id",
+                {**fields, "id": policy_id},
+            )
+        return self._decode_policy_row(
+            self.fetch_one("SELECT * FROM policies WHERE id = :id", {"id": policy_id})
+        )
+
+    def delete_policy(self, policy_id: str) -> bool:
+        existing = self.fetch_one("SELECT 1 FROM policies WHERE id = :id", {"id": policy_id})
+        if existing is None:
+            return False
+        self.execute("DELETE FROM policies WHERE id = :id", {"id": policy_id})
+        return True
 
     def close(self) -> None:
         self.engine.dispose()

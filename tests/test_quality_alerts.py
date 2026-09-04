@@ -61,13 +61,13 @@ def _state(
     }
 
 
-def test_tight_coordinate_cluster_confirms_specific_hypothesis() -> None:
+def test_tight_coordinate_cluster_confirms_specific_hypothesis(test_database) -> None:
     states = [
         _state(vehicle_id="V1", center_x=0.50, center_y=0.40),
         _state(vehicle_id="V2", center_x=0.51, center_y=0.41),
         _state(vehicle_id="V3", center_x=0.49, center_y=0.39),
     ]
-    service = RepetitionAlertService(_Repository(states), PolicyCatalog(), reasoning=None)
+    service = RepetitionAlertService(_Repository(states), PolicyCatalog(test_database), reasoning=None)
 
     summary = service.analyze()
 
@@ -82,13 +82,13 @@ def test_tight_coordinate_cluster_confirms_specific_hypothesis() -> None:
     assert "khuôn dập" in alert.predicted_root_cause
 
 
-def test_scattered_positions_in_same_zone_do_not_confirm_a_mechanism() -> None:
+def test_scattered_positions_in_same_zone_do_not_confirm_a_mechanism(test_database) -> None:
     states = [
         _state(vehicle_id="V1", center_x=0.10, center_y=0.15),
         _state(vehicle_id="V2", center_x=0.85, center_y=0.80),
         _state(vehicle_id="V3", center_x=0.45, center_y=0.55),
     ]
-    service = RepetitionAlertService(_Repository(states), PolicyCatalog(), reasoning=None)
+    service = RepetitionAlertService(_Repository(states), PolicyCatalog(test_database), reasoning=None)
 
     summary = service.analyze()
 
@@ -98,7 +98,7 @@ def test_scattered_positions_in_same_zone_do_not_confirm_a_mechanism() -> None:
     assert "chưa đủ bằng chứng" in alert.predicted_root_cause
 
 
-def test_tight_cluster_across_different_cameras_does_not_confirm_a_mechanism() -> None:
+def test_tight_cluster_across_different_cameras_does_not_confirm_a_mechanism(test_database) -> None:
     """Same coordinate on paper, but seen by different camera rigs -- weaker evidence than a
     single fixed camera repeatedly seeing the same physical spot, so it must NOT confirm."""
     states = [
@@ -106,7 +106,7 @@ def test_tight_cluster_across_different_cameras_does_not_confirm_a_mechanism() -
         _state(vehicle_id="V2", center_x=0.51, center_y=0.41, camera_id="CAM-02"),
         _state(vehicle_id="V3", center_x=0.49, center_y=0.39, camera_id="CAM-01"),
     ]
-    service = RepetitionAlertService(_Repository(states), PolicyCatalog(), reasoning=None)
+    service = RepetitionAlertService(_Repository(states), PolicyCatalog(test_database), reasoning=None)
 
     summary = service.analyze()
 
@@ -116,14 +116,14 @@ def test_tight_cluster_across_different_cameras_does_not_confirm_a_mechanism() -
     assert alert.root_cause_evidence_detail["single_camera"] is False
 
 
-def test_watch_tier_two_vehicle_coincidence_does_not_confirm_a_mechanism() -> None:
+def test_watch_tier_two_vehicle_coincidence_does_not_confirm_a_mechanism(test_database) -> None:
     """Tight cluster + single camera, but only 2 vehicles (WATCH tier) -- too small a sample
     to name specific hardware over."""
     states = [
         _state(vehicle_id="V1", center_x=0.50, center_y=0.40),
         _state(vehicle_id="V2", center_x=0.51, center_y=0.41),
     ]
-    service = RepetitionAlertService(_Repository(states), PolicyCatalog(), reasoning=None)
+    service = RepetitionAlertService(_Repository(states), PolicyCatalog(test_database), reasoning=None)
 
     summary = service.analyze()
 
