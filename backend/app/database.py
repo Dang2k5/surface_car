@@ -382,6 +382,33 @@ class Database:
                     ),
                     {"code": code},
                 )
+        self._backfill_default_defect_code_sources()
+
+    def _backfill_default_defect_code_sources(self) -> None:
+        """One-time, idempotent backfill of `source_id` for the standard catalog codes.
+
+        `database/supabase_schema.sql`'s seed INSERT never set `source_id` (only
+        defect_type/cv_label/classification_rule/etc.), so every DENT0x/SCRATCH0x row in a
+        database seeded from that script has `source_id IS NULL` -- the "Nguồn" column in the
+        Supervisor UI then shows "KHÔNG CÓ NGUỒN" for all of them even though these codes do
+        cite a real internal document (see agent/services/defect_catalog.py's
+        StaticDefectCatalog, which already carries this same source_id). Only fills rows that
+        still have `source_id IS NULL`; a supervisor-authored code, or one already citing a
+        source, is never touched.
+        """
+        default_codes = (
+            "DENT01", "DENT02", "DENT03", "DENT04", "DENT05",
+            "SCRATCH01", "SCRATCH02", "SCRATCH03", "SCRATCH04", "SCRATCH05",
+        )
+        with self.begin() as connection:
+            for code in default_codes:
+                connection.execute(
+                    text(
+                        """UPDATE defect_catalog SET source_id = 'FNS-SEVERITY-CRITERIA-INTERNAL'
+                        WHERE defect_code = :code AND source_id IS NULL"""
+                    ),
+                    {"code": code},
+                )
 
     def _seed_shifts(self) -> None:
         """Seed the 3 standard shifts so the inspection form's dropdown isn't empty on a fresh

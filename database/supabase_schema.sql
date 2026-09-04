@@ -64,18 +64,18 @@ alter table public.defect_catalog add column if not exists classification_rule t
 
 insert into public.defect_catalog
   (defect_code, defect_type, cv_label, defect_family, display_name, description,
-   classification_rule, default_severity, measurement_required, active, created_at, updated_at)
+   classification_rule, default_severity, measurement_required, active, source_id, created_at, updated_at)
 values
-  ('SCRATCH01','scratch','scratch','SURFACE_SCRATCH','Vết xước nhỏ','Vết xước đơn đến 50 mm','estimated_width_mm <= 50','C',1,1,now()::text,now()::text),
-  ('SCRATCH02','scratch','scratch','SURFACE_SCRATCH','Vết xước trung bình','Vết xước trên 50 đến 150 mm','50 < estimated_width_mm <= 150','C',1,1,now()::text,now()::text),
-  ('SCRATCH03','scratch','scratch','SURFACE_SCRATCH','Vết xước dài','Vết xước trên 150 mm','estimated_width_mm > 150','B',1,1,now()::text,now()::text),
-  ('SCRATCH04','scratch','scratch','SURFACE_SCRATCH_CLUSTER','Cụm nhiều vết xước','Nhiều vùng xước trên cùng inspection','at least 2 scratch detections','B',1,1,now()::text,now()::text),
-  ('SCRATCH05','scratch','scratch','SURFACE_SCRATCH_EDGE','Vết xước vùng mép','Vết xước gần mép vùng quan sát','left/right edge position','B',1,1,now()::text,now()::text),
-  ('DENT01','dent','dent','PANEL_DENT','Vết móp nhỏ','Vết móp đơn đến 50 mm','estimated_width_mm <= 50','C',1,1,now()::text,now()::text),
-  ('DENT02','dent','dent','PANEL_DENT','Vết móp trung bình','Vết móp trên 50 đến 150 mm','50 < estimated_width_mm <= 150','B',1,1,now()::text,now()::text),
-  ('DENT03','dent','dent','PANEL_DENT','Vết móp lớn','Vết móp trên 150 mm','estimated_width_mm > 150','A',1,1,now()::text,now()::text),
-  ('DENT04','dent','dent','PANEL_DENT_CREASE','Móp có nếp gấp','Móp kéo dài cần QC xác nhận nếp gấp','bbox aspect ratio >= 2 and QC confirmation','A',1,1,now()::text,now()::text),
-  ('DENT05','dent','dent','PANEL_DENT_CLUSTER','Cụm nhiều vết móp','Nhiều vùng móp trên cùng inspection','at least 2 dent detections','A',1,1,now()::text,now()::text)
+  ('SCRATCH01','scratch','scratch','SURFACE_SCRATCH','Vết xước nhỏ','Vết xước đơn đến 50 mm','estimated_width_mm <= 50','C',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('SCRATCH02','scratch','scratch','SURFACE_SCRATCH','Vết xước trung bình','Vết xước trên 50 đến 150 mm','50 < estimated_width_mm <= 150','C',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('SCRATCH03','scratch','scratch','SURFACE_SCRATCH','Vết xước dài','Vết xước trên 150 mm','estimated_width_mm > 150','B',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('SCRATCH04','scratch','scratch','SURFACE_SCRATCH_CLUSTER','Cụm nhiều vết xước','Nhiều vùng xước trên cùng inspection','at least 2 scratch detections','B',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('SCRATCH05','scratch','scratch','SURFACE_SCRATCH_EDGE','Vết xước vùng mép','Vết xước gần mép vùng quan sát','left/right edge position','B',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('DENT01','dent','dent','PANEL_DENT','Vết móp nhỏ','Vết móp đơn đến 50 mm','estimated_width_mm <= 50','C',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('DENT02','dent','dent','PANEL_DENT','Vết móp trung bình','Vết móp trên 50 đến 150 mm','50 < estimated_width_mm <= 150','B',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('DENT03','dent','dent','PANEL_DENT','Vết móp lớn','Vết móp trên 150 mm','estimated_width_mm > 150','A',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('DENT04','dent','dent','PANEL_DENT_CREASE','Móp có nếp gấp','Móp kéo dài cần QC xác nhận nếp gấp','bbox aspect ratio >= 2 and QC confirmation','A',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text),
+  ('DENT05','dent','dent','PANEL_DENT_CLUSTER','Cụm nhiều vết móp','Nhiều vùng móp trên cùng inspection','at least 2 dent detections','A',1,1,'FNS-SEVERITY-CRITERIA-INTERNAL',now()::text,now()::text)
 on conflict (defect_code) do update set
   defect_type = excluded.defect_type,
   cv_label = excluded.cv_label,
@@ -86,6 +86,7 @@ on conflict (defect_code) do update set
   default_severity = excluded.default_severity,
   measurement_required = excluded.measurement_required,
   active = 1,
+  source_id = coalesce(public.defect_catalog.source_id, excluded.source_id),
   updated_at = excluded.updated_at;
 
 -- Retain historical references while removing unsupported classes from active QC use.
