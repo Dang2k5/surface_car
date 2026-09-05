@@ -333,39 +333,49 @@ class DefectDeduplicator:
         }
 
     def _spatial_temporal_merge(self, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Merge detections using spatial and temporal proximity."""
+        """Merge detections using spatial and temporal proximity.
+
+        Uses transitive (union-find) clustering, not a star around the single
+        highest-confidence detection: a physical defect visible for longer than
+        temporal_threshold_sec (e.g. a camera panning across a scratch for several
+        seconds) is only ever directly within that window of its own *neighboring*
+        frames, not of every frame across the whole span. A star merge (each
+        detection compared only against the single confidence-max "anchor") would
+        then split it into multiple defects once two of its frames are more than
+        temporal_threshold_sec apart from the anchor -- even though every adjacent
+        pair along the way was well within range. Chaining A-B and B-C into one
+        group when only A-B and B-C (not A-C) pass _should_merge is the correct
+        behavior for tracking one continuously-observed defect.
+        """
         if not detections:
             return []
 
-        # Sort by confidence (descending) to keep best detection as representative
-        sorted_dets = sorted(detections, key=lambda d: d.get("confidence", 0), reverse=True)
-        merged = []
-        used_indices = set()
+        parent = list(range(len(detections)))
 
-        for i, det_i in enumerate(sorted_dets):
-            if i in used_indices:
-                continue
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
-            # Start a merge group with this detection
-            merge_group = [i]
-            used_indices.add(i)
+        def union(a: int, b: int) -> None:
+            root_a, root_b = find(a), find(b)
+            if root_a != root_b:
+                parent[root_a] = root_b
 
-            # Find similar detections
-            for j, det_j in enumerate(sorted_dets[i + 1 :], start=i + 1):
-                if j in used_indices:
-                    continue
+        for i in range(len(detections)):
+            for j in range(i + 1, len(detections)):
+                if self._should_merge(detections[i], detections[j]):
+                    union(i, j)
 
-                if self._should_merge(det_i, det_j):
-                    merge_group.append(j)
-                    used_indices.add(j)
+        groups: dict[int, list[int]] = {}
+        for index in range(len(detections)):
+            groups.setdefault(find(index), []).append(index)
 
-            # Create merged detection
-            merged_det = self._merge_detection_group(
-                [sorted_dets[idx] for idx in merge_group]
-            )
-            merged.append(merged_det)
-
-        return merged
+        return [
+            self._merge_detection_group([detections[index] for index in indices])
+            for indices in groups.values()
+        ]
 
     def _should_merge(self, det_a: dict[str, Any], det_b: dict[str, Any]) -> bool:
         """Check if two detections should be merged."""
