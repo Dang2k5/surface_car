@@ -11,6 +11,7 @@ Supports:
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import tempfile
 import uuid
@@ -227,16 +228,33 @@ class DefectDeduplicator:
     def __init__(
         self,
         spatial_threshold_px: int = 15,
+        spatial_threshold_ratio: float = 0.02,
+        iou_threshold: float = 0.25,
         temporal_threshold_sec: float = 1.5,
         confidence_weight: float = 0.7,
     ):
         """
         Args:
-            spatial_threshold_px: Max pixel distance to merge detections (default 15)
+            spatial_threshold_px: Max pixel distance to merge detections when a detection is
+                missing the normalized center ratio needed for spatial_threshold_ratio (legacy
+                fallback only -- see _centers_close).
+            spatial_threshold_ratio: Max center-to-center distance to merge detections,
+                normalized to frame size (fraction of frame width/height, default 0.02 = 2%).
+                Resolution-independent, unlike spatial_threshold_px: a 15px shift is a much
+                bigger fraction of a 480p frame than a 4K one, so blur/motion on a low-res
+                camera could fail a fixed-pixel check that a high-res camera would pass for the
+                same physical defect, and vice versa.
+            iou_threshold: Minimum bbox IOU (intersection over union) to merge two detections
+                even when their centers drift apart -- blur often makes YOLO draw a
+                differently-sized box for the same physical defect from one frame to the next,
+                which can shift the center past the distance threshold while the boxes still
+                overlap heavily. Either signal (close centers OR sufficient IOU) is enough.
             temporal_threshold_sec: Max time difference to merge detections (default 1.5s)
             confidence_weight: How much to weight confidence vs other factors
         """
         self.spatial_threshold_px = spatial_threshold_px
+        self.spatial_threshold_ratio = spatial_threshold_ratio
+        self.iou_threshold = iou_threshold
         self.temporal_threshold_sec = temporal_threshold_sec
         self.confidence_weight = confidence_weight
 
@@ -355,10 +373,34 @@ class DefectDeduplicator:
         if det_a.get("class_name") != det_b.get("class_name"):
             return False
 
-        # Check spatial distance
-        bbox_a = det_a.get("bbox", {})
-        bbox_b = det_b.get("bbox", {})
+        # Check temporal distance
+        time_a = det_a.get("_frame_timestamp", 0)
+        time_b = det_b.get("_frame_timestamp", 0)
+        if abs(time_a - time_b) > self.temporal_threshold_sec:
+            return False
 
+        # Either signal is enough: centers still close together, OR the boxes overlap
+        # heavily despite drifting apart (blur/motion commonly resizes the box for the same
+        # physical defect from one frame to the next without moving its center much, or vice
+        # versa -- requiring both would miss real matches that only satisfy one).
+        return self._centers_close(det_a, det_b) or (
+            self._iou(det_a.get("bbox"), det_b.get("bbox")) >= self.iou_threshold
+        )
+
+    def _centers_close(self, det_a: dict[str, Any], det_b: dict[str, Any]) -> bool:
+        """Resolution-independent center distance check via each detection's own
+        center_x_ratio/center_y_ratio (normalized 0-1, set by yolo_detector.py at detect time)
+        when available, falling back to a raw pixel distance for callers that don't provide it."""
+        measurements_a = det_a.get("visual_measurements") or {}
+        measurements_b = det_b.get("visual_measurements") or {}
+        ratio_a = (measurements_a.get("center_x_ratio"), measurements_a.get("center_y_ratio"))
+        ratio_b = (measurements_b.get("center_x_ratio"), measurements_b.get("center_y_ratio"))
+        if None not in ratio_a and None not in ratio_b:
+            distance = math.hypot(ratio_a[0] - ratio_b[0], ratio_a[1] - ratio_b[1])
+            return distance <= self.spatial_threshold_ratio
+
+        bbox_a = det_a.get("bbox", {}) or {}
+        bbox_b = det_b.get("bbox", {}) or {}
         center_a = (
             (bbox_a.get("x1", 0) + bbox_a.get("x2", 0)) / 2,
             (bbox_a.get("y1", 0) + bbox_a.get("y2", 0)) / 2,
@@ -367,23 +409,30 @@ class DefectDeduplicator:
             (bbox_b.get("x1", 0) + bbox_b.get("x2", 0)) / 2,
             (bbox_b.get("y1", 0) + bbox_b.get("y2", 0)) / 2,
         )
-
         distance = np.sqrt(
             (center_a[0] - center_b[0]) ** 2 + (center_a[1] - center_b[1]) ** 2
         )
+        return distance <= self.spatial_threshold_px
 
-        if distance > self.spatial_threshold_px:
-            return False
+    @staticmethod
+    def _iou(bbox_a: dict[str, Any] | None, bbox_b: dict[str, Any] | None) -> float:
+        """Intersection-over-union of two x1/y1/x2/y2 pixel bboxes, 0.0 if either is missing
+        or they don't overlap."""
+        if not bbox_a or not bbox_b:
+            return 0.0
+        ax1, ay1, ax2, ay2 = bbox_a.get("x1", 0), bbox_a.get("y1", 0), bbox_a.get("x2", 0), bbox_a.get("y2", 0)
+        bx1, by1, bx2, by2 = bbox_b.get("x1", 0), bbox_b.get("y1", 0), bbox_b.get("x2", 0), bbox_b.get("y2", 0)
 
-        # Check temporal distance
-        time_a = det_a.get("_frame_timestamp", 0)
-        time_b = det_b.get("_frame_timestamp", 0)
-        time_diff = abs(time_a - time_b)
+        inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+        inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+        inter_area = inter_w * inter_h
+        if inter_area <= 0:
+            return 0.0
 
-        if time_diff > self.temporal_threshold_sec:
-            return False
-
-        return True
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        union = area_a + area_b - inter_area
+        return inter_area / union if union > 0 else 0.0
 
     @staticmethod
     def _merge_detection_group(detections: list[dict[str, Any]]) -> dict[str, Any]:
