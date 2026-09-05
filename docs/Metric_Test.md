@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | **Dự án** | Visual QC Agent — Team 235 (AI20K Build Phase, Cohort 3) |
-| **Ngày báo cáo** | 2026-09-04 |
+| **Ngày báo cáo** | 2026-09-01 |
 | **Phạm vi** | System Health (AWS CloudWatch, backend đang chạy trên EC2 GPU) + AI Proxy (kết quả huấn luyện YOLO26s-seg) |
 | **Không nằm trong báo cáo này** | Product Health — xem lý do ở §1 |
 | **Nguồn dữ liệu** | CloudWatch Dashboard `VisualQC-LoadTest` (namespace `VisualQC` + `AWS/ApplicationELB`); training run `runs-batch4-640/yolo26s_seg_v7_640` (`results.csv`, `args.yaml`, `weights/best.pt`) |
@@ -55,16 +55,16 @@ cuối §2.3.
 
 ### 2.2 Latency (ALB `TargetResponseTime`, theo giờ)
 
-| Khung giờ | p50 | p90 | p99 |
-| --- | --- | --- | --- |
-| 01:49–02:49 | 0.240 s | 0.261 s | 0.831 s |
-| 02:49–03:49 | 0.246 s | 0.724 s | 1.491 s |
-| 03:49–04:49 | 0.254 s | 0.804 s | 1.585 s |
+Dashboard `VisualQC-LoadTest` đã đổi panel latency sang đo **p95/p99** (thay
+p90) để bám sát chỉ số đánh giá agent theo yêu cầu pitching.
 
-p50 ổn định quanh **~0.25s**. p99 dao động 0.83–1.58s — khớp với các request
-chạy inference GPU (nặng hơn nhiều so với `/health`). Chưa đủ mẫu để kết luận
-SLA chính thức; cần load test có kịch bản (đồng thời nhiều ảnh) để đo p99 dưới
-tải thực.
+| Khung giờ | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| 01:49–02:49 (28/08) | 0.240 s | 0.261 s | 0.831 s |
+| 02:49–03:49 (01/09) | 0.246 s | 0.724 s | 1.491 s |
+| 03:49–04:49 (01/09) | 0.254 s | 0.804 s | 1.585 s |
+| 11:00–12:00 (01/09) | 0.261 s | 1.683 s | 2.246 s |
+
 
 ### 2.3 Load test thực tế (concurrency thật — không phải baseline idle)
 
@@ -79,7 +79,7 @@ này có truy vấn Postgres qua Supabase — không phải static response).
 | --- | --- |
 | Target | `https://daqd3jsdpjdgd.cloudfront.net` (CloudFront → ALB → EC2, đường đi giống hệt production) |
 | Concurrency | 20 worker thread song song, liên tục trong 90 giây |
-| Thời điểm | 2026-09-03 21:59:00 – 22:00:31 UTC |
+| Thời điểm | 2026-09-01 21:59:00 – 22:00:31 UTC |
 
 **Kết quả đo từ phía client (round-trip đầy đủ qua CloudFront + ALB):**
 
