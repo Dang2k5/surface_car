@@ -461,7 +461,7 @@ function HitlQueue() {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3">
-                <Field label="Camera" value={state.camera_id} tone="info" />
+                <Field label="Camera" value={featuredCameraId ?? state.camera_id} tone="info" />
                 <Field label="Model xe" value={state.vehicle_model} />
                 <Field label="Loại lỗi" value={state.defect_type || "—"} />
                 <Field
