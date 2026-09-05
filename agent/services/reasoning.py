@@ -64,7 +64,15 @@ class DefectCodeClassification(BaseModel):
 class ReasoningService(Protocol):
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis: ...
 
-    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str: ...
+    def explain_reason(
+        self,
+        state: QCState,
+        *,
+        route: str,
+        decision: str,
+        reason: str,
+        findings: list[dict[str, object]] | None = None,
+    ) -> str: ...
 
     def classify_defect_code(
         self, state: QCState, candidates: list[dict[str, object]]
@@ -195,7 +203,15 @@ class DeterministicReasoningService:
             model="policy-extract-heuristic-v1",
         )
 
-    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str:
+    def explain_reason(
+        self,
+        state: QCState,
+        *,
+        route: str,
+        decision: str,
+        reason: str,
+        findings: list[dict[str, object]] | None = None,
+    ) -> str:
         """No-op passthrough -- used directly in tests and as the QC_REASONING_PROVIDER!=groq
         provider, so `reason` (already a fully deterministic, fact-grounded string built in
         agent/graph/nodes.py's assess_result) simply stands as-is with no LLM rewrite."""
@@ -322,7 +338,15 @@ class UnavailableReasoningService:
     def analyze(self, state: QCState, policy: PolicyDecision) -> ReasoningAnalysis:
         raise ReasoningUnavailableError(self.reason)
 
-    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str:
+    def explain_reason(
+        self,
+        state: QCState,
+        *,
+        route: str,
+        decision: str,
+        reason: str,
+        findings: list[dict[str, object]] | None = None,
+    ) -> str:
         raise ReasoningUnavailableError(self.reason)
 
 
@@ -416,26 +440,48 @@ class GroqReasoningService:
             logger.warning("Groq code classification failed; HITL is required: %s", exc)
             raise ReasoningUnavailableError(type(exc).__name__) from exc
 
-    def explain_reason(self, state: QCState, *, route: str, decision: str, reason: str) -> str:
-        """Rewrites an already-final, deterministic HITL/PASS/FAIL `reason` string into a
-        clearer Vietnamese narrative for the QC operator -- the LLM never sees the raw
-        route-selection logic and cannot alter route/decision (both are passed in already
-        final and are not part of the returned value), it only paraphrases the given facts."""
+    def explain_reason(
+        self,
+        state: QCState,
+        *,
+        route: str,
+        decision: str,
+        reason: str,
+        findings: list[dict[str, object]] | None = None,
+    ) -> str:
+        """Describes every camera finding in real detail (location on the vehicle, size,
+        severity, confidence vs. threshold, matched policy) so a QC operator can understand
+        the defect's condition without opening each camera photo -- this is a genuine
+        reasoning pass over `findings` (built from already-computed detector/policy output in
+        agent/graph/nodes.py's assess_result), not a cosmetic rewording of `reason`. The LLM
+        still cannot alter route/decision (both are passed in already final and are not part
+        of the returned value) or introduce a fact absent from `findings`/`reason` -- every
+        camera_id in `findings` is verified present in the result below, or this raises and
+        the caller falls back to the deterministic `reason` untouched."""
+        findings = findings or []
         prompt = {
             "task": (
-                "Rewrite the following already-finalized QC routing explanation into clear, "
-                "flowing Vietnamese prose for a QC operator, so they immediately understand "
-                "why this inspection needs review. Return JSON: {\"narrative_vi\": \"...\"}."
+                "Based ONLY on `findings` and `deterministic_facts` below, write a detailed "
+                "Vietnamese explanation for a QC operator. For EACH item in `findings`, "
+                "describe: which camera/side of the vehicle it is on (camera_id, "
+                "vehicle_side, relative_position), the defect type and code, its estimated "
+                "size (estimated_length_mm/width_mm/height_mm) and severity, its detection "
+                "confidence versus the required threshold, and which policy matched (or why "
+                "none did) — detailed enough that the operator understands where the defect "
+                "is and how bad it is without opening the camera photo. Then add one closing "
+                "paragraph explaining why the overall route/decision above was reached. "
+                "Return JSON: {\"narrative_vi\": \"...\"}."
             ),
             "route": route,
             "decision": decision,
             "deterministic_facts": reason,
+            "findings": findings,
             "constraints": [
                 "Never change or contradict route/decision -- they are already final and outside your control.",
-                "Never invent a camera id, defect code, confidence value, or policy name/id not present in deterministic_facts.",
-                "Preserve every camera id and policy name/id mentioned in deterministic_facts.",
-                "Do not add a recommendation or disposition of your own -- only explain the given facts.",
-                "Write only in Vietnamese, in flowing prose, not a bare fact list.",
+                "Never invent a camera id, defect code, measurement, confidence value, or policy name/id that is not present in findings or deterministic_facts.",
+                "Mention every camera_id present in findings at least once, by its exact id (e.g. CAM-03).",
+                "Do not add a recommendation or disposition of your own -- only describe and explain the given facts.",
+                "Write only in Vietnamese: one short paragraph per finding, plus the closing paragraph.",
             ],
         }
         try:
@@ -447,8 +493,9 @@ class GroqReasoningService:
                         "role": "system",
                         "content": (
                             "You explain an already-finalized QC routing decision to a human "
-                            "operator. You never decide or change anything yourself, only "
-                            "explain the given facts clearly in Vietnamese. Return JSON only."
+                            "operator by describing the underlying defect findings in detail. "
+                            "You never decide or change anything yourself, and never state a "
+                            "fact that is not present in the input. Return JSON only."
                         ),
                     },
                     {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
@@ -459,6 +506,13 @@ class GroqReasoningService:
             narrative = str(payload.get("narrative_vi") or "").strip()
             if not narrative:
                 raise ValueError("Groq returned an empty narrative")
+            missing_cameras = [
+                str(item["camera_id"])
+                for item in findings
+                if item.get("camera_id") and str(item["camera_id"]) not in narrative
+            ]
+            if missing_cameras:
+                raise ValueError(f"Groq narrative dropped camera(s): {', '.join(missing_cameras)}")
             self._mark_success()
             return narrative
         except Exception as exc:

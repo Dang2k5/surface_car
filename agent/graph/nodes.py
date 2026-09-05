@@ -58,6 +58,46 @@ def _finding_detail_line(
     )
 
 
+def _finding_payload(
+    item: dict[str, Any], decision: PolicyDecision, confirmed_threshold: float
+) -> dict[str, Any]:
+    """Structured, fully-grounded facts for ONE camera finding -- fed to the LLM (via
+    ReasoningService.explain_reason) so it can describe the defect in real detail (where on
+    the vehicle, how big, how severe) instead of only paraphrasing a one-line summary. Every
+    field here is already computed by the rule engine/policy catalog; the LLM is only ever
+    allowed to describe these facts, never invent new ones."""
+    measurements = item.get("visual_measurements") or {}
+    confidence = float(item.get("confidence") or 0.0)
+    return {
+        "camera_id": item.get("camera_id"),
+        "vehicle_side": _zone_name_for_camera(item.get("camera_id"), "không xác định"),
+        "defect_type": item.get("defect_type"),
+        "classified_defect_code": item.get("classified_defect_code"),
+        "defect_family": item.get("defect_family"),
+        "confidence_percent": round(confidence * 100, 1),
+        "confirmed_threshold_percent": round(confirmed_threshold * 100, 1),
+        "meets_confidence_threshold": confidence >= confirmed_threshold,
+        "severity": item.get("severity"),
+        "estimated_length_mm": measurements.get("estimated_length_mm"),
+        "estimated_width_mm": measurements.get("estimated_width_mm"),
+        "estimated_height_mm": measurements.get("estimated_height_mm"),
+        "relative_position": measurements.get("relative_position"),
+        "bbox": item.get("bbox"),
+        "similar_defect_warning": item.get("similar_defect_warning", False),
+        "matched_policy": (
+            {
+                "policy_id": decision.policy_id,
+                "policy_title": decision.policy_title,
+                "final_status": decision.final_status,
+                "human_required": decision.human_required,
+                "action_label": decision.action_label,
+            }
+            if item.get("catalog_defect_type") is not None
+            else None
+        ),
+    }
+
+
 _SEVERITY_LETTER_RANK = {"A": 3, "B": 2, "C": 1}
 
 
@@ -536,13 +576,19 @@ class QCNodes:
         reason_explained = False
         if route == "HITL":
             # The route/decision and the underlying fact string above are already 100% final
-            # (deterministic policy evaluation) -- this call can only rewrite `reason` into
-            # clearer prose for the operator, it cannot change what was decided or why
-            # (agent/services/reasoning.py's explain_reason receives no ability to alter
-            # route/decision, only to paraphrase the already-final `reason` text).
+            # (deterministic policy evaluation) -- this call can only expand `reason` into a
+            # detailed, per-finding Vietnamese description (location/size/severity/matched
+            # policy) grounded in `findings_payload` below, it cannot change what was decided
+            # or invent a fact not already present in that payload
+            # (agent/services/reasoning.py's explain_reason validates every camera_id it was
+            # given is still mentioned in the result, and raises otherwise).
+            findings_payload = [
+                _finding_payload(item, decision_item, confirmed_threshold)
+                for item, decision_item in evaluated
+            ]
             try:
                 reason = self.reasoning.explain_reason(
-                    state, route=route, decision=decision, reason=reason
+                    state, route=route, decision=decision, reason=reason, findings=findings_payload
                 )
                 reason_explained = True
             except ReasoningUnavailableError as error:
