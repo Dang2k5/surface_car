@@ -33,6 +33,10 @@ class ReasoningAnalysis(ReasoningPayload):
     fallback_reason: str | None = None
 
 
+class ReasonExplanation(BaseModel):
+    narrative_vi: str
+
+
 class ReasoningUnavailableError(RuntimeError):
     """Raised when the configured LLM Agent cannot produce a validated decision."""
 
@@ -482,12 +486,20 @@ class GroqReasoningService:
                 "Mention every camera_id present in findings at least once, by its exact id (e.g. CAM-03).",
                 "Do not add a recommendation or disposition of your own -- only describe and explain the given facts.",
                 "Write only in Vietnamese: one short paragraph per finding, plus the closing paragraph.",
+                "Keep each finding's paragraph concise (2-3 sentences) so the full response fits within the output length budget even with many findings.",
             ],
         }
         try:
             completion = self.client.chat.completions.create(
                 model=self.model,
                 temperature=0,
+                # A loose {"type": "json_object"} mode previously failed outright
+                # ("Failed to validate JSON") once findings grew past ~8-10 items -- the
+                # per-finding narrative overran the model's default output budget and got
+                # cut off mid-string, leaving unparsable JSON. The strict json_schema mode
+                # (same approach as analyze()/extract_policy_draft() below) plus an explicit,
+                # generous max_tokens fixes both the truncation and the loose-JSON failures.
+                max_tokens=4096,
                 messages=[
                     {
                         "role": "system",
@@ -495,15 +507,23 @@ class GroqReasoningService:
                             "You explain an already-finalized QC routing decision to a human "
                             "operator by describing the underlying defect findings in detail. "
                             "You never decide or change anything yourself, and never state a "
-                            "fact that is not present in the input. Return JSON only."
+                            "fact that is not present in the input. Return only the requested "
+                            "JSON schema."
                         ),
                     },
                     {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
                 ],
-                response_format={"type": "json_object"},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "reason_explanation",
+                        "strict": False,
+                        "schema": ReasonExplanation.model_json_schema(),
+                    },
+                },
             )
-            payload = json.loads(completion.choices[0].message.content or "{}")
-            narrative = str(payload.get("narrative_vi") or "").strip()
+            content = completion.choices[0].message.content or "{}"
+            narrative = ReasonExplanation.model_validate_json(content).narrative_vi.strip()
             if not narrative:
                 raise ValueError("Groq returned an empty narrative")
             missing_cameras = [

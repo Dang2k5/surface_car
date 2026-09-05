@@ -496,6 +496,22 @@ class QCNodes:
                     "hoặc chưa khớp danh mục lỗi; cần QC xét duyệt để tránh bỏ sót lỗi thật:\n"
                     f"{ambiguous_details}"
                 )
+                # A finding can ALSO already be confident (≥ threshold) and still never be
+                # able to drive an automatic FAIL, because its own matched policy sets
+                # human_required=True by design (e.g. "cần QC xác nhận trực tiếp" policies) --
+                # independent of confidence. Without this, the reason silently implied
+                # confidence was the ONLY thing blocking these findings, hiding the real,
+                # separate reason (policy-mandated human sign-off) for anyone reading it.
+                if needs_human:
+                    needs_human_details = "\n".join(
+                        _finding_detail_line(item, decision_item, confirmed_threshold)
+                        for item, decision_item in needs_human
+                    )
+                    reason += (
+                        f"\nNgoài ra {len(needs_human)} phát hiện đã đủ độ tin cậy "
+                        f"(≥{confirmed_threshold:.0%}) nhưng chính sách áp dụng tự yêu cầu QC "
+                        f"xác nhận trực tiếp, không thể tự động FAIL:\n{needs_human_details}"
+                    )
             elif needs_human:
                 route = "HITL"
                 decision = "MANUAL_REINSPECTION_REQUIRED"
