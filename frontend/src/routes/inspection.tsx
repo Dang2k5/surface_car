@@ -737,7 +737,11 @@ function InspectionPage() {
               <Field label="Số lỗi phát hiện" value={defects.length} tone="danger" />
               <Field
                 label="Mức độ"
-                value={state.severity ? SEVERITY_LABEL_VI[mapSeverity(state.severity)] : "—"}
+                value={
+                  state.severity && state.severity !== "UNASSESSED"
+                    ? SEVERITY_LABEL_VI[mapSeverity(state.severity)]
+                    : "—"
+                }
                 tone="warning"
               />
             </div>
