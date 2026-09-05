@@ -453,27 +453,28 @@ class GroqReasoningService:
         reason: str,
         findings: list[dict[str, object]] | None = None,
     ) -> str:
-        """Describes every camera finding in real detail (location on the vehicle, size,
-        severity, confidence vs. threshold, matched policy) so a QC operator can understand
-        the defect's condition without opening each camera photo -- this is a genuine
-        reasoning pass over `findings` (built from already-computed detector/policy output in
-        agent/graph/nodes.py's assess_result), not a cosmetic rewording of `reason`. The LLM
-        still cannot alter route/decision (both are passed in already final and are not part
-        of the returned value) or introduce a fact absent from `findings`/`reason` -- every
-        camera_id in `findings` is verified present in the result below, or this raises and
-        the caller falls back to the deterministic `reason` untouched."""
+        """Explains, concisely, why route/decision was reached -- grounded in `findings`,
+        which is already a list of GROUPED findings (agent/graph/nodes.py's _group_findings:
+        one entry per distinct defect_code+matched_policy combination, with every camera id
+        that showed it and its confidence range folded in, not one entry per raw detection).
+        This keeps the output short even when a submission has 15-20+ near-duplicate
+        detections of the same clustered defect, while still carrying every camera id and the
+        real confidence spread as evidence. The LLM cannot alter route/decision (both are
+        passed in already final and are not part of the returned value) or introduce a fact
+        absent from `findings`/`reason` -- every camera_id in `findings` is verified present
+        in the result below, or this raises and the caller falls back to the deterministic
+        `reason` untouched."""
         findings = findings or []
         prompt = {
             "task": (
-                "Based ONLY on `findings` and `deterministic_facts` below, write a detailed "
-                "Vietnamese explanation for a QC operator. For EACH item in `findings`, "
-                "describe: which camera/side of the vehicle it is on (camera_id, "
-                "vehicle_side, relative_position), the defect type and code, its estimated "
-                "size (estimated_length_mm/width_mm/height_mm) and severity, its detection "
-                "confidence versus the required threshold, and which policy matched (or why "
-                "none did) — detailed enough that the operator understands where the defect "
-                "is and how bad it is without opening the camera photo. Then add one closing "
-                "paragraph explaining why the overall route/decision above was reached. "
+                "Based ONLY on `findings` and `deterministic_facts` below, write a SHORT, "
+                "concise Vietnamese explanation for a QC operator of why this inspection was "
+                "routed as it was. `findings` is already grouped -- one entry per distinct "
+                "defect code, not per individual detection -- so write at most one short "
+                "sentence per group: which camera(s)/side(s) it was seen on, its confidence "
+                "range versus the required threshold, and which policy matched (or why none "
+                "did). Do not repeat the same group's facts more than once. Finish with one "
+                "short closing sentence on why the overall route/decision was reached. "
                 "Return JSON: {\"narrative_vi\": \"...\"}."
             ),
             "route": route,
@@ -482,11 +483,11 @@ class GroqReasoningService:
             "findings": findings,
             "constraints": [
                 "Never change or contradict route/decision -- they are already final and outside your control.",
-                "Never invent a camera id, defect code, measurement, confidence value, or policy name/id that is not present in findings or deterministic_facts.",
+                "Never invent a camera id, defect code, confidence value, or policy name/id that is not present in findings or deterministic_facts.",
                 "Mention every camera_id present in findings at least once, by its exact id (e.g. CAM-03).",
                 "Do not add a recommendation or disposition of your own -- only describe and explain the given facts.",
-                "Write only in Vietnamese: one short paragraph per finding, plus the closing paragraph.",
-                "Keep each finding's paragraph concise (2-3 sentences) so the full response fits within the output length budget even with many findings.",
+                "Be concise: one sentence per group plus one closing sentence, not a paragraph per group. Never repeat a group.",
+                "Write only in Vietnamese.",
             ],
         }
         try:
@@ -527,9 +528,10 @@ class GroqReasoningService:
             if not narrative:
                 raise ValueError("Groq returned an empty narrative")
             missing_cameras = [
-                str(item["camera_id"])
+                str(camera_id)
                 for item in findings
-                if item.get("camera_id") and str(item["camera_id"]) not in narrative
+                for camera_id in (item.get("camera_ids") or [])
+                if str(camera_id) not in narrative
             ]
             if missing_cameras:
                 raise ValueError(f"Groq narrative dropped camera(s): {', '.join(missing_cameras)}")

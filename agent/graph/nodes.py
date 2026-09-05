@@ -37,62 +37,91 @@ def _detection_priority_key(item: dict[str, Any]) -> tuple[int, float, float]:
     )
 
 
-def _finding_detail_line(
-    item: dict[str, Any], decision: PolicyDecision, confirmed_threshold: float
-) -> str:
-    """One human-readable line per camera finding, naming the exact policy evaluate()
-    matched (or why none could) -- used to expand the terse aggregate `reason` string
-    (assess_result, below) into something a QC operator can actually act on instead of
-    a bare camera-id list."""
-    conf_pct = f"{float(item.get('confidence') or 0.0):.0%}"
-    code = item.get("classified_defect_code") or item.get("defect_type") or "chưa xác định"
-    if item.get("catalog_defect_type") is None:
-        policy_note = "chưa khớp được mã lỗi nào trong danh mục — không có chính sách nào áp dụng được"
-    else:
-        policy_note = f"chính sách khớp: '{decision.policy_title}' ({decision.policy_id}) → {decision.final_status}"
-        if decision.human_required:
-            policy_note += ", chính sách này tự yêu cầu QC xét duyệt thủ công"
+def _group_findings(
+    pairs: list[tuple[dict[str, Any], PolicyDecision]],
+) -> list[dict[str, Any]]:
+    """Collapses repeat findings -- same classified code hitting the same matched policy,
+    just seen by several cameras/detections (a clustered scratch spanning CAM-03..CAM-05 can
+    show up as a dozen+ near-identical entries) -- into ONE summary group. Listing each one
+    individually just repeats the same code/policy/verdict a dozen times and buries the one
+    number that actually varies (confidence) under noise; grouping keeps `reason` and the LLM
+    prompt built from it short while still carrying every camera id and the real confidence
+    spread as evidence. Order-preserving: first-seen order, matching evaluation order."""
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    order: list[tuple[Any, ...]] = []
+    for item, decision in pairs:
+        code = item.get("classified_defect_code") or item.get("defect_type") or "chưa xác định"
+        classified = item.get("catalog_defect_type") is not None
+        key = (
+            code,
+            decision.policy_id if classified else None,
+            decision.final_status if classified else None,
+            decision.human_required if classified else None,
+        )
+        if key not in groups:
+            groups[key] = {
+                "code": code,
+                "classified": classified,
+                "policy_title": decision.policy_title if classified else None,
+                "policy_id": decision.policy_id if classified else None,
+                "final_status": decision.final_status if classified else None,
+                "human_required": decision.human_required if classified else None,
+                "camera_ids": [],
+                "confidences": [],
+            }
+            order.append(key)
+        group = groups[key]
+        group["camera_ids"].append(str(item.get("camera_id") or "?"))
+        group["confidences"].append(float(item.get("confidence") or 0.0))
+    return [groups[key] for key in order]
+
+
+def _grouped_finding_line(group: dict[str, Any], confirmed_threshold: float) -> str:
+    """One concise line per group -- still names the exact matched policy (or why none
+    matched) and every camera involved, but as a single sentence instead of one line per
+    individual detection."""
+    cameras = ", ".join(sorted(set(group["camera_ids"])))
+    confidences = group["confidences"]
+    conf_min, conf_max = min(confidences), max(confidences)
+    conf_range = f"{conf_min:.0%}" if conf_min == conf_max else f"{conf_min:.0%}-{conf_max:.0%}"
+    count_prefix = f"{len(confidences)} phát hiện " if len(confidences) > 1 else "1 phát hiện "
+    if not group["classified"]:
+        return (
+            f"{count_prefix}{group['code']} tại {cameras} (tin cậy {conf_range}, "
+            f"ngưỡng {confirmed_threshold:.0%}) — chưa khớp danh mục lỗi nào, không có chính sách áp dụng"
+        )
+    note = ", chính sách tự yêu cầu QC xét duyệt thủ công" if group["human_required"] else ""
     return (
-        f"{item.get('camera_id', '?')}: {code}, độ tin cậy {conf_pct} "
-        f"(ngưỡng {confirmed_threshold:.0%}) — {policy_note}"
+        f"{count_prefix}{group['code']} tại {cameras} (tin cậy {conf_range}, "
+        f"ngưỡng {confirmed_threshold:.0%}) — chính sách '{group['policy_title']}' "
+        f"({group['policy_id']}) → {group['final_status']}{note}"
     )
 
 
-def _finding_payload(
-    item: dict[str, Any], decision: PolicyDecision, confirmed_threshold: float
-) -> dict[str, Any]:
-    """Structured, fully-grounded facts for ONE camera finding -- fed to the LLM (via
-    ReasoningService.explain_reason) so it can describe the defect in real detail (where on
-    the vehicle, how big, how severe) instead of only paraphrasing a one-line summary. Every
-    field here is already computed by the rule engine/policy catalog; the LLM is only ever
-    allowed to describe these facts, never invent new ones."""
-    measurements = item.get("visual_measurements") or {}
-    confidence = float(item.get("confidence") or 0.0)
+def _group_payload(group: dict[str, Any], confirmed_threshold: float) -> dict[str, Any]:
+    """Structured, fully-grounded facts for ONE finding GROUP (see _group_findings) -- fed to
+    the LLM (via ReasoningService.explain_reason) so it can describe each distinct defect
+    concisely (which cameras, confidence range, matched policy) instead of one paragraph per
+    individual detection. Every field here is already computed by the rule engine/policy
+    catalog; the LLM is only ever allowed to describe these facts, never invent new ones."""
+    camera_ids = sorted(set(group["camera_ids"]))
+    confidences = group["confidences"]
     return {
-        "camera_id": item.get("camera_id"),
-        "vehicle_side": _zone_name_for_camera(item.get("camera_id"), "không xác định"),
-        "defect_type": item.get("defect_type"),
-        "classified_defect_code": item.get("classified_defect_code"),
-        "defect_family": item.get("defect_family"),
-        "confidence_percent": round(confidence * 100, 1),
+        "camera_ids": camera_ids,
+        "vehicle_sides": sorted({_zone_name_for_camera(c, "không xác định") for c in camera_ids}),
+        "defect_code": group["code"],
+        "occurrence_count": len(confidences),
+        "confidence_min_percent": round(min(confidences) * 100, 1),
+        "confidence_max_percent": round(max(confidences) * 100, 1),
         "confirmed_threshold_percent": round(confirmed_threshold * 100, 1),
-        "meets_confidence_threshold": confidence >= confirmed_threshold,
-        "severity": item.get("severity"),
-        "estimated_length_mm": measurements.get("estimated_length_mm"),
-        "estimated_width_mm": measurements.get("estimated_width_mm"),
-        "estimated_height_mm": measurements.get("estimated_height_mm"),
-        "relative_position": measurements.get("relative_position"),
-        "bbox": item.get("bbox"),
-        "similar_defect_warning": item.get("similar_defect_warning", False),
         "matched_policy": (
             {
-                "policy_id": decision.policy_id,
-                "policy_title": decision.policy_title,
-                "final_status": decision.final_status,
-                "human_required": decision.human_required,
-                "action_label": decision.action_label,
+                "policy_id": group["policy_id"],
+                "policy_title": group["policy_title"],
+                "final_status": group["final_status"],
+                "human_required": group["human_required"],
             }
-            if item.get("catalog_defect_type") is not None
+            if group["classified"]
             else None
         ),
     }
@@ -467,8 +496,8 @@ class QCNodes:
                 route = "CONFIRMED"
                 decision = "DEFECT_CONFIRMED"
                 fail_details = "\n".join(
-                    _finding_detail_line(item, decision_item, confirmed_threshold)
-                    for item, decision_item in decisive_fail
+                    _grouped_finding_line(group, confirmed_threshold)
+                    for group in _group_findings(decisive_fail)
                 )
                 reason = (
                     f"{len(decisive_fail)} lỗi được phân loại tin cậy cao "
@@ -477,8 +506,8 @@ class QCNodes:
                 )
                 if ambiguous_pairs:
                     ambiguous_details = "\n".join(
-                        _finding_detail_line(item, decision_item, confirmed_threshold)
-                        for item, decision_item in ambiguous_pairs
+                        _grouped_finding_line(group, confirmed_threshold)
+                        for group in _group_findings(ambiguous_pairs)
                     )
                     reason += (
                         f"\nCòn {len(ambiguous_pairs)} phát hiện chưa đủ tin cậy hoặc chưa khớp "
@@ -488,8 +517,8 @@ class QCNodes:
                 route = "HITL"
                 decision = "LOW_CONFIDENCE_OR_UNCLASSIFIED_REVIEW_REQUIRED"
                 ambiguous_details = "\n".join(
-                    _finding_detail_line(item, decision_item, confirmed_threshold)
-                    for item, decision_item in ambiguous_pairs
+                    _grouped_finding_line(group, confirmed_threshold)
+                    for group in _group_findings(ambiguous_pairs)
                 )
                 reason = (
                     f"{len(ambiguous_pairs)} phát hiện chưa đủ độ tin cậy (<{confirmed_threshold:.0%}) "
@@ -504,8 +533,8 @@ class QCNodes:
                 # separate reason (policy-mandated human sign-off) for anyone reading it.
                 if needs_human:
                     needs_human_details = "\n".join(
-                        _finding_detail_line(item, decision_item, confirmed_threshold)
-                        for item, decision_item in needs_human
+                        _grouped_finding_line(group, confirmed_threshold)
+                        for group in _group_findings(needs_human)
                     )
                     reason += (
                         f"\nNgoài ra {len(needs_human)} phát hiện đã đủ độ tin cậy "
@@ -516,8 +545,8 @@ class QCNodes:
                 route = "HITL"
                 decision = "MANUAL_REINSPECTION_REQUIRED"
                 needs_human_details = "\n".join(
-                    _finding_detail_line(item, decision_item, confirmed_threshold)
-                    for item, decision_item in needs_human
+                    _grouped_finding_line(group, confirmed_threshold)
+                    for group in _group_findings(needs_human)
                 )
                 reason = (
                     "Không tìm được chính sách đã duyệt phù hợp; cần QC xét duyệt thủ công:\n"
@@ -593,14 +622,15 @@ class QCNodes:
         if route == "HITL":
             # The route/decision and the underlying fact string above are already 100% final
             # (deterministic policy evaluation) -- this call can only expand `reason` into a
-            # detailed, per-finding Vietnamese description (location/size/severity/matched
-            # policy) grounded in `findings_payload` below, it cannot change what was decided
-            # or invent a fact not already present in that payload
+            # concise, per-GROUP Vietnamese description (cameras/confidence range/matched
+            # policy, see _group_findings) grounded in `findings_payload` below, it cannot
+            # change what was decided or invent a fact not already present in that payload
             # (agent/services/reasoning.py's explain_reason validates every camera_id it was
-            # given is still mentioned in the result, and raises otherwise).
+            # given is still mentioned in the result, and raises otherwise). Grouping (instead
+            # of one entry per raw detection) keeps the prompt/response short even when a
+            # submission has 15-20+ near-duplicate detections of the same clustered defect.
             findings_payload = [
-                _finding_payload(item, decision_item, confirmed_threshold)
-                for item, decision_item in evaluated
+                _group_payload(group, confirmed_threshold) for group in _group_findings(evaluated)
             ]
             try:
                 reason = self.reasoning.explain_reason(
